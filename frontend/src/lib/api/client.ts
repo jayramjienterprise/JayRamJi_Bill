@@ -1,4 +1,4 @@
-import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse } from './types';
+import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse } from './types';
 
 // Fallback to local express server endpoint
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -216,6 +216,45 @@ class ApiClient {
   public async deactivateAsset(assetId: string): Promise<Asset> {
     const data = await this.patch<{ asset: Asset }>(`/assets/${assetId}/deactivate`, {});
     return data.asset;
+  }
+
+  // Invoices Module API calls
+  public async listInvoices(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    customerId?: string;
+  }): Promise<InvoiceListResponse> {
+    const query = new URLSearchParams();
+    if (params.page) query.append('page', params.page.toString());
+    if (params.limit) query.append('limit', params.limit.toString());
+    if (params.status) query.append('status', params.status);
+    if (params.customerId) query.append('customerId', params.customerId);
+
+    return this.get<InvoiceListResponse>(`/invoices?${query.toString()}`);
+  }
+
+  public async getInvoice(invoiceId: string): Promise<Invoice> {
+    const data = await this.get<{ invoice: Invoice }>(`/invoices/${invoiceId}`);
+    return data.invoice;
+  }
+
+  public async createInvoiceDraft(invoiceData: any): Promise<Invoice> {
+    const data = await this.post<{ invoice: Invoice }>('/invoices', invoiceData);
+    return data.invoice;
+  }
+
+  public async updateInvoiceDraft(invoiceId: string, invoiceData: any): Promise<Invoice> {
+    const data = await this.patch<{ invoice: Invoice }>(`/invoices/${invoiceId}`, invoiceData);
+    return data.invoice;
+  }
+
+  public async deleteInvoiceDraft(invoiceId: string): Promise<void> {
+    await this.delete<void>(`/invoices/${invoiceId}`);
+  }
+
+  public async calculatePreview(invoiceData: any): Promise<{ totals: any, items: any[], amountInWords: string }> {
+    return this.post<{ totals: any, items: any[], amountInWords: string }>('/invoices/calculate', invoiceData);
   }
 }
 

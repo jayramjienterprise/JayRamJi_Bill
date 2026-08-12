@@ -131,6 +131,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span>▣ Dashboard</span>
               </Link>
               <Link
+                href="/dashboard/invoices"
+                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
+              >
+                <span>📄 Invoices</span>
+              </Link>
+              <Link
                 href="/dashboard/customers"
                 className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
               >
