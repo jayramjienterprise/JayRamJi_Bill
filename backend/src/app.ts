@@ -1,8 +1,11 @@
 import express, { Express, Router } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
+import authRouter from './modules/auth/auth.routes';
+import businessRouter from './modules/business/business.routes';
 
 const app: Express = express();
 
@@ -39,6 +42,7 @@ app.use((_req, res, next) => {
 });
 
 // Body parsers with payload restrictions (max 10MB)
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -64,13 +68,11 @@ app.get('/api/health', (_req, res) => {
 // ----------------------------------------------------
 const apiRouter = Router();
 
+// Mount modules
+apiRouter.use('/auth', authRouter);
+apiRouter.use('/business', businessRouter);
+
 /* FUTURE MODULE ATTACHMENTS (to be implemented in subsequent phases):
- *
- * Auth Module (Phase 2):
- * apiRouter.use('/auth', authRouter);
- *
- * Business Settings Module (Phase 3):
- * apiRouter.use('/business', businessRouter);
  *
  * Assets Storage Module (Phase 3):
  * apiRouter.use('/assets', assetsRouter);
