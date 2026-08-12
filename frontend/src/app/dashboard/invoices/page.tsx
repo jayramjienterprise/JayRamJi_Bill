@@ -133,7 +133,9 @@ export default function InvoicesPage() {
                 {invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-surface-2-app/30">
                     <td className="py-4 px-6">
-                      <p className="font-semibold text-text-primary">#{inv.id.slice(-6).toUpperCase()}</p>
+                      <Link href={`/dashboard/invoices/preview/${inv.id}`} className="hover:underline">
+                        <p className="font-bold text-primary-700">#{inv.id.slice(-6).toUpperCase()}</p>
+                      </Link>
                       <p className="text-xs text-text-secondary mt-0.5">
                         📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </p>
@@ -161,6 +163,12 @@ export default function InvoicesPage() {
                       </span>
                     </td>
                     <td className="py-4 px-6 text-right space-x-3">
+                      <Link
+                        href={`/dashboard/invoices/preview/${inv.id}`}
+                        className="text-success-app hover:text-success-app/80 text-xs font-bold cursor-pointer"
+                      >
+                        Preview
+                      </Link>
                       {inv.status === 'DRAFT' ? (
                         <>
                           <Link
