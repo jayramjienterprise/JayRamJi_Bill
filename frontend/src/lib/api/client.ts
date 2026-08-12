@@ -35,6 +35,7 @@ class ApiClient {
 
     try {
       const response = await fetch(url, {
+        credentials: 'include',
         ...options,
         headers,
       });
