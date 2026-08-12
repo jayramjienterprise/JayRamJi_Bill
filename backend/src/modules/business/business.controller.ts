@@ -3,6 +3,14 @@ import { z } from 'zod';
 import { Business } from '../../database/models/Business';
 import { AppError } from '../../middleware/errorHandler';
 
+function maskAccountNumber(accountNumber: string | null): string | null {
+  if (!accountNumber) return null;
+  if (accountNumber.length <= 4) return 'XXXX';
+  const visibleLength = 4;
+  const maskedLength = accountNumber.length - visibleLength;
+  return 'X'.repeat(maskedLength) + accountNumber.slice(-visibleLength);
+}
+
 // Zod validation schemas
 const updateBusinessSchema = z.object({
   name: z.string().min(1, 'Business name cannot be empty').optional(),
@@ -67,10 +75,17 @@ export async function getBusiness(req: Request, res: Response, next: NextFunctio
       return next(new AppError('Business settings not found', 404, 'NOT_FOUND'));
     }
 
+    const businessObj = business.toObject();
+    if (req.membership && req.membership.role === 'STAFF') {
+      if (businessObj.bankDetails && businessObj.bankDetails.accountNumber) {
+        businessObj.bankDetails.accountNumber = maskAccountNumber(businessObj.bankDetails.accountNumber);
+      }
+    }
+
     res.status(200).json({
       success: true,
       data: {
-        business,
+        business: businessObj,
       },
     });
   } catch (error) {

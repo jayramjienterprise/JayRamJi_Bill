@@ -106,3 +106,24 @@ Expected Response:
   }
 }
 ```
+
+---
+
+## MongoDB Transactions Configuration (Local Replica Set)
+
+User registration uses MongoDB transactions to guarantee data integrity across the `User`, `Business`, and `BusinessMember` collections. Transactions require MongoDB to run as a replica set rather than a standalone instance.
+
+To configure a single-node replica set for local development:
+
+1. Stop your local MongoDB service.
+2. Edit your MongoDB configuration file (typically `mongod.cfg` or `mongod.conf` inside the MongoDB Server directory) and append:
+   ```yaml
+   replication:
+     replSetName: rs0
+   ```
+3. Restart the MongoDB service.
+4. Open the MongoDB shell (`mongosh`) and initiate the replica set:
+   ```javascript
+   rs.initiate()
+   ```
+5. Verification: Verify status returns successfully (`rs.status()`). You can now execute registration requests with transaction safety.

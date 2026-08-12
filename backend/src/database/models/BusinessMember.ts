@@ -36,6 +36,7 @@ const BusinessMemberSchema = new Schema<IBusinessMember>(
   },
   {
     timestamps: true,
+    collection: 'business_members',
   }
 );
 

@@ -65,10 +65,11 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
         userId: user._id,
         status: 'ACTIVE',
       });
-      if (membership) {
-        req.businessId = membership.businessId.toString();
-        req.membership = membership;
+      if (!membership) {
+        return next(new AppError('You do not belong to this business workspace', 403, 'FORBIDDEN'));
       }
+      req.businessId = membership.businessId.toString();
+      req.membership = membership;
     } else {
       // Automatic fallback: resolve first active business membership
       const membership = await BusinessMember.findOne({

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { User } from '../../database/models/User';
@@ -46,67 +47,162 @@ export async function register(req: Request, res: Response, next: NextFunction):
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(validated.password, saltRounds);
 
-    // Create User
-    const user = await User.create({
-      name: validated.name,
-      email: emailNormalized,
-      passwordHash,
-      status: 'ACTIVE',
-    });
+    let user: any;
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // Create User inside transaction
+        const [createdUser] = await User.create(
+          [
+            {
+              name: validated.name,
+              email: emailNormalized,
+              passwordHash,
+              status: 'ACTIVE',
+            },
+          ],
+          { session }
+        );
+        user = createdUser;
 
-    // Auto-create default Business for the user
-    const business = await Business.create({
-      name: `${validated.name}'s Shop`,
-      legalName: null,
-      displayName: `${validated.name}'s Shop`,
-      address: {
-        line1: 'Enter address line 1',
-        line2: null,
-        city: 'Mundra',
-        state: 'Gujarat',
-        postalCode: '370421',
-        country: 'India',
-      },
-      contact: {
-        phone: null,
-        email: emailNormalized,
-        website: null,
-      },
-      timezone: 'Asia/Kolkata',
-      taxProfile: {
-        gstin: null,
-        pan: null,
-        taxRegistrationType: null,
-      },
-      bankDetails: {
-        bankName: null,
-        accountHolderName: null,
-        accountNumber: null,
-        ifsc: null,
-        branch: null,
-      },
-      invoiceSettings: {
-        invoiceTitle: 'TAX INVOICE',
-        prefix: 'JRE',
-        defaultCurrency: 'INR',
-        defaultPaymentTerms: 'Within 15 days clear payment',
-        defaultTaxMode: 'NONE',
-        defaultTaxRateBps: 0,
-        numberingMode: 'SEQUENTIAL',
-      },
-      paymentSettings: {
-        defaultPaymentStatus: 'UNPAID',
-      },
-      status: 'ACTIVE',
-    });
+        // Auto-create default Business inside transaction
+        const [business] = await Business.create(
+          [
+            {
+              name: `${validated.name}'s Shop`,
+              legalName: null,
+              displayName: `${validated.name}'s Shop`,
+              address: {
+                line1: 'Enter address line 1',
+                line2: null,
+                city: 'Mundra',
+                state: 'Gujarat',
+                postalCode: '370421',
+                country: 'India',
+              },
+              contact: {
+                phone: null,
+                email: emailNormalized,
+                website: null,
+              },
+              timezone: 'Asia/Kolkata',
+              taxProfile: {
+                gstin: null,
+                pan: null,
+                taxRegistrationType: null,
+              },
+              bankDetails: {
+                bankName: null,
+                accountHolderName: null,
+                accountNumber: null,
+                ifsc: null,
+                branch: null,
+              },
+              invoiceSettings: {
+                invoiceTitle: 'TAX INVOICE',
+                prefix: 'JRE',
+                defaultCurrency: 'INR',
+                defaultPaymentTerms: 'Within 15 days clear payment',
+                defaultTaxMode: 'NONE',
+                defaultTaxRateBps: 0,
+                numberingMode: 'SEQUENTIAL',
+              },
+              paymentSettings: {
+                defaultPaymentStatus: 'UNPAID',
+              },
+              status: 'ACTIVE',
+            },
+          ],
+          { session }
+        );
 
-    // Create Business Membership linking user as OWNER
-    await BusinessMember.create({
-      businessId: business._id,
-      userId: user._id,
-      role: 'OWNER',
-      status: 'ACTIVE',
-    });
+        // Create Business Membership inside transaction
+        await BusinessMember.create(
+          [
+            {
+              businessId: business._id,
+              userId: user._id,
+              role: 'OWNER',
+              status: 'ACTIVE',
+            },
+          ],
+          { session }
+        );
+      });
+    } catch (transactionErr: any) {
+      // If transactions fail because the local DB does not support them, log a loud warning and use fallback
+      if (
+        transactionErr.message?.includes('replica set') ||
+        transactionErr.message?.includes('Transactions are not supported')
+      ) {
+        console.warn(
+          '⚠️ WARNING: MongoDB transactions are not supported by your database deployment (running in standalone mode). Falling back to non-transactional creation for development.'
+        );
+
+        user = await User.create({
+          name: validated.name,
+          email: emailNormalized,
+          passwordHash,
+          status: 'ACTIVE',
+        });
+
+        const business = await Business.create({
+          name: `${validated.name}'s Shop`,
+          legalName: null,
+          displayName: `${validated.name}'s Shop`,
+          address: {
+            line1: 'Enter address line 1',
+            line2: null,
+            city: 'Mundra',
+            state: 'Gujarat',
+            postalCode: '370421',
+            country: 'India',
+          },
+          contact: {
+            phone: null,
+            email: emailNormalized,
+            website: null,
+          },
+          timezone: 'Asia/Kolkata',
+          taxProfile: {
+            gstin: null,
+            pan: null,
+            taxRegistrationType: null,
+          },
+          bankDetails: {
+            bankName: null,
+            accountHolderName: null,
+            accountNumber: null,
+            ifsc: null,
+            branch: null,
+          },
+          invoiceSettings: {
+            invoiceTitle: 'TAX INVOICE',
+            prefix: 'JRE',
+            defaultCurrency: 'INR',
+            defaultPaymentTerms: 'Within 15 days clear payment',
+            defaultTaxMode: 'NONE',
+            defaultTaxRateBps: 0,
+            numberingMode: 'SEQUENTIAL',
+          },
+          paymentSettings: {
+            defaultPaymentStatus: 'UNPAID',
+          },
+          status: 'ACTIVE',
+        });
+
+        await BusinessMember.create({
+          businessId: business._id,
+          userId: user._id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+        });
+      } else {
+        throw transactionErr;
+      }
+    } finally {
+      await session.endSession();
+    }
 
     // Generate session JWT token
     const token = jwt.sign(
@@ -195,7 +291,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
     const memberships = await BusinessMember.find({
       userId: req.user._id,
       status: 'ACTIVE',
-    }).populate('businessId', 'name displayName');
+    }).populate('businessId', 'name displayName status');
 
     const businesses = memberships
       .filter((m) => m.businessId) // filter out orphaned records
@@ -203,6 +299,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
         id: m.businessId._id,
         name: m.businessId.displayName || m.businessId.name,
         role: m.role,
+        status: m.status,
       }));
 
     res.status(200).json({
@@ -212,6 +309,8 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
           id: req.user._id,
           name: req.user.name,
           email: req.user.email,
+          phone: req.user.phone,
+          status: req.user.status,
         },
         businesses,
       },
