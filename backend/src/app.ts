@@ -6,6 +6,9 @@ import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import authRouter from './modules/auth/auth.routes';
 import businessRouter from './modules/business/business.routes';
+import customerRouter from './modules/customer/customer.routes';
+import productRouter from './modules/product/product.routes';
+import assetRouter from './modules/asset/asset.routes';
 
 const app: Express = express();
 
@@ -71,30 +74,9 @@ const apiRouter = Router();
 // Mount modules
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/business', businessRouter);
-
-/* FUTURE MODULE ATTACHMENTS (to be implemented in subsequent phases):
- *
- * Assets Storage Module (Phase 3):
- * apiRouter.use('/assets', assetsRouter);
- *
- * Customers Module (Phase 4):
- * apiRouter.use('/customers', customersRouter);
- *
- * Products & Services Module (Phase 5):
- * apiRouter.use('/products', productsRouter);
- *
- * Invoices Module (Phase 6 & 7):
- * apiRouter.use('/invoices', invoicesRouter);
- *
- * Dashboard Summary Module (Phase 8):
- * apiRouter.use('/dashboard', dashboardRouter);
- *
- * Analytics Module (Phase 9):
- * apiRouter.use('/analytics', analyticsRouter);
- *
- * Public Client Shared View (Phase 10):
- * apiRouter.use('/public', publicRouter);
- */
+apiRouter.use('/customers', customerRouter);
+apiRouter.use('/products', productRouter);
+apiRouter.use('/assets', assetRouter);
 
 app.use('/api', apiRouter);
 
