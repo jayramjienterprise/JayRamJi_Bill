@@ -9,6 +9,7 @@ import businessRouter from './modules/business/business.routes';
 import customerRouter from './modules/customer/customer.routes';
 import productRouter from './modules/product/product.routes';
 import assetRouter from './modules/asset/asset.routes';
+import invoiceRouter from './modules/invoice/invoice.routes';
 
 const app: Express = express();
 
@@ -77,6 +78,7 @@ apiRouter.use('/business', businessRouter);
 apiRouter.use('/customers', customerRouter);
 apiRouter.use('/products', productRouter);
 apiRouter.use('/assets', assetRouter);
+apiRouter.use('/invoices', invoiceRouter);
 
 app.use('/api', apiRouter);
 
