@@ -4,6 +4,7 @@ import { Invoice } from '../../database/models/Invoice';
 import { Customer } from '../../database/models/Customer';
 import { Product } from '../../database/models/Product';
 import { Business } from '../../database/models/Business';
+import { Asset } from '../../database/models/Asset';
 import { InvoiceCalculationService } from '../../services/InvoiceCalculationService';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -336,6 +337,115 @@ export async function calculatePreview(req: Request, res: Response, next: NextFu
     res.status(200).json({
       success: true,
       data: { totals: calcResult.totals, items: calcResult.items, amountInWords: calcResult.amountInWords },
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function getInvoicePreviewData(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    let customerData: any = {};
+    let businessData: any = {};
+    let assetData: any = { logo: null, stamp: null, signature: null };
+
+    if (invoice.status === 'FINALIZED') {
+      customerData = invoice.customerSnapshot;
+      businessData = invoice.businessSnapshot;
+      assetData = invoice.assetSnapshot;
+    } else {
+      const customer = await Customer.findOne({ _id: invoice.customerId, businessId: req.businessId });
+      if (customer) {
+        customerData = {
+          name: customer.name,
+          contact: customer.contact,
+          address: customer.address,
+          taxProfile: customer.taxProfile,
+        };
+      }
+
+      const business = await Business.findById(req.businessId);
+      if (business) {
+        businessData = {
+          name: business.name,
+          legalName: business.legalName,
+          displayName: business.displayName,
+          address: business.address,
+          contact: business.contact,
+          timezone: business.timezone,
+          taxProfile: business.taxProfile,
+          bankDetails: business.bankDetails,
+          invoiceTitle: business.invoiceSettings?.invoiceTitle || 'TAX INVOICE',
+          paymentTerms: business.invoiceSettings?.defaultPaymentTerms,
+        };
+      }
+
+      const activeAssets = await Asset.find({ businessId: req.businessId, active: true });
+      const logo = activeAssets.find((a) => a.type === 'LOGO');
+      const stamp = activeAssets.find((a) => a.type === 'STAMP');
+      const signature = activeAssets.find((a) => a.type === 'SIGNATURE');
+
+      assetData = {
+        logo: logo ? { assetId: logo._id, cloudinaryPublicId: logo.cloudinaryPublicId, secureUrl: logo.secureUrl } : null,
+        stamp: stamp ? { assetId: stamp._id, cloudinaryPublicId: stamp.cloudinaryPublicId, secureUrl: stamp.secureUrl } : null,
+        signature: signature ? { assetId: signature._id, cloudinaryPublicId: signature.cloudinaryPublicId, secureUrl: signature.secureUrl } : null,
+      };
+    }
+
+    const formattedItems = invoice.items.map((item: any, index: number) => ({
+      serialNumber: index + 1,
+      description: item.description,
+      uom: item.uom,
+      quantity: item.quantity,
+      unitPrice: item.unitPriceMinor / 100,
+      amount: (item.quantity * item.unitPriceMinor) / 100,
+      taxAmount: item.taxAmountMinor / 100,
+      lineTotal: item.lineTotalMinor / 100,
+    }));
+
+    const formattedTotals = {
+      subtotal: invoice.totals.subtotalMinor / 100,
+      discount: invoice.totals.discountMinor / 100,
+      taxableAmount: invoice.totals.taxableAmountMinor / 100,
+      taxes: invoice.totals.taxes.map((t: any) => ({
+        type: t.type,
+        rateBps: t.rateBps,
+        amount: t.amountMinor / 100,
+      })),
+      taxTotal: invoice.totals.taxTotalMinor / 100,
+      rounding: invoice.totals.roundingMinor / 100,
+      grandTotal: invoice.totals.grandTotalMinor / 100,
+      currency: invoice.totals.currency,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invoice: {
+          id: invoice._id,
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceDate: invoice.invoiceDate,
+          status: invoice.status,
+          currency: invoice.currency,
+          amountInWords: invoice.amountInWords,
+          paymentTerms: invoice.paymentTerms,
+          notes: invoice.notes,
+        },
+        business: businessData,
+        customer: customerData,
+        items: formattedItems,
+        totals: formattedTotals,
+        assets: assetData,
+      },
     });
   } catch (err: any) {
     next(err);

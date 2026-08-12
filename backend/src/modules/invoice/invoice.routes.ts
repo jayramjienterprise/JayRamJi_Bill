@@ -7,6 +7,7 @@ import {
   deleteInvoiceDraft,
   listInvoices,
   calculatePreview,
+  getInvoicePreviewData,
 } from './invoice.controller';
 
 const router = Router();
@@ -19,6 +20,7 @@ router.post('/', createInvoiceDraft);
 router.get('/', listInvoices);
 router.post('/calculate', calculatePreview);
 router.get('/:id', getInvoice);
+router.get('/:id/preview', getInvoicePreviewData);
 router.patch('/:id', updateInvoiceDraft);
 router.delete('/:id', deleteInvoiceDraft);
 
