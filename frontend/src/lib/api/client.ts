@@ -256,6 +256,10 @@ class ApiClient {
   public async calculatePreview(invoiceData: any): Promise<{ totals: any, items: any[], amountInWords: string }> {
     return this.post<{ totals: any, items: any[], amountInWords: string }>('/invoices/calculate', invoiceData);
   }
+
+  public async getInvoicePreview(invoiceId: string): Promise<any> {
+    return this.get<any>(`/invoices/${invoiceId}/preview`);
+  }
 }
 
 export const apiClient = new ApiClient();
