@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F7F8FA;
+  --foreground: #17212B;
+}
+
+@theme inline {
+  /* Ledger Blue Theme Primary Colors */
+  --color-primary-900: #17324D;
+  --color-primary-800: #1E4668;
+  --color-primary-700: #245A82;
+  --color-primary-600: #2F6F9F;
+  --color-primary-500: #3B82B8;
+
+  /* Surfaces */
+  --color-background-app: #F7F8FA;
+  --color-surface-app: #FFFFFF;
+  --color-surface-2-app: #F1F4F7;
+
+  /* Text colors */
+  --color-text-primary: #17212B;
+  --color-text-secondary: #52606D;
+  --color-text-muted: #7B8794;
+  --color-text-disabled: #A8B2BC;
+
+  /* Borders */
+  --color-border-app: #D9E0E7;
+  --color-border-light: #E8EDF2;
+  --color-border-focus: #3B82B8;
+
+  /* Semantic status colors */
+  --color-success-app: #15803D;
+  --color-success-soft: #EAF7EF;
+  --color-warning-app: #B45309;
+  --color-warning-soft: #FFF6E5;
+  --color-danger-app: #B42318;
+  --color-danger-soft: #FDECEC;
+  --color-info-app: #2563EB;
+  --color-info-soft: #EFF6FF;
+
+  /* Font overrides */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--color-background-app);
+  color: var(--color-text-primary);
+}
