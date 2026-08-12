@@ -1,4 +1,4 @@
-import { ApiResponse } from './types';
+import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse } from './types';
 
 // Fallback to local express server endpoint
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -28,10 +28,10 @@ class ApiClient {
   ): Promise<T> {
     const url = `${BASE_URL}${endpoint}`;
     
-    const headers = {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    };
+    const headers: Record<string, string> = { ...options.headers as Record<string, string> };
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     try {
       const response = await fetch(url, {
@@ -89,23 +89,133 @@ class ApiClient {
   }
 
   public async post<T>(endpoint: string, body: any, options: RequestInit = {}): Promise<T> {
+    const isFormData = body instanceof FormData;
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
-      body: JSON.stringify(body),
+      body: isFormData ? body : JSON.stringify(body),
     });
   }
 
   public async put<T>(endpoint: string, body: any, options: RequestInit = {}): Promise<T> {
+    const isFormData = body instanceof FormData;
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
-      body: JSON.stringify(body),
+      body: isFormData ? body : JSON.stringify(body),
+    });
+  }
+
+  public async patch<T>(endpoint: string, body: any, options: RequestInit = {}): Promise<T> {
+    const isFormData = body instanceof FormData;
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PATCH',
+      body: isFormData ? body : JSON.stringify(body),
     });
   }
 
   public async delete<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
+  }
+
+  // Customers Module API calls
+  public async listCustomers(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    active?: boolean;
+  }): Promise<CustomerListResponse> {
+    const query = new URLSearchParams();
+    if (params.page) query.append('page', params.page.toString());
+    if (params.limit) query.append('limit', params.limit.toString());
+    if (params.search) query.append('search', params.search);
+    if (params.active !== undefined) query.append('active', params.active.toString());
+
+    return this.get<CustomerListResponse>(`/customers?${query.toString()}`);
+  }
+
+  public async getCustomer(customerId: string): Promise<Customer> {
+    const data = await this.get<{ customer: Customer }>(`/customers/${customerId}`);
+    return data.customer;
+  }
+
+  public async createCustomer(customerData: Partial<Customer>): Promise<Customer> {
+    const data = await this.post<{ customer: Customer }>('/customers', customerData);
+    return data.customer;
+  }
+
+  public async updateCustomer(customerId: string, customerData: Partial<Customer>): Promise<Customer> {
+    const data = await this.patch<{ customer: Customer }>(`/customers/${customerId}`, customerData);
+    return data.customer;
+  }
+
+  public async deactivateCustomer(customerId: string): Promise<Customer> {
+    const data = await this.patch<{ customer: Customer }>(`/customers/${customerId}/deactivate`, {});
+    return data.customer;
+  }
+
+  // Products/Services Module API calls
+  public async listProducts(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    type?: 'SERVICE' | 'PRODUCT';
+    active?: boolean;
+  }): Promise<ProductListResponse> {
+    const query = new URLSearchParams();
+    if (params.page) query.append('page', params.page.toString());
+    if (params.limit) query.append('limit', params.limit.toString());
+    if (params.search) query.append('search', params.search);
+    if (params.type) query.append('type', params.type);
+    if (params.active !== undefined) query.append('active', params.active.toString());
+
+    return this.get<ProductListResponse>(`/products?${query.toString()}`);
+  }
+
+  public async getProduct(productId: string): Promise<Product> {
+    const data = await this.get<{ product: Product }>(`/products/${productId}`);
+    return data.product;
+  }
+
+  public async createProduct(productData: Partial<Product>): Promise<Product> {
+    const data = await this.post<{ product: Product }>('/products', productData);
+    return data.product;
+  }
+
+  public async updateProduct(productId: string, productData: Partial<Product>): Promise<Product> {
+    const data = await this.patch<{ product: Product }>(`/products/${productId}`, productData);
+    return data.product;
+  }
+
+  public async deactivateProduct(productId: string): Promise<Product> {
+    const data = await this.patch<{ product: Product }>(`/products/${productId}/deactivate`, {});
+    return data.product;
+  }
+
+  // Assets Module API calls
+  public async listAssets(type?: 'LOGO' | 'STAMP' | 'SIGNATURE' | 'OTHER'): Promise<Asset[]> {
+    const query = type ? `?type=${type}` : '';
+    const data = await this.get<{ assets: Asset[] }>(`/assets${query}`);
+    return data.assets;
+  }
+
+  public async uploadAsset(file: File, type: 'LOGO' | 'STAMP' | 'SIGNATURE' | 'OTHER'): Promise<Asset> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    const data = await this.post<{ asset: Asset }>('/assets', formData);
+    return data.asset;
+  }
+
+  public async activateAsset(assetId: string): Promise<Asset> {
+    const data = await this.patch<{ asset: Asset }>(`/assets/${assetId}/activate`, {});
+    return data.asset;
+  }
+
+  public async deactivateAsset(assetId: string): Promise<Asset> {
+    const data = await this.patch<{ asset: Asset }>(`/assets/${assetId}/deactivate`, {});
+    return data.asset;
   }
 }
 

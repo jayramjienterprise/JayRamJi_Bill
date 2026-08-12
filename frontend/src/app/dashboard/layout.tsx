@@ -131,6 +131,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span>▣ Dashboard</span>
               </Link>
               <Link
+                href="/dashboard/customers"
+                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
+              >
+                <span>👥 Customers</span>
+              </Link>
+              <Link
+                href="/dashboard/services"
+                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
+              >
+                <span>🛠 Services</span>
+              </Link>
+              <Link
+                href="/dashboard/branding"
+                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
+              >
+                <span>🖼 Branding</span>
+              </Link>
+              <Link
                 href="/dashboard/settings"
                 className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
               >
