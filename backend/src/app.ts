@@ -10,6 +10,8 @@ import customerRouter from './modules/customer/customer.routes';
 import productRouter from './modules/product/product.routes';
 import assetRouter from './modules/asset/asset.routes';
 import invoiceRouter from './modules/invoice/invoice.routes';
+import dashboardRouter from './modules/dashboard/dashboard.routes';
+import analyticsRouter from './modules/analytics/analytics.routes';
 
 const app: Express = express();
 
@@ -79,6 +81,8 @@ apiRouter.use('/customers', customerRouter);
 apiRouter.use('/products', productRouter);
 apiRouter.use('/assets', assetRouter);
 apiRouter.use('/invoices', invoiceRouter);
+apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/analytics', analyticsRouter);
 
 app.use('/api', apiRouter);
 
