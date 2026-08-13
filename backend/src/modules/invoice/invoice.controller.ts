@@ -283,8 +283,9 @@ export async function deleteInvoiceDraft(req: Request, res: Response, next: Next
 
 export async function listInvoices(req: Request, res: Response, next: NextFunction) {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    let limit = parseInt(req.query.limit as string) || 20;
+    limit = Math.min(100, Math.max(1, limit));
     const skip = (page - 1) * limit;
 
     const filter: any = { businessId: req.businessId };
@@ -295,17 +296,88 @@ export async function listInvoices(req: Request, res: Response, next: NextFuncti
     if (req.query.customerId) {
       filter.customerId = req.query.customerId;
     }
+    if (req.query.paymentStatus) {
+      filter['paymentSummary.status'] = req.query.paymentStatus;
+    }
+
+    if (req.query.from || req.query.to) {
+      filter.invoiceDate = {};
+      if (req.query.from) {
+        filter.invoiceDate.$gte = new Date(req.query.from as string);
+      }
+      if (req.query.to) {
+        filter.invoiceDate.$lte = new Date(req.query.to as string + 'T23:59:59.999Z');
+      }
+    }
+
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search as string, 'i');
+      const matchingCustomers = await Customer.find({
+        businessId: req.businessId,
+        name: searchRegex,
+      }).select('_id');
+      const customerIds = matchingCustomers.map((c) => c._id);
+
+      filter.$or = [
+        { invoiceNumber: searchRegex },
+        { 'customerSnapshot.name': searchRegex },
+        { 'customerSnapshot.contact.phone': searchRegex },
+        { 'customerSnapshot.taxProfile.gstin': searchRegex },
+        { customerId: { $in: customerIds } },
+      ];
+    }
+
+    const sortBy = (req.query.sortBy as string) || 'invoiceDate';
+    const sortOrder = (req.query.sortOrder as string) === 'asc' ? 1 : -1;
+    const sortCriteria: any = {};
+    sortCriteria[sortBy] = sortOrder;
+    if (sortBy !== 'createdAt') {
+      sortCriteria.createdAt = -1;
+    }
 
     const total = await Invoice.countDocuments(filter);
     const invoices = await Invoice.find(filter)
-      .sort({ createdAt: -1 })
+      .select({
+        _id: 1,
+        invoiceNumber: 1,
+        invoiceDate: 1,
+        customerSnapshot: 1,
+        customerId: 1,
+        'totals.grandTotalMinor': 1,
+        currency: 1,
+        status: 1,
+        'paymentSummary.status': 1,
+        'document.snapshot.secureUrl': 1,
+      })
+      .populate('customerId', 'name')
+      .sort(sortCriteria)
       .skip(skip)
       .limit(limit);
+
+    const formattedInvoices = invoices.map((inv: any) => {
+      let customerName = inv.customerSnapshot?.name || '';
+      if (!customerName && inv.customerId) {
+        customerName = inv.customerId.name || '';
+      }
+      return {
+        id: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.invoiceDate,
+        customer: {
+          name: customerName,
+        },
+        totalMinor: inv.totals?.grandTotalMinor || 0,
+        currency: inv.currency,
+        status: inv.status,
+        paymentStatus: inv.paymentSummary?.status || 'UNPAID',
+        snapshotUrl: inv.document?.snapshot?.secureUrl || null,
+      };
+    });
 
     res.status(200).json({
       success: true,
       data: {
-        invoices,
+        invoices: formattedInvoices,
         pagination: {
           page,
           limit,
