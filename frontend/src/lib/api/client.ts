@@ -260,6 +260,24 @@ class ApiClient {
   public async getInvoicePreview(invoiceId: string): Promise<any> {
     return this.get<any>(`/invoices/${invoiceId}/preview`);
   }
+
+  public async finalizeInvoice(invoiceId: string): Promise<any> {
+    const data = await this.post<{ invoice: any }>(`/invoices/${invoiceId}/finalize`, {});
+    return data.invoice;
+  }
+
+  public async cancelInvoice(invoiceId: string, reason: string): Promise<any> {
+    const data = await this.post<{ invoice: any }>(`/invoices/${invoiceId}/cancel`, { reason });
+    return data.invoice;
+  }
+
+  public async retrySnapshot(invoiceId: string): Promise<any> {
+    return this.post<any>(`/invoices/${invoiceId}/documents/snapshot/retry`, {});
+  }
+
+  public async retryPdf(invoiceId: string): Promise<any> {
+    return this.post<any>(`/invoices/${invoiceId}/documents/pdf/retry`, {});
+  }
 }
 
 export const apiClient = new ApiClient();
