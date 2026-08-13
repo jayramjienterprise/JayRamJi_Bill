@@ -108,7 +108,7 @@ export default function SettingsPage() {
     setErrorMsg(null);
 
     try {
-      await apiClient.put('/business', profile, {
+      await apiClient.patch('/business', profile, {
         headers: { 'x-business-id': activeBusinessId },
       });
       setSuccessMsg('Business Profile updated successfully!');
@@ -128,7 +128,7 @@ export default function SettingsPage() {
     setErrorMsg(null);
 
     try {
-      await apiClient.put('/business/invoice-settings', invoiceDefaults, {
+      await apiClient.patch('/business/invoice-settings', invoiceDefaults, {
         headers: { 'x-business-id': activeBusinessId },
       });
       setSuccessMsg('Invoice Defaults updated successfully!');
@@ -147,7 +147,7 @@ export default function SettingsPage() {
     setErrorMsg(null);
 
     try {
-      await apiClient.put('/business/payment-settings', paymentDefaults, {
+      await apiClient.patch('/business/payment-settings', paymentDefaults, {
         headers: { 'x-business-id': activeBusinessId },
       });
       setSuccessMsg('Payment Settings updated successfully!');

@@ -100,9 +100,36 @@ export async function updateBusiness(req: Request, res: Response, next: NextFunc
   try {
     const validated = updateBusinessSchema.parse(req.body);
 
+    const updateFields: Record<string, any> = {};
+    if (validated.name !== undefined) updateFields.name = validated.name;
+    if (validated.legalName !== undefined) updateFields.legalName = validated.legalName;
+    if (validated.displayName !== undefined) updateFields.displayName = validated.displayName;
+    if (validated.timezone !== undefined) updateFields.timezone = validated.timezone;
+
+    if (validated.address) {
+      for (const [key, value] of Object.entries(validated.address)) {
+        updateFields[`address.${key}`] = value;
+      }
+    }
+    if (validated.contact) {
+      for (const [key, value] of Object.entries(validated.contact)) {
+        updateFields[`contact.${key}`] = value;
+      }
+    }
+    if (validated.taxProfile) {
+      for (const [key, value] of Object.entries(validated.taxProfile)) {
+        updateFields[`taxProfile.${key}`] = value;
+      }
+    }
+    if (validated.bankDetails) {
+      for (const [key, value] of Object.entries(validated.bankDetails)) {
+        updateFields[`bankDetails.${key}`] = value;
+      }
+    }
+
     const business = await Business.findByIdAndUpdate(
       req.businessId,
-      { $set: validated },
+      { $set: updateFields },
       { new: true, runValidators: true }
     );
 

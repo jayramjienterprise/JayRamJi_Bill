@@ -1,5 +1,6 @@
 import express, { Express, Router } from 'express';
 import cors from 'cors';
+import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import { env } from './config/env';
@@ -85,6 +86,15 @@ apiRouter.use('/invoices', invoiceRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);
+
+app.get('/health', async (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.status(200).json({
+    status: 'UP',
+    database: dbStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 app.use('/api', apiRouter);
 

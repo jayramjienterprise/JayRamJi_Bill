@@ -16,6 +16,16 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   FRONTEND_URL: z.string().default('http://localhost:3000'),
   JWT_SECRET: z.string().default('development_jwt_signing_secret_key_1234567890'),
+}).refine((data) => {
+  if (data.NODE_ENV === 'production') {
+    if (!data.CLOUDINARY_CLOUD_NAME || data.CLOUDINARY_CLOUD_NAME.trim() === '') return false;
+    if (!data.CLOUDINARY_API_KEY || data.CLOUDINARY_API_KEY.trim() === '') return false;
+    if (!data.CLOUDINARY_API_SECRET || data.CLOUDINARY_API_SECRET.trim() === '') return false;
+    if (data.JWT_SECRET === 'development_jwt_signing_secret_key_1234567890') return false;
+  }
+  return true;
+}, {
+  message: 'In production mode, all Cloudinary variables (CLOUD_NAME, API_KEY, API_SECRET) and a custom JWT_SECRET are required.',
 });
 
 const parsed = envSchema.safeParse(process.env);
