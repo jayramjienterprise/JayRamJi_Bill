@@ -28,4 +28,45 @@ if (hasCloudinaryEnv) {
 }
 
 export { cloudinary, isCloudinaryConfigured };
+
+export function uploadBufferToCloudinary(
+  buffer: Buffer,
+  options: {
+    folder: string;
+    public_id: string;
+    resource_type?: 'image' | 'raw' | 'video' | 'auto';
+  }
+): Promise<{ public_id: string; secure_url: string }> {
+  return new Promise((resolve, reject) => {
+    if (!isCloudinaryConfigured) {
+      const mockPublicId = `${options.folder}/${options.public_id}`;
+      const format = options.resource_type === 'raw' ? 'pdf' : 'png';
+      const mockUrl = `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockPublicId}.${format}`;
+      return resolve({
+        public_id: mockPublicId,
+        secure_url: mockUrl,
+      });
+    }
+
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: options.folder,
+        public_id: options.public_id,
+        resource_type: options.resource_type || 'image',
+      },
+      (error, result) => {
+        if (error || !result) {
+          return reject(error || new Error('Upload stream returned undefined result'));
+        }
+        resolve({
+          public_id: result.public_id,
+          secure_url: result.secure_url,
+        });
+      }
+    );
+    stream.write(buffer);
+    stream.end();
+  });
+}
+
 export default cloudinary;
