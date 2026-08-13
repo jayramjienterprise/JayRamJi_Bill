@@ -290,6 +290,90 @@ class ApiClient {
   public async retryPdf(invoiceId: string): Promise<any> {
     return this.post<any>(`/invoices/${invoiceId}/documents/pdf/retry`, {});
   }
+
+  // Dashboard & Analytics Module API calls
+  public async getDashboardOverview(params: { from?: string; to?: string }): Promise<{
+    revenueMinor: number;
+    invoiceCount: number;
+    paidMinor: number;
+    outstandingMinor: number;
+    averageInvoiceMinor: number;
+    currency: string;
+  }> {
+    const query = new URLSearchParams();
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    return this.get<{
+      revenueMinor: number;
+      invoiceCount: number;
+      paidMinor: number;
+      outstandingMinor: number;
+      averageInvoiceMinor: number;
+      currency: string;
+    }>(`/dashboard/overview?${query.toString()}`);
+  }
+
+  public async getRecentInvoices(limit = 5): Promise<any[]> {
+    const res = await this.get<{ invoices: any[] }>(`/dashboard/recent-invoices?limit=${limit}`);
+    return res.invoices;
+  }
+
+  public async getRevenueAnalytics(params: { from?: string; to?: string; groupBy?: 'day' | 'month' }): Promise<{
+    currency: string;
+    series: Array<{ period: string; revenueMinor: number }>;
+  }> {
+    const query = new URLSearchParams();
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.groupBy) query.append('groupBy', params.groupBy);
+    return this.get<{
+      currency: string;
+      series: Array<{ period: string; revenueMinor: number }>;
+    }>(`/analytics/revenue?${query.toString()}`);
+  }
+
+  public async getTopServices(params: { from?: string; to?: string; limit?: number }): Promise<Array<{
+    description: string;
+    quantity: number;
+    revenueMinor: number;
+  }>> {
+    const query = new URLSearchParams();
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.limit) query.append('limit', params.limit.toString());
+    const res = await this.get<{
+      services: Array<{ description: string; quantity: number; revenueMinor: number }>;
+    }>(`/analytics/top-services?${query.toString()}`);
+    return res.services;
+  }
+
+  public async getOutstandingAnalytics(): Promise<{
+    totalOutstandingMinor: number;
+    invoiceCount: number;
+    currency: string;
+  }> {
+    return this.get<{
+      totalOutstandingMinor: number;
+      invoiceCount: number;
+      currency: string;
+    }>('/analytics/outstanding');
+  }
+
+  public async getCustomerAnalytics(params: { from?: string; to?: string; limit?: number }): Promise<Array<{
+    customerId: string;
+    customerName: string;
+    invoiceCount: number;
+    revenueMinor: number;
+  }>> {
+    const query = new URLSearchParams();
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.limit) query.append('limit', params.limit.toString());
+    const res = await this.get<{
+      customers: Array<{ customerId: string; customerName: string; invoiceCount: number; revenueMinor: number }>;
+    }>(`/analytics/customers?${query.toString()}`);
+    return res.customers;
+  }
 }
 
 export const apiClient = new ApiClient();
