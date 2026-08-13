@@ -15,6 +15,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Sharing states
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareExpiry, setShareExpiry] = useState<string>('');
+  const [isSharingEnabled, setIsSharingEnabled] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   async function loadInvoice() {
     if (!id) return;
     setLoading(true);
@@ -22,6 +28,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     try {
       const inv = await apiClient.getInvoice(id);
       setInvoice(inv);
+      // Retrieve initial sharing configuration
+      if (inv.publicAccess && inv.publicAccess.enabled) {
+        setIsSharingEnabled(true);
+      } else {
+        setIsSharingEnabled(false);
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load invoice details');
     } finally {
@@ -48,6 +60,64 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  // Generate public link
+  async function handleGenerateShareLink() {
+    if (!invoice) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const result = await apiClient.createShareLink(invoice.id, shareExpiry || undefined);
+      setShareUrl(result.shareUrl);
+      setIsSharingEnabled(true);
+      setSuccessMsg('Public share link generated successfully!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to generate public share link');
+    }
+  }
+
+  // Revoke public link
+  async function handleRevokeShareLink() {
+    if (!invoice) return;
+    if (!confirm('Are you sure you want to disable public access? The old link will stop working immediately.')) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await apiClient.disableShareLink(invoice.id);
+      setShareUrl(null);
+      setIsSharingEnabled(false);
+      setSuccessMsg('Public sharing access revoked successfully.');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to revoke public access');
+    }
+  }
+
+  // Copy link helper
+  function handleCopyLink() {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  // Web Share API native handler
+  async function handleNativeShare() {
+    if (!invoice) return;
+    const shareTarget = shareUrl || invoice.document?.pdf?.secureUrl || invoice.document?.snapshot?.secureUrl;
+    if (!shareTarget) return;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Bill ${invoice.invoiceNumber || 'Draft'}`,
+          text: `Here is the official bill for invoice ${invoice.invoiceNumber || ''}`,
+          url: shareTarget,
+        });
+      } catch (_) {}
+    } else {
+      alert('Native device sharing is not supported on this browser. Use copy link or download options instead.');
+    }
+  }
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -65,8 +135,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  // Resolve customer and business details from snapshot for finalized/cancelled invoices,
-  // or fall back to live references for draft status documents.
   const isDraft = invoice.status === 'DRAFT';
   const customerName = !isDraft && invoice.customerSnapshot?.name
     ? invoice.customerSnapshot.name
@@ -89,6 +157,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     : 'Active Workspace';
 
   const billingTerms = invoice.paymentTerms || 'Not configured';
+
+  // Check if browser has native navigator.share support
+  const isNativeShareSupported = typeof navigator !== 'undefined' && !!navigator.share;
 
   return (
     <div className="space-y-6">
@@ -273,15 +344,15 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Sidebar snapshots and document status */}
         <div className="space-y-6">
-          {/* Documents Access Card */}
+          {/* Documents Access & Sharing Card */}
           <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
             <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider border-b border-border-app/40 pb-2">
-              Archived Documents
+              Deliver & Share Bill
             </h3>
             
             {isDraft ? (
               <p className="text-xs text-text-muted leading-relaxed">
-                Documents are only generated and archived on Cloudinary after the invoice draft has been finalized.
+                Archival export actions and sharing links become available only after finalized documents are issued.
               </p>
             ) : (
               <div className="space-y-4">
@@ -306,7 +377,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                       rel="noreferrer"
                       className="block text-center w-full py-1.5 bg-success-soft hover:bg-success-soft/80 text-success-app text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Open PNG Image
+                      View Original Image
                     </a>
                   ) : (
                     <div className="text-[10px] text-text-muted italic">Image snapshot not available</div>
@@ -330,16 +401,94 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                   {invoice.document?.pdf?.secureUrl ? (
                     <a
                       href={invoice.document.pdf.secureUrl}
+                      download={`${invoice.invoiceNumber || 'bill'}.pdf`}
                       target="_blank"
                       rel="noreferrer"
                       className="block text-center w-full py-1.5 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Download PDF
+                      Download PDF Document
                     </a>
                   ) : (
                     <div className="text-[10px] text-text-muted italic">PDF document not available</div>
                   )}
                 </div>
+
+                {/* Public Link Section */}
+                <div className="border-t border-border-app/40 pt-4 space-y-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-text-secondary">Public sharing status</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      isSharingEnabled ? 'bg-success-soft text-success-app' : 'bg-danger-soft text-danger-app'
+                    }`}>
+                      {isSharingEnabled ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </div>
+
+                  {isSharingEnabled ? (
+                    <div className="space-y-2">
+                      {shareUrl ? (
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            readOnly
+                            value={shareUrl}
+                            className="w-full px-2 py-1 bg-surface-2-app border border-border-app rounded text-[10px] font-semibold text-text-primary focus:outline-none"
+                          />
+                          <button
+                            onClick={handleCopyLink}
+                            className="w-full py-1 bg-primary-700 hover:bg-primary-800 text-white text-[10px] font-bold rounded cursor-pointer"
+                          >
+                            {copied ? 'Copied!' : 'Copy Public Share Link'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={handleGenerateShareLink}
+                          className="w-full py-1 bg-primary-700 hover:bg-primary-800 text-white text-[10px] font-bold rounded cursor-pointer"
+                        >
+                          Show/Generate Copy Link
+                        </button>
+                      )}
+
+                      <button
+                        onClick={handleRevokeShareLink}
+                        className="w-full py-1 bg-danger-soft hover:bg-danger-soft/80 text-danger-app text-[10px] font-bold rounded cursor-pointer"
+                      >
+                        Revoke Link Access
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-1.5">
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-wider shrink-0">Expiry Date:</label>
+                        <input
+                          type="date"
+                          value={shareExpiry}
+                          onChange={(e) => setShareExpiry(e.target.value)}
+                          className="flex-1 px-2 py-0.5 bg-surface-2-app border border-border-app rounded text-[10px] text-text-primary focus:outline-none"
+                        />
+                      </div>
+                      <button
+                        onClick={handleGenerateShareLink}
+                        className="w-full py-1.5 bg-success-soft hover:bg-success-soft/80 text-success-app text-xs font-bold rounded-lg cursor-pointer"
+                      >
+                        Enable Public Sharing
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Native Device Share Sheet */}
+                {isNativeShareSupported && (
+                  <div className="border-t border-border-app/40 pt-3">
+                    <button
+                      onClick={handleNativeShare}
+                      className="w-full py-1.5 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 text-xs font-bold rounded-lg cursor-pointer"
+                    >
+                      Share via Mobile Apps
+                    </button>
+                  </div>
+                )}
 
                 {/* Regenerate Trigger */}
                 {(!invoice.document?.snapshot?.secureUrl || !invoice.document?.pdf?.secureUrl || invoice.document?.snapshot?.status === 'FAILED') && (
