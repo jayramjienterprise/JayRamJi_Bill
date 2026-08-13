@@ -374,6 +374,20 @@ class ApiClient {
     }>(`/analytics/customers?${query.toString()}`);
     return res.customers;
   }
+
+  // Sharing Module API calls
+  public async createShareLink(invoiceId: string, expiresAt?: string): Promise<{ shareUrl: string; expiresAt: string | null }> {
+    const data = await this.post<{ shareUrl: string; expiresAt: string | null }>(`/invoices/${invoiceId}/share`, { expiresAt });
+    return data;
+  }
+
+  public async disableShareLink(invoiceId: string): Promise<any> {
+    return this.post<any>(`/invoices/${invoiceId}/share/disable`, {});
+  }
+
+  public async getPublicInvoice(token: string): Promise<{ invoice: any }> {
+    return this.get<{ invoice: any }>(`/public/invoices/${token}`);
+  }
 }
 
 export const apiClient = new ApiClient();

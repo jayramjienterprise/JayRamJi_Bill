@@ -172,6 +172,12 @@ export interface Invoice {
   cancellationReason?: string | null;
   cancelledAt?: string | null;
   cancelledBy?: string | null;
+  publicAccess?: {
+    enabled: boolean;
+    tokenHash: string | null;
+    createdAt: string | null;
+    expiresAt: string | null;
+  };
   createdBy: string;
   createdAt: string;
   updatedAt: string;
