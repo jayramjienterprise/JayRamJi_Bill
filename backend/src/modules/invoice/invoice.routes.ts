@@ -8,6 +8,10 @@ import {
   listInvoices,
   calculatePreview,
   getInvoicePreviewData,
+  finalizeInvoice,
+  cancelInvoice,
+  retrySnapshotGeneration,
+  retryPdfGeneration,
 } from './invoice.controller';
 
 const router = Router();
@@ -23,5 +27,10 @@ router.get('/:id', getInvoice);
 router.get('/:id/preview', getInvoicePreviewData);
 router.patch('/:id', updateInvoiceDraft);
 router.delete('/:id', deleteInvoiceDraft);
+
+router.post('/:id/finalize', finalizeInvoice);
+router.post('/:id/cancel', cancelInvoice);
+router.post('/:id/documents/snapshot/retry', retrySnapshotGeneration);
+router.post('/:id/documents/pdf/retry', retryPdfGeneration);
 
 export default router;

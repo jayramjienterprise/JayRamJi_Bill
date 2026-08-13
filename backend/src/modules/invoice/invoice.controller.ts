@@ -5,7 +5,9 @@ import { Customer } from '../../database/models/Customer';
 import { Product } from '../../database/models/Product';
 import { Business } from '../../database/models/Business';
 import { Asset } from '../../database/models/Asset';
+import { InvoiceSequence } from '../../database/models/InvoiceSequence';
 import { InvoiceCalculationService } from '../../services/InvoiceCalculationService';
+import { DocumentGenerationService } from '../../services/DocumentGenerationService';
 import { AppError } from '../../middleware/errorHandler';
 
 // Zod schemas for validation
@@ -358,7 +360,7 @@ export async function getInvoicePreviewData(req: Request, res: Response, next: N
     let businessData: any = {};
     let assetData: any = { logo: null, stamp: null, signature: null };
 
-    if (invoice.status === 'FINALIZED') {
+    if (invoice.status === 'FINALIZED' || invoice.status === 'CANCELLED') {
       customerData = invoice.customerSnapshot;
       businessData = invoice.businessSnapshot;
       assetData = invoice.assetSnapshot;
@@ -450,4 +452,347 @@ export async function getInvoicePreviewData(req: Request, res: Response, next: N
   } catch (err: any) {
     next(err);
   }
+}
+
+export async function finalizeInvoice(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    if (invoice.status !== 'DRAFT') {
+      return next(new AppError('Only draft invoices can be finalized', 400, 'BAD_REQUEST'));
+    }
+
+    if (!invoice.customerId) {
+      return next(new AppError('Customer profile must be linked to finalize the invoice', 400, 'BAD_REQUEST'));
+    }
+
+    if (!invoice.items || invoice.items.length === 0) {
+      return next(new AppError('Invoice must contain at least one item to finalize', 400, 'BAD_REQUEST'));
+    }
+
+    const customer = await Customer.findOne({ _id: invoice.customerId, businessId: req.businessId });
+    if (!customer) {
+      return next(new AppError('Linked customer profile not found', 400, 'BAD_REQUEST'));
+    }
+
+    const business = await Business.findById(req.businessId);
+    if (!business) {
+      return next(new AppError('Business workspace not found', 400, 'BAD_REQUEST'));
+    }
+
+    const activeAssets = await Asset.find({ businessId: req.businessId, active: true });
+    const logo = activeAssets.find((a) => a.type === 'LOGO');
+    const stamp = activeAssets.find((a) => a.type === 'STAMP');
+    const signature = activeAssets.find((a) => a.type === 'SIGNATURE');
+
+    const customerSnapshot = {
+      name: customer.name,
+      contact: customer.contact,
+      address: customer.address,
+      taxProfile: customer.taxProfile,
+    };
+
+    const businessSnapshot = {
+      name: business.name,
+      legalName: business.legalName,
+      displayName: business.displayName,
+      address: business.address,
+      contact: business.contact,
+      timezone: business.timezone,
+      taxProfile: business.taxProfile,
+      bankDetails: business.bankDetails,
+      invoiceTitle: business.invoiceSettings?.invoiceTitle || 'TAX INVOICE',
+      paymentTerms: invoice.paymentTerms || business.invoiceSettings?.defaultPaymentTerms,
+    };
+
+    const assetSnapshot = {
+      logo: logo ? { assetId: logo._id, cloudinaryPublicId: logo.cloudinaryPublicId, secureUrl: logo.secureUrl } : null,
+      stamp: stamp ? { assetId: stamp._id, cloudinaryPublicId: stamp.cloudinaryPublicId, secureUrl: stamp.secureUrl } : null,
+      signature: signature ? { assetId: signature._id, cloudinaryPublicId: signature.cloudinaryPublicId, secureUrl: signature.secureUrl } : null,
+    };
+
+    const prefix = business.invoiceSettings?.prefix || 'INV';
+    const seq = await InvoiceSequence.findOneAndUpdate(
+      { businessId: req.businessId, key: 'INVOICE' },
+      { 
+        $inc: { nextNumber: 1 },
+        $setOnInsert: { prefix }
+      },
+      { new: true, upsert: true }
+    );
+    const seqNum = seq.nextNumber - 1;
+    const paddedNum = String(seqNum).padStart(6, '0');
+    const invoiceNumber = `${prefix}-${paddedNum}`;
+
+    const updateResult = await Invoice.updateOne(
+      { _id: invoice._id, status: 'DRAFT' },
+      {
+        $set: {
+          status: 'FINALIZED',
+          invoiceNumber,
+          customerSnapshot,
+          businessSnapshot,
+          assetSnapshot,
+          finalizedBy: req.user?._id,
+          finalizedAt: new Date(),
+          'document.snapshot.status': 'GENERATING',
+          'document.pdf.status': 'GENERATING',
+        },
+      }
+    );
+
+    if (updateResult.modifiedCount === 0) {
+      return next(new AppError('Invoice was already finalized or modified by another session', 409, 'CONFLICT'));
+    }
+
+    const finalizedInvoice = await Invoice.findById(invoice._id);
+    if (!finalizedInvoice) {
+      return next(new AppError('Invoice document lookup failed after save', 500, 'INTERNAL_SERVER_ERROR'));
+    }
+
+    const renderItems = finalizedInvoice.items.map((item: any, idx: number) => ({
+      serialNumber: idx + 1,
+      description: item.description,
+      uom: item.uom,
+      quantity: item.quantity,
+      unitPrice: item.unitPriceMinor / 100,
+      amount: (item.quantity * item.unitPriceMinor) / 100,
+    }));
+
+    const renderTotals = {
+      subtotal: finalizedInvoice.totals.subtotalMinor / 100,
+      discount: finalizedInvoice.totals.discountMinor / 100,
+      taxableAmount: finalizedInvoice.totals.taxableAmountMinor / 100,
+      taxes: finalizedInvoice.totals.taxes.map((t: any) => ({
+        type: t.type,
+        rateBps: t.rateBps,
+        amount: t.amountMinor / 100,
+      })),
+      taxTotal: finalizedInvoice.totals.taxTotalMinor / 100,
+      rounding: finalizedInvoice.totals.roundingMinor / 100,
+      grandTotal: finalizedInvoice.totals.grandTotalMinor / 100,
+      currency: finalizedInvoice.totals.currency,
+    };
+
+    const renderData = {
+      invoice: {
+        id: finalizedInvoice._id.toString(),
+        invoiceNumber: finalizedInvoice.invoiceNumber,
+        invoiceDate: finalizedInvoice.invoiceDate,
+        amountInWords: finalizedInvoice.amountInWords,
+        paymentTerms: finalizedInvoice.paymentTerms,
+        notes: finalizedInvoice.notes,
+      },
+      business: finalizedInvoice.businessSnapshot,
+      customer: finalizedInvoice.customerSnapshot,
+      items: renderItems,
+      totals: renderTotals,
+      assets: finalizedInvoice.assetSnapshot,
+    };
+
+    DocumentGenerationService.generateDocuments(
+      req.businessId!,
+      finalizedInvoice._id.toString(),
+      renderData as any
+    ).then(async (docs) => {
+      await Invoice.updateOne(
+        { _id: finalizedInvoice._id },
+        {
+          $set: {
+            'document.snapshot.status': 'READY',
+            'document.snapshot.publicId': docs.snapshot.publicId,
+            'document.snapshot.secureUrl': docs.snapshot.secureUrl,
+            'document.snapshot.width': docs.snapshot.width,
+            'document.snapshot.height': docs.snapshot.height,
+            'document.snapshot.generatedAt': new Date(),
+            'document.pdf.status': 'READY',
+            'document.pdf.secureUrl': docs.pdf.secureUrl,
+            'document.pdf.generatedAt': new Date(),
+          },
+        }
+      );
+    }).catch(async (err) => {
+      console.error('Error background generating documents:', err);
+      await Invoice.updateOne(
+        { _id: finalizedInvoice._id },
+        {
+          $set: {
+            'document.snapshot.status': 'FAILED',
+            'document.pdf.status': 'FAILED',
+          },
+        }
+      );
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invoice: {
+          id: finalizedInvoice._id,
+          invoiceNumber: finalizedInvoice.invoiceNumber,
+          status: finalizedInvoice.status,
+          document: finalizedInvoice.document,
+        },
+      },
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function cancelInvoice(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body;
+    if (!reason || reason.trim() === '') {
+      return next(new AppError('Cancellation reason is required', 400, 'BAD_REQUEST'));
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    if (invoice.status !== 'FINALIZED') {
+      return next(new AppError('Only finalized invoices can be cancelled', 400, 'BAD_REQUEST'));
+    }
+
+    invoice.status = 'CANCELLED';
+    invoice.cancelledAt = new Date();
+    invoice.cancelledBy = req.user?._id;
+    invoice.cancellationReason = reason.trim();
+    await invoice.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invoice: {
+          id: invoice._id,
+          status: invoice.status,
+          cancellationReason: invoice.cancellationReason,
+        },
+      },
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function retrySnapshotGeneration(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    if (invoice.status === 'DRAFT') {
+      return next(new AppError('Cannot generate document snapshots for draft invoices', 400, 'BAD_REQUEST'));
+    }
+
+    await Invoice.updateOne(
+      { _id: invoice._id },
+      { $set: { 'document.snapshot.status': 'GENERATING', 'document.pdf.status': 'GENERATING' } }
+    );
+
+    const renderItems = invoice.items.map((item: any, idx: number) => ({
+      serialNumber: idx + 1,
+      description: item.description,
+      uom: item.uom,
+      quantity: item.quantity,
+      unitPrice: item.unitPriceMinor / 100,
+      amount: (item.quantity * item.unitPriceMinor) / 100,
+    }));
+
+    const renderTotals = {
+      subtotal: invoice.totals.subtotalMinor / 100,
+      discount: invoice.totals.discountMinor / 100,
+      taxableAmount: invoice.totals.taxableAmountMinor / 100,
+      taxes: invoice.totals.taxes.map((t: any) => ({
+        type: t.type,
+        rateBps: t.rateBps,
+        amount: t.amountMinor / 100,
+      })),
+      taxTotal: invoice.totals.taxTotalMinor / 100,
+      rounding: invoice.totals.roundingMinor / 100,
+      grandTotal: invoice.totals.grandTotalMinor / 100,
+      currency: invoice.totals.currency,
+    };
+
+    const renderData = {
+      invoice: {
+        id: invoice._id.toString(),
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate,
+        amountInWords: invoice.amountInWords,
+        paymentTerms: invoice.paymentTerms,
+        notes: invoice.notes,
+      },
+      business: invoice.businessSnapshot,
+      customer: invoice.customerSnapshot,
+      items: renderItems,
+      totals: renderTotals,
+      assets: invoice.assetSnapshot,
+    };
+
+    DocumentGenerationService.generateDocuments(
+      req.businessId!,
+      invoice._id.toString(),
+      renderData as any
+    ).then(async (docs) => {
+      await Invoice.updateOne(
+        { _id: invoice._id },
+        {
+          $set: {
+            'document.snapshot.status': 'READY',
+            'document.snapshot.publicId': docs.snapshot.publicId,
+            'document.snapshot.secureUrl': docs.snapshot.secureUrl,
+            'document.snapshot.width': docs.snapshot.width,
+            'document.snapshot.height': docs.snapshot.height,
+            'document.snapshot.generatedAt': new Date(),
+            'document.pdf.status': 'READY',
+            'document.pdf.secureUrl': docs.pdf.secureUrl,
+            'document.pdf.generatedAt': new Date(),
+          },
+        }
+      );
+    }).catch(async (err) => {
+      console.error('Error retrying document generation:', err);
+      await Invoice.updateOne(
+        { _id: invoice._id },
+        {
+          $set: {
+            'document.snapshot.status': 'FAILED',
+            'document.pdf.status': 'FAILED',
+          },
+        }
+      );
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        snapshot: { status: 'GENERATING' }
+      }
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function retryPdfGeneration(req: Request, res: Response, next: NextFunction) {
+  return retrySnapshotGeneration(req, res, next);
 }
