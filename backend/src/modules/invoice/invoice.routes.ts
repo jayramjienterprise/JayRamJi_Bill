@@ -12,6 +12,8 @@ import {
   cancelInvoice,
   retrySnapshotGeneration,
   retryPdfGeneration,
+  enableShareLink,
+  disableShareLink,
 } from './invoice.controller';
 
 const router = Router();
@@ -32,5 +34,8 @@ router.post('/:id/finalize', finalizeInvoice);
 router.post('/:id/cancel', cancelInvoice);
 router.post('/:id/documents/snapshot/retry', retrySnapshotGeneration);
 router.post('/:id/documents/pdf/retry', retryPdfGeneration);
+
+router.post('/:id/share', enableShareLink);
+router.post('/:id/share/disable', disableShareLink);
 
 export default router;

@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
+import { env } from '../../config/env';
 import { Invoice } from '../../database/models/Invoice';
 import { Customer } from '../../database/models/Customer';
 import { Product } from '../../database/models/Product';
@@ -867,4 +869,75 @@ export async function retrySnapshotGeneration(req: Request, res: Response, next:
 
 export async function retryPdfGeneration(req: Request, res: Response, next: NextFunction) {
   return retrySnapshotGeneration(req, res, next);
+}
+
+export async function enableShareLink(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'INVOICE_NOT_FOUND'));
+    }
+    if (invoice.status === 'DRAFT') {
+      return next(new AppError('Draft invoices cannot be shared publicly', 400, 'INVOICE_NOT_EDITABLE'));
+    }
+
+    const rawToken = crypto.randomBytes(24).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const expiresAt = req.body.expiresAt ? new Date(req.body.expiresAt) : null;
+
+    invoice.publicAccess = {
+      enabled: true,
+      tokenHash,
+      createdAt: new Date(),
+      expiresAt,
+    };
+
+    await invoice.save();
+
+    const shareUrl = `${env.FRONTEND_URL}/share/${rawToken}`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        shareUrl,
+        expiresAt,
+      },
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function disableShareLink(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'INVOICE_NOT_FOUND'));
+    }
+
+    invoice.publicAccess = {
+      enabled: false,
+      tokenHash: null,
+      createdAt: null,
+      expiresAt: null,
+    };
+
+    await invoice.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        publicAccess: invoice.publicAccess,
+      },
+    });
+  } catch (err: any) {
+    next(err);
+  }
 }
