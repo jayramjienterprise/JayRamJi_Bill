@@ -224,12 +224,24 @@ class ApiClient {
     limit?: number;
     status?: string;
     customerId?: string;
+    search?: string;
+    paymentStatus?: string;
+    from?: string;
+    to?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }): Promise<InvoiceListResponse> {
     const query = new URLSearchParams();
     if (params.page) query.append('page', params.page.toString());
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.status) query.append('status', params.status);
     if (params.customerId) query.append('customerId', params.customerId);
+    if (params.search) query.append('search', params.search);
+    if (params.paymentStatus) query.append('paymentStatus', params.paymentStatus);
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.sortBy) query.append('sortBy', params.sortBy);
+    if (params.sortOrder) query.append('sortOrder', params.sortOrder);
 
     return this.get<InvoiceListResponse>(`/invoices?${query.toString()}`);
   }

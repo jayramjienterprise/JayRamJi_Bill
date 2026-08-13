@@ -148,6 +148,30 @@ export interface Invoice {
     dueAmountMinor: number;
     status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
   };
+  document?: {
+    snapshot?: {
+      status: 'NOT_GENERATED' | 'GENERATING' | 'READY' | 'FAILED';
+      provider: string;
+      publicId: string | null;
+      secureUrl: string | null;
+      format: string;
+      width: number | null;
+      height: number | null;
+      generatedAt: string | null;
+      checksum: string | null;
+    };
+    pdf?: {
+      status: 'NOT_GENERATED' | 'GENERATING' | 'READY' | 'FAILED';
+      provider: string;
+      storageKey: string | null;
+      secureUrl: string | null;
+      generatedAt: string | null;
+      checksum: string | null;
+    };
+  };
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
