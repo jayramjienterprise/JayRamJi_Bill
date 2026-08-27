@@ -15,6 +15,7 @@ export interface IInvoiceItem {
   }>;
   taxAmountMinor: number;
   lineTotalMinor: number;
+  section?: 'ITEM' | 'LABOUR' | 'PART';
 }
 
 export interface IInvoice extends Document {
@@ -110,6 +111,7 @@ const InvoiceItemSchema = new Schema<IInvoiceItem>({
   ],
   taxAmountMinor: { type: Number, default: 0 },
   lineTotalMinor: { type: Number, required: true },
+  section: { type: String, enum: ['ITEM', 'LABOUR', 'PART'], default: 'ITEM' },
 });
 
 const InvoiceSchema = new Schema<IInvoice>(

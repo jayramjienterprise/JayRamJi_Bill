@@ -14,6 +14,7 @@ import {
   retryPdfGeneration,
   enableShareLink,
   disableShareLink,
+  downloadInvoiceFile,
 } from './invoice.controller';
 
 const router = Router();
@@ -27,6 +28,7 @@ router.get('/', listInvoices);
 router.post('/calculate', calculatePreview);
 router.get('/:id', getInvoice);
 router.get('/:id/preview', getInvoicePreviewData);
+router.get('/:id/download', downloadInvoiceFile);
 router.patch('/:id', updateInvoiceDraft);
 router.delete('/:id', deleteInvoiceDraft);
 

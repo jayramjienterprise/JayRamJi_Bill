@@ -1,0 +1,60 @@
+
+--- Row 12 ---
+  Col 0: Merged=False, BG=None
+    Paragraphs: ['Total']
+  Col 1: Merged=True, BG=None
+    Paragraphs: ['Total']
+  Col 2: Merged=False, BG=None
+    Paragraphs: ['']
+  Col 3: Merged=False, BG=None
+    Paragraphs: ['']
+  Col 4: Merged=False, BG=None
+    Paragraphs: ['₹']
+
+--- Row 13 ---
+  Col 0: Merged=False, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 1: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 2: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 3: Merged=False, BG=None
+    Paragraphs: ['PARTS']
+  Col 4: Merged=False, BG=None
+    Paragraphs: ['']
+
+--- Row 14 ---
+  Col 0: Merged=False, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 1: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 2: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 3: Merged=False, BG=None
+    Paragraphs: ['LABOR']
+  Col 4: Merged=False, BG=None
+    Paragraphs: ['']
+
+--- Row 15 ---
+  Col 0: Merged=False, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 1: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 2: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 3: Merged=False, BG=None
+    Paragraphs: ['TAX']
+  Col 4: Merged=False, BG=None
+    Paragraphs: ['']
+
+--- Row 16 ---
+  Col 0: Merged=False, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 1: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 2: Merged=True, BG=None
+    Paragraphs: ['Amount In Words:-', '', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+  Col 3: Merged=False, BG=e7e6e6
+    Paragraphs: ['TOTAL']
+  Col 4: Merged=False, BG=e7e6e6
+    Paragraphs: ['₹']

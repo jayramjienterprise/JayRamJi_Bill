@@ -54,7 +54,7 @@ export class DocumentGenerationService {
 
       const pdfUpload = await uploadBufferToCloudinary(pdfBuffer, {
         folder: folderPath,
-        public_id: 'invoice',
+        public_id: 'invoice.pdf',
         resource_type: 'raw',
       });
 
@@ -89,6 +89,39 @@ export class DocumentGenerationService {
           secureUrl: `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockFolder}/invoice.pdf`,
         },
       };
+    }
+  }
+  public static async generateBuffers(
+    renderData: InvoiceRenderData
+  ): Promise<{ pngBuffer: Buffer; pdfBuffer: Buffer }> {
+    const html = InvoiceRenderService.render(renderData);
+
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'load' });
+      await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+
+      const pngRawBuffer = await page.screenshot({
+        type: 'png',
+        fullPage: true,
+      });
+      const pngBuffer = Buffer.from(pngRawBuffer);
+
+      const pdfRawBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+      });
+      const pdfBuffer = Buffer.from(pdfRawBuffer);
+
+      return { pngBuffer, pdfBuffer };
+    } finally {
+      await browser.close();
     }
   }
 }

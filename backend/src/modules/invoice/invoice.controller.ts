@@ -25,6 +25,7 @@ const InvoiceItemInputSchema = z.object({
   uom: z.string().min(1, 'Unit of measurement (UOM) is required'),
   quantity: z.number().positive('Quantity must be greater than zero'),
   unitPriceMinor: z.number().nonnegative('Price cannot be negative'),
+  section: z.enum(['ITEM', 'LABOUR', 'PART']).optional(),
 });
 
 const CreateInvoiceSchema = z.object({
@@ -38,6 +39,7 @@ const CreateInvoiceSchema = z.object({
   discount: DiscountSchema.optional(),
   paymentTerms: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  paymentStatus: z.enum(['PAID', 'UNPAID']).optional(),
 });
 
 export async function createInvoiceDraft(req: Request, res: Response, next: NextFunction) {
@@ -56,6 +58,7 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       discount,
       paymentTerms,
       notes,
+      paymentStatus,
     } = bodyResult.data;
 
     // 1. Verify active customer belongs to business
@@ -116,9 +119,9 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       paymentTerms: paymentTerms || business.invoiceSettings?.defaultPaymentTerms || null,
       notes: notes || null,
       paymentSummary: {
-        paidAmountMinor: 0,
-        dueAmountMinor: calcResult.totals.grandTotalMinor,
-        status: 'UNPAID',
+        paidAmountMinor: paymentStatus === 'PAID' ? calcResult.totals.grandTotalMinor : 0,
+        dueAmountMinor: paymentStatus === 'PAID' ? 0 : calcResult.totals.grandTotalMinor,
+        status: paymentStatus === 'PAID' ? 'PAID' : 'UNPAID',
       },
       document: {
         snapshot: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' },
@@ -215,12 +218,13 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
       invoice.discount = updates.discount;
     }
 
-    // If items, tax settings, or discounts change, re-run calculation engine
-    if (updates.items || updates.taxMode || updates.defaultTaxRateBps !== undefined || updates.discount) {
+    // If items, tax settings, discounts, or paymentStatus change, re-run calculation engine
+    if (updates.items || updates.taxMode || updates.defaultTaxRateBps !== undefined || updates.discount || updates.paymentStatus) {
       const itemsToCalculate = updates.items || invoice.items;
       const taxModeToUse = invoice.taxMode || 'NONE';
       const taxRateBpsToUse = invoice.defaultTaxRateBps || 0;
       const discountToUse = invoice.discount || { type: 'NONE' as const, value: 0 };
+      const paymentStatusToUse = updates.paymentStatus || (invoice.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
 
       // Map document array items back to calculation structure
       const calculationItems = itemsToCalculate.map((item: any) => ({
@@ -230,6 +234,7 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
         uom: item.uom,
         quantity: item.quantity,
         unitPriceMinor: item.unitPriceMinor,
+        section: item.section,
       }));
 
       // Recompute totals
@@ -240,10 +245,15 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
         discount: discountToUse,
       });
 
+      const isPaid = paymentStatusToUse === 'PAID';
       invoice.items = calcResult.items as any;
       invoice.totals = calcResult.totals;
       invoice.amountInWords = calcResult.amountInWords;
-      invoice.paymentSummary.dueAmountMinor = calcResult.totals.grandTotalMinor;
+      invoice.paymentSummary = {
+        paidAmountMinor: isPaid ? calcResult.totals.grandTotalMinor : 0,
+        dueAmountMinor: isPaid ? 0 : calcResult.totals.grandTotalMinor,
+        status: isPaid ? 'PAID' : 'UNPAID',
+      };
     }
 
     await invoice.save();
@@ -486,6 +496,8 @@ export async function getInvoicePreviewData(req: Request, res: Response, next: N
       amount: (item.quantity * item.unitPriceMinor) / 100,
       taxAmount: item.taxAmountMinor / 100,
       lineTotal: item.lineTotalMinor / 100,
+      type: item.type,
+      section: item.section,
     }));
 
     const formattedTotals = {
@@ -638,6 +650,7 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
       quantity: item.quantity,
       unitPrice: item.unitPriceMinor / 100,
       amount: (item.quantity * item.unitPriceMinor) / 100,
+      type: item.type,
     }));
 
     const renderTotals = {
@@ -789,6 +802,7 @@ export async function retrySnapshotGeneration(req: Request, res: Response, next:
       quantity: item.quantity,
       unitPrice: item.unitPriceMinor / 100,
       amount: (item.quantity * item.unitPriceMinor) / 100,
+      type: item.type,
     }));
 
     const renderTotals = {
@@ -938,6 +952,125 @@ export async function disableShareLink(req: Request, res: Response, next: NextFu
       },
     });
   } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function downloadInvoiceFile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const { format } = req.query; // 'pdf' or 'png'
+    
+    const invoice = await Invoice.findOne({
+      _id: id,
+      businessId: req.businessId,
+    });
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    let customerData: any = {};
+    let businessData: any = {};
+    let assetData: any = { logo: null, stamp: null, signature: null };
+
+    if (invoice.status === 'FINALIZED' || invoice.status === 'CANCELLED') {
+      customerData = invoice.customerSnapshot;
+      businessData = invoice.businessSnapshot;
+      assetData = invoice.assetSnapshot;
+    } else {
+      const customer = await Customer.findOne({ _id: invoice.customerId, businessId: req.businessId });
+      if (customer) {
+        customerData = {
+          name: customer.name,
+          contact: customer.contact,
+          address: customer.address,
+          taxProfile: customer.taxProfile,
+        };
+      }
+
+      const business = await Business.findById(req.businessId);
+      if (business) {
+        businessData = {
+          name: business.name,
+          legalName: business.legalName,
+          displayName: business.displayName,
+          address: business.address,
+          contact: business.contact,
+          timezone: business.timezone,
+          taxProfile: business.taxProfile,
+          bankDetails: business.bankDetails,
+          invoiceTitle: business.invoiceSettings?.invoiceTitle || 'TAX INVOICE',
+          paymentTerms: business.invoiceSettings?.defaultPaymentTerms,
+        };
+      }
+
+      const activeAssets = await Asset.find({ businessId: req.businessId, active: true });
+      const logo = activeAssets.find((a) => a.type === 'LOGO');
+      const stamp = activeAssets.find((a) => a.type === 'STAMP');
+      const signature = activeAssets.find((a) => a.type === 'SIGNATURE');
+
+      assetData = {
+        logo: logo ? { assetId: logo._id, cloudinaryPublicId: logo.cloudinaryPublicId, secureUrl: logo.secureUrl } : null,
+        stamp: stamp ? { assetId: stamp._id, cloudinaryPublicId: stamp.cloudinaryPublicId, secureUrl: stamp.secureUrl } : null,
+        signature: signature ? { assetId: signature._id, cloudinaryPublicId: signature.cloudinaryPublicId, secureUrl: signature.secureUrl } : null,
+      };
+    }
+
+    const formattedItems = invoice.items.map((item: any, index: number) => ({
+      serialNumber: index + 1,
+      description: item.description,
+      uom: item.uom,
+      quantity: item.quantity,
+      unitPrice: item.unitPriceMinor / 100,
+      amount: (item.quantity * item.unitPriceMinor) / 100,
+      taxAmount: item.taxAmountMinor / 100,
+      lineTotal: item.lineTotalMinor / 100,
+      type: item.type,
+    }));
+
+    const formattedTotals = {
+      subtotal: invoice.totals.subtotalMinor / 100,
+      discount: invoice.totals.discountMinor / 100,
+      taxableAmount: invoice.totals.taxableAmountMinor / 100,
+      taxes: invoice.totals.taxes.map((t: any) => ({
+        type: t.type,
+        rateBps: t.rateBps,
+        amount: t.amountMinor / 100,
+      })),
+      taxTotal: invoice.totals.taxTotalMinor / 100,
+      rounding: invoice.totals.roundingMinor / 100,
+      grandTotal: invoice.totals.grandTotalMinor / 100,
+      currency: invoice.totals.currency,
+    };
+
+    const renderData = {
+      invoice: {
+        id: invoice._id.toString(),
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate,
+        amountInWords: invoice.amountInWords,
+        paymentTerms: invoice.paymentTerms,
+        notes: invoice.notes,
+      },
+      business: businessData,
+      customer: customerData,
+      items: formattedItems,
+      totals: formattedTotals,
+      assets: assetData,
+    };
+
+    const { pngBuffer, pdfBuffer } = await DocumentGenerationService.generateBuffers(renderData as any);
+
+    if (format === 'png') {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Content-Disposition', `attachment; filename="bill-${invoice.invoiceNumber || 'draft'}.png"`);
+      res.send(pngBuffer);
+    } else {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="bill-${invoice.invoiceNumber || 'draft'}.pdf"`);
+      res.send(pdfBuffer);
+    }
+  } catch (err) {
     next(err);
   }
 }

@@ -7,6 +7,7 @@ export interface ICalculationInputItem {
   uom: string;
   quantity: number;
   unitPriceMinor: number;
+  section?: 'ITEM' | 'LABOUR' | 'PART';
 }
 
 export interface ICalculationInput {
@@ -35,6 +36,7 @@ export interface ICalculationResult {
     }>;
     taxAmountMinor: number;
     lineTotalMinor: number;
+    section?: 'ITEM' | 'LABOUR' | 'PART';
   }>;
   totals: {
     subtotalMinor: number;
@@ -117,6 +119,7 @@ export class InvoiceCalculationService {
         ] : [],
         taxAmountMinor: lineTaxAmountMinor,
         lineTotalMinor,
+        section: (item as any).section,
       });
     }
 

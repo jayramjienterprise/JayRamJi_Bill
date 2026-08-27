@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../../../lib/api/client';
-import { Invoice } from '../../../../../lib/api/types';
+import { Invoice, Customer } from '../../../../../lib/api/types';
+import InvoicePaper from '../../components/InvoicePaper';
+
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -12,6 +14,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitLoading, setSubmitLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -20,6 +23,19 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [shareExpiry, setShareExpiry] = useState<string>('');
   const [isSharingEnabled, setIsSharingEnabled] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+
+  // Business & Assets defaults (only used for drafts)
+  const [business, setBusiness] = useState<any>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [activeAssets, setActiveAssets] = useState<{ logo: any; stamp: any; signature: any }>({
+    logo: null,
+    stamp: null,
+    signature: null,
+  });
+
+  const [scale, setScale] = useState(1);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   async function loadInvoice() {
     if (!id) return;
@@ -28,11 +44,27 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     try {
       const inv = await apiClient.getInvoice(id);
       setInvoice(inv);
-      // Retrieve initial sharing configuration
-      if (inv.publicAccess && inv.publicAccess.enabled) {
-        setIsSharingEnabled(true);
-      } else {
-        setIsSharingEnabled(false);
+      setIsSharingEnabled(inv.publicAccess?.enabled || false);
+
+      if (inv.status === 'DRAFT') {
+        // Load draft branding metadata dynamically
+        try {
+          const bizRes: any = await apiClient.get('/business');
+          setBusiness(bizRes.business);
+
+          const assetsList = await apiClient.listAssets();
+          const logo = assetsList.find((a) => a.type === 'LOGO' && a.active);
+          const stamp = assetsList.find((a) => a.type === 'STAMP' && a.active);
+          const signature = assetsList.find((a) => a.type === 'SIGNATURE' && a.active);
+          setActiveAssets({ logo, stamp, signature });
+
+          if (inv.customerId) {
+            const cust = await apiClient.getCustomer(inv.customerId);
+            setSelectedCustomer(cust);
+          }
+        } catch (bizErr) {
+          console.error('Error loading draft dependencies:', bizErr);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load invoice details');
@@ -45,18 +77,51 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     loadInvoice();
   }, [id]);
 
-  async function handleRetryDocuments() {
+  useEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const containerWidth = entry.contentRect.width;
+        const canonicalWidth = 794;
+        const newScale = Math.min(1, containerWidth / canonicalWidth);
+        setScale(newScale);
+      }
+    });
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, [loading]);
+
+  async function handleMarkPaid() {
     if (!invoice) return;
-    setLoading(true);
+    setSubmitLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      await apiClient.retrySnapshot(invoice.id);
-      setSuccessMsg('Document regeneration triggered. Please refresh in a few seconds.');
-      loadInvoice();
+      // Direct paymentStatus patch endpoint update
+      await apiClient.patch(`/invoices/${invoice.id || (invoice as any)._id}`, { paymentStatus: 'PAID' });
+      setSuccessMsg('Invoice has been marked as fully PAID successfully.');
+      await loadInvoice();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to trigger document generation');
-      setLoading(false);
+      setErrorMsg(err.message || 'Failed to update payment status');
+    } finally {
+      setSubmitLoading(false);
+    }
+  }
+
+  async function handleFinalizeBill() {
+    if (!invoice) return;
+    setSubmitLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await apiClient.finalizeInvoice(invoice.id || (invoice as any)._id);
+      setSuccessMsg('Invoice has been finalized and official sequence bill generated!');
+      await loadInvoice();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to finalize invoice draft');
+    } finally {
+      setSubmitLoading(false);
     }
   }
 
@@ -66,7 +131,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const result = await apiClient.createShareLink(invoice.id, shareExpiry || undefined);
+      const result = await apiClient.createShareLink(invoice.id || (invoice as any)._id, shareExpiry || undefined);
       setShareUrl(result.shareUrl);
       setIsSharingEnabled(true);
       setSuccessMsg('Public share link generated successfully!');
@@ -82,7 +147,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      await apiClient.disableShareLink(invoice.id);
+      await apiClient.disableShareLink(invoice.id || (invoice as any)._id);
       setShareUrl(null);
       setIsSharingEnabled(false);
       setSuccessMsg('Public sharing access revoked successfully.');
@@ -102,7 +167,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   // Web Share API native handler
   async function handleNativeShare() {
     if (!invoice) return;
-    const shareTarget = shareUrl || invoice.document?.pdf?.secureUrl || invoice.document?.snapshot?.secureUrl;
+    const shareTarget = shareUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`;
     if (!shareTarget) return;
 
     if (navigator.share) {
@@ -114,7 +179,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         });
       } catch (_) {}
     } else {
-      alert('Native device sharing is not supported on this browser. Use copy link or download options instead.');
+      setShareModalOpen(true);
     }
   }
 
@@ -122,7 +187,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-700 mx-auto mb-4"></div>
-        <p className="text-sm text-text-secondary">Loading invoice records...</p>
+        <p className="text-sm text-text-secondary">Loading bill layout details...</p>
       </div>
     );
   }
@@ -130,411 +195,267 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   if (errorMsg || !invoice) {
     return (
       <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-sm rounded-lg font-medium">
-        {errorMsg || 'Failed to locate invoice history details.'}
+        {errorMsg || 'Failed to load billing preview.'}
       </div>
     );
   }
 
   const isDraft = invoice.status === 'DRAFT';
-  const customerName = !isDraft && invoice.customerSnapshot?.name
-    ? invoice.customerSnapshot.name
-    : 'Referenced Draft Customer';
+  const customerObj = isDraft ? selectedCustomer : invoice.customerSnapshot;
+  const businessObj = isDraft ? business : invoice.businessSnapshot;
+  
+  const logoUrl = isDraft ? activeAssets.logo?.secureUrl : invoice.assetSnapshot?.logo?.secureUrl;
+  const stampUrl = isDraft ? activeAssets.stamp?.secureUrl : invoice.assetSnapshot?.stamp?.secureUrl;
+  const signatureUrl = isDraft ? activeAssets.signature?.secureUrl : invoice.assetSnapshot?.signature?.secureUrl;
 
-  const customerPhone = !isDraft && invoice.customerSnapshot?.contact?.phone
-    ? invoice.customerSnapshot.contact.phone
-    : '';
+  const invoiceItems = invoice.items.map((it: any) => ({
+    description: it.description,
+    quantity: it.quantity,
+    unitPrice: it.unitPriceMinor / 100,
+    amount: (it.quantity * it.unitPriceMinor) / 100,
+    type: it.type,
+  }));
 
-  const customerGSTIN = !isDraft && invoice.customerSnapshot?.taxProfile?.gstin
-    ? invoice.customerSnapshot.taxProfile.gstin
-    : '';
-
-  const customerAddress = !isDraft && invoice.customerSnapshot?.address
-    ? `${invoice.customerSnapshot.address.line1 || ''}${invoice.customerSnapshot.address.line2 ? ', ' + invoice.customerSnapshot.address.line2 : ''}`
-    : '';
-
-  const businessName = !isDraft && invoice.businessSnapshot?.name
-    ? invoice.businessSnapshot.name
-    : 'Active Workspace';
-
-  const billingTerms = invoice.paymentTerms || 'Not configured';
-
-  // Check if browser has native navigator.share support
-  const isNativeShareSupported = typeof navigator !== 'undefined' && !!navigator.share;
+  const partsTotal = invoiceItems.filter((it: any) => it.type === 'PRODUCT').reduce((sum: number, it: any) => sum + it.amount, 0);
+  const laborTotal = invoiceItems.filter((it: any) => it.type === 'SERVICE').reduce((sum: number, it: any) => sum + it.amount, 0);
+  const taxTotal = invoice.totals.taxTotalMinor / 100;
+  const grandTotal = invoice.totals.grandTotalMinor / 100;
 
   return (
     <div className="space-y-6">
-      {/* Action Header */}
+      
+      {/* Top Banner Warning for Drafts */}
+      {isDraft && (
+        <div className="p-4 bg-warning-soft border border-warning-app/25 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-bold text-warning-app uppercase tracking-wider">Draft Mode Workspace</h3>
+            <p className="text-xs text-text-secondary mt-0.5">
+              This invoice is currently a draft and has no official invoice number. Finalize it to print and download.
+            </p>
+          </div>
+          <div className="flex space-x-3">
+            <Link
+              href={`/dashboard/invoices/edit/${invoice.id || (invoice as any)._id}`}
+              className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer transition"
+            >
+              Edit Draft
+            </Link>
+            <button
+              onClick={handleFinalizeBill}
+              disabled={submitLoading}
+              className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold shadow-sm transition cursor-pointer"
+            >
+              {submitLoading ? 'Finalizing...' : 'FINALIZE & GENERATE BILL'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action Header Panel */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-surface-app border border-border-app p-4 rounded-xl shadow-sm">
-        <div className="flex space-x-3">
+        <div className="flex items-center space-x-3">
           <Link
             href="/dashboard/invoices"
-            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-semibold cursor-pointer"
+            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer"
           >
-            ← Back to Bill Book
+            ← Back
           </Link>
+          {!isDraft && (
+            <>
+              <a
+                href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`}
+                download={`${invoice.invoiceNumber || 'bill'}.pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-block"
+              >
+                Download PDF
+              </a>
+              <a
+                href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`}
+                download={`${invoice.invoiceNumber || 'bill'}.png`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold cursor-pointer inline-block"
+              >
+                Download PNG
+              </a>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-3">
+          {!isDraft && invoice.paymentSummary?.status !== 'PAID' && (
+            <button
+              onClick={handleMarkPaid}
+              disabled={submitLoading}
+              className="px-4 py-2 bg-success-soft hover:bg-success-soft/80 text-success-app rounded-lg text-xs font-bold cursor-pointer transition"
+            >
+              Mark Paid
+            </button>
+          )}
+          <button
+            onClick={handleNativeShare}
+            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition"
+          >
+            Share Bill
+          </button>
           <Link
-            href={`/dashboard/invoices/preview/${invoice.id}`}
-            className="px-4 py-2 bg-success-soft hover:bg-success-soft/80 text-success-app rounded-lg text-xs font-semibold cursor-pointer"
+            href={`/dashboard/invoices/preview/${invoice.id || (invoice as any)._id}`}
+            target="_blank"
+            className="px-4 py-2 bg-success-soft hover:bg-success-soft/80 text-success-app rounded-lg text-xs font-bold cursor-pointer transition"
           >
             Open Live Print Bill
           </Link>
         </div>
-        {isDraft && (
-          <Link
-            href={`/dashboard/invoices/edit/${invoice.id}`}
-            className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-semibold cursor-pointer"
-          >
-            Edit Draft Workspace
-          </Link>
-        )}
       </div>
 
       {successMsg && (
-        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium">
+        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium animate-pulse">
           {successMsg}
         </div>
       )}
 
-      {/* Main Audit Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Core details column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Metadata Card */}
-          <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-border-app/40 pb-4">
-              <div>
-                <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Invoice Identifier</p>
-                <h2 className="text-xl font-bold text-text-primary">
-                  {invoice.invoiceNumber ? invoice.invoiceNumber : `DRAFT: #${invoice.id.slice(-6).toUpperCase()}`}
-                </h2>
-              </div>
-              <div className="flex space-x-2">
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                  invoice.status === 'DRAFT'
-                    ? 'bg-warning-soft text-warning-app'
-                    : invoice.status === 'FINALIZED'
-                    ? 'bg-success-soft text-success-app'
-                    : 'bg-danger-soft text-danger-app'
-                }`}>
-                  {invoice.status}
-                </span>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                  invoice.paymentSummary.status === 'PAID'
-                    ? 'bg-success-soft text-success-app'
-                    : invoice.paymentSummary.status === 'PARTIALLY_PAID'
-                    ? 'bg-warning-soft text-warning-app'
-                    : 'bg-danger-soft text-danger-app'
-                }`}>
-                  {invoice.paymentSummary.status === 'PARTIALLY_PAID' ? 'PARTIALLY PAID' : invoice.paymentSummary.status}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div>
-                <p className="font-bold text-text-muted text-[10px] uppercase tracking-wider mb-1">Invoice Date</p>
-                <p className="font-bold text-text-primary">
-                  {new Date(invoice.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </p>
-              </div>
-              <div>
-                <p className="font-bold text-text-muted text-[10px] uppercase tracking-wider mb-1">Payment Terms</p>
-                <p className="font-bold text-text-primary">{billingTerms}</p>
-              </div>
-              <div>
-                <p className="font-bold text-text-muted text-[10px] uppercase tracking-wider mb-1">Currency</p>
-                <p className="font-bold text-text-primary">{invoice.currency}</p>
-              </div>
-              <div>
-                <p className="font-bold text-text-muted text-[10px] uppercase tracking-wider mb-1">Grand Total</p>
-                <p className="font-bold text-primary-700">
-                  ₹{(invoice.totals.grandTotalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
-
-            {invoice.status === 'CANCELLED' && (
-              <div className="bg-danger-soft/20 border border-danger-app/20 p-4 rounded-lg space-y-1">
-                <p className="text-xs font-bold text-danger-app uppercase tracking-wider">Cancellation Audit Log</p>
-                <p className="text-sm text-text-primary font-semibold">
-                  Reason: <em>{invoice.cancellationReason || 'No reason provided'}</em>
-                </p>
-                <p className="text-[10px] text-text-secondary mt-1">
-                  Cancelled At: {invoice.cancelledAt ? new Date(invoice.cancelledAt).toLocaleString('en-IN') : '-'}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Items Summary Table */}
-          <div className="bg-surface-app border border-border-app rounded-xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-border-app/40 bg-surface-2-app/30">
-              <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Itemized Breakdown</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-surface-2-app/50 border-b border-border-app text-text-muted font-bold uppercase text-[10px] tracking-wider">
-                    <th className="py-2.5 px-6">Description</th>
-                    <th className="py-2.5 px-6 w-20 text-center">Qty</th>
-                    <th className="py-2.5 px-6 w-28 text-right">Unit Price</th>
-                    <th className="py-2.5 px-6 w-28 text-right">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-app/40 text-text-primary font-medium">
-                  {invoice.items.map((it, idx) => (
-                    <tr key={idx} className="hover:bg-surface-2-app/10">
-                      <td className="py-3 px-6 whitespace-pre-wrap">{it.description}</td>
-                      <td className="py-3 px-6 text-center font-bold">{it.quantity} {it.uom}</td>
-                      <td className="py-3 px-6 text-right">
-                        ₹{(it.unitPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 px-6 text-right font-bold">
-                        ₹{(it.lineTotalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Totals Summary */}
-            <div className="border-t border-border-app/40 p-6 bg-surface-2-app/10 flex justify-end">
-              <div className="w-72 space-y-2 text-xs">
-                <div className="flex justify-between text-text-secondary">
-                  <span>Subtotal:</span>
-                  <span>₹{(invoice.totals.subtotalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                </div>
-                {invoice.totals.discountMinor > 0 && (
-                  <div className="flex justify-between text-danger-app">
-                    <span>Discount:</span>
-                    <span>-₹{(invoice.totals.discountMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
-                {invoice.totals.taxes.map((t, idx) => (
-                  <div key={idx} className="flex justify-between text-text-secondary">
-                    <span>{t.type} ({(t.rateBps / 100).toFixed(1)}%):</span>
-                    <span>₹{(t.amountMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                ))}
-                {Math.abs(invoice.totals.roundingMinor) > 0 && (
-                  <div className="flex justify-between text-text-muted">
-                    <span>Rounding:</span>
-                    <span>
-                      {invoice.totals.roundingMinor > 0 ? '+' : ''}
-                      ₹{(invoice.totals.roundingMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-border-app/60 pt-2 text-sm font-black text-text-primary">
-                  <span>TOTAL:</span>
-                  <span className="text-primary-700">
-                    ₹{(invoice.totals.grandTotalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-border-app/40 bg-surface-2-app/30 text-[10px] space-y-1">
-              <span className="font-bold text-text-muted uppercase tracking-wider block">Amount in words:</span>
-              <p className="font-bold text-text-primary uppercase">{invoice.amountInWords}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar snapshots and document status */}
-        <div className="space-y-6">
-          {/* Documents Access & Sharing Card */}
-          <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider border-b border-border-app/40 pb-2">
-              Deliver & Share Bill
-            </h3>
-            
-            {isDraft ? (
-              <p className="text-xs text-text-muted leading-relaxed">
-                Archival export actions and sharing links become available only after finalized documents are issued.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {/* PNG Snapshot status */}
-                <div>
-                  <div className="flex justify-between items-center text-xs mb-1.5">
-                    <span className="font-bold text-text-secondary">PNG Image Snapshot</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      invoice.document?.snapshot?.status === 'READY'
-                        ? 'bg-success-soft text-success-app'
-                        : invoice.document?.snapshot?.status === 'GENERATING'
-                        ? 'bg-warning-soft text-warning-app'
-                        : 'bg-danger-soft text-danger-app'
-                    }`}>
-                      {invoice.document?.snapshot?.status || 'NOT_GENERATED'}
-                    </span>
-                  </div>
-                  {invoice.document?.snapshot?.secureUrl ? (
-                    <a
-                      href={invoice.document.snapshot.secureUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-center w-full py-1.5 bg-success-soft hover:bg-success-soft/80 text-success-app text-xs font-bold rounded-lg cursor-pointer"
-                    >
-                      View Original Image
-                    </a>
-                  ) : (
-                    <div className="text-[10px] text-text-muted italic">Image snapshot not available</div>
-                  )}
-                </div>
-
-                {/* PDF status */}
-                <div>
-                  <div className="flex justify-between items-center text-xs mb-1.5">
-                    <span className="font-bold text-text-secondary">Official PDF Copy</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      invoice.document?.pdf?.status === 'READY'
-                        ? 'bg-success-soft text-success-app'
-                        : invoice.document?.pdf?.status === 'GENERATING'
-                        ? 'bg-warning-soft text-warning-app'
-                        : 'bg-danger-soft text-danger-app'
-                    }`}>
-                      {invoice.document?.pdf?.status || 'NOT_GENERATED'}
-                    </span>
-                  </div>
-                  {invoice.document?.pdf?.secureUrl ? (
-                    <a
-                      href={invoice.document.pdf.secureUrl}
-                      download={`${invoice.invoiceNumber || 'bill'}.pdf`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-center w-full py-1.5 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 text-xs font-bold rounded-lg cursor-pointer"
-                    >
-                      Download PDF Document
-                    </a>
-                  ) : (
-                    <div className="text-[10px] text-text-muted italic">PDF document not available</div>
-                  )}
-                </div>
-
-                {/* Public Link Section */}
-                <div className="border-t border-border-app/40 pt-4 space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-text-secondary">Public sharing status</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      isSharingEnabled ? 'bg-success-soft text-success-app' : 'bg-danger-soft text-danger-app'
-                    }`}>
-                      {isSharingEnabled ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </div>
-
-                  {isSharingEnabled ? (
-                    <div className="space-y-2">
-                      {shareUrl ? (
-                        <div className="space-y-1">
-                          <input
-                            type="text"
-                            readOnly
-                            value={shareUrl}
-                            className="w-full px-2 py-1 bg-surface-2-app border border-border-app rounded text-[10px] font-semibold text-text-primary focus:outline-none"
-                          />
-                          <button
-                            onClick={handleCopyLink}
-                            className="w-full py-1 bg-primary-700 hover:bg-primary-800 text-white text-[10px] font-bold rounded cursor-pointer"
-                          >
-                            {copied ? 'Copied!' : 'Copy Public Share Link'}
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={handleGenerateShareLink}
-                          className="w-full py-1 bg-primary-700 hover:bg-primary-800 text-white text-[10px] font-bold rounded cursor-pointer"
-                        >
-                          Show/Generate Copy Link
-                        </button>
-                      )}
-
-                      <button
-                        onClick={handleRevokeShareLink}
-                        className="w-full py-1 bg-danger-soft hover:bg-danger-soft/80 text-danger-app text-[10px] font-bold rounded cursor-pointer"
-                      >
-                        Revoke Link Access
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center space-x-1.5">
-                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-wider shrink-0">Expiry Date:</label>
-                        <input
-                          type="date"
-                          value={shareExpiry}
-                          onChange={(e) => setShareExpiry(e.target.value)}
-                          className="flex-1 px-2 py-0.5 bg-surface-2-app border border-border-app rounded text-[10px] text-text-primary focus:outline-none"
-                        />
-                      </div>
-                      <button
-                        onClick={handleGenerateShareLink}
-                        className="w-full py-1.5 bg-success-soft hover:bg-success-soft/80 text-success-app text-xs font-bold rounded-lg cursor-pointer"
-                      >
-                        Enable Public Sharing
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Native Device Share Sheet */}
-                {isNativeShareSupported && (
-                  <div className="border-t border-border-app/40 pt-3">
-                    <button
-                      onClick={handleNativeShare}
-                      className="w-full py-1.5 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 text-xs font-bold rounded-lg cursor-pointer"
-                    >
-                      Share via Mobile Apps
-                    </button>
-                  </div>
-                )}
-
-                {/* Regenerate Trigger */}
-                {(!invoice.document?.snapshot?.secureUrl || !invoice.document?.pdf?.secureUrl || invoice.document?.snapshot?.status === 'FAILED') && (
-                  <button
-                    onClick={handleRetryDocuments}
-                    className="w-full py-2 bg-warning-app hover:bg-warning-app/80 text-white text-xs font-bold rounded-lg cursor-pointer"
-                  >
-                    Retry Document Generation
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Frozen Profile Snapshots */}
-          <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider border-b border-border-app/40 pb-2">
-              Historical Profiles
-            </h3>
-
-            {/* Business Snapshot */}
-            <div className="space-y-1.5 text-xs">
-              <p className="text-[9px] font-bold text-text-muted uppercase tracking-wider">Business Workspace</p>
-              <p className="font-bold text-text-primary">{businessName}</p>
-              {!isDraft && invoice.businessSnapshot?.taxProfile?.gstin && (
-                <p className="text-[10px] text-text-secondary">GSTIN: {invoice.businessSnapshot.taxProfile.gstin}</p>
-              )}
-              {!isDraft && invoice.businessSnapshot?.address && (
-                <p className="text-[10px] text-text-secondary leading-relaxed mt-1">
-                  📍 {invoice.businessSnapshot.address.line1}
-                  {invoice.businessSnapshot.address.city ? `, ${invoice.businessSnapshot.address.city}` : ''}
-                </p>
-              )}
-            </div>
-
-            {/* Customer Snapshot */}
-            <div className="space-y-1.5 text-xs pt-2 border-t border-border-app/40">
-              <p className="text-[9px] font-bold text-text-muted uppercase tracking-wider">Customer profile</p>
-              <p className="font-bold text-text-primary">{customerName}</p>
-              {customerPhone && <p className="text-[10px] text-text-secondary">📞 {customerPhone}</p>}
-              {customerGSTIN && <p className="text-[10px] text-text-secondary">GSTIN: {customerGSTIN}</p>}
-              {customerAddress && <p className="text-[10px] text-text-secondary leading-relaxed mt-1">📍 {customerAddress}</p>}
-            </div>
+      {/* Central Visual A4 Container */}
+      <div className="flex justify-center bg-surface-2-app/10 p-6 border border-border-app rounded-2xl">
+        <div ref={previewContainerRef} className="w-full relative overflow-hidden flex justify-center items-center">
+          <div
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: 'top center',
+              width: '794px',
+              height: '1123px',
+              minWidth: '794px',
+              minHeight: '1123px',
+              marginBottom: `${(scale - 1) * 1123}px`
+            }}
+            className="invoice-paper bg-white text-black border-[1.5px] border-black shadow-2xl w-[210mm] min-h-[297mm] h-[297mm] box-border relative flex flex-col justify-between select-none"
+          >
+            <InvoicePaper
+              invoice={{
+                invoiceNumber: invoice.invoiceNumber,
+                invoiceDate: invoice.invoiceDate,
+                paymentTerms: invoice.paymentTerms,
+                amountInWords: invoice.amountInWords,
+              }}
+              business={{
+                name: businessObj?.name || '',
+                legalName: businessObj?.legalName,
+                address: businessObj?.address || { line1: '' },
+                contact: businessObj?.contact || {},
+                taxProfile: businessObj?.taxProfile,
+                bankDetails: businessObj?.bankDetails,
+                invoiceTitle: businessObj?.invoiceSettings?.invoiceTitle || 'TAX INVOICE',
+              } as any}
+              customer={customerObj as any}
+              items={invoiceItems}
+              totals={{
+                partsTotal,
+                laborTotal,
+                discount: (invoice.totals.discountMinor || 0) / 100,
+                taxTotal,
+                rounding: (invoice.totals.roundingMinor || 0) / 100,
+                grandTotal,
+                subtotal: invoice.totals.subtotalMinor ? (invoice.totals.subtotalMinor / 100) : (partsTotal + laborTotal),
+              }}
+              assets={{
+                logo: logoUrl ? { secureUrl: logoUrl } : null,
+                stamp: stampUrl ? { secureUrl: stampUrl } : null,
+                signature: signatureUrl ? { secureUrl: signatureUrl } : null,
+              }}
+              isDraft={isDraft}
+            />
           </div>
         </div>
       </div>
+
+      {/* Share Configuration Drawer Modal */}
+      {shareModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border-light pb-2">
+              <h3 className="text-base font-bold text-text-primary">Share Configuration</h3>
+              <button
+                type="button"
+                onClick={() => setShareModalOpen(false)}
+                className="text-text-muted hover:text-text-primary font-bold text-xl cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs font-semibold">
+              <div className="space-y-2">
+                <label className="block text-text-secondary uppercase text-[10px]">
+                  Public Access Sharing
+                </label>
+                <div className="flex items-center justify-between">
+                  <span className="text-text-primary font-bold">
+                    {isSharingEnabled ? 'Sharing Enabled' : 'Sharing Disabled'}
+                  </span>
+                  <button
+                    onClick={isSharingEnabled ? handleRevokeShareLink : handleGenerateShareLink}
+                    className={`px-3 py-1.5 rounded-lg font-bold text-white transition ${
+                      isSharingEnabled ? 'bg-danger-app hover:bg-danger-app/80' : 'bg-primary-700 hover:bg-primary-800'
+                    }`}
+                  >
+                    {isSharingEnabled ? 'Revoke Access' : 'Enable Sharing'}
+                  </button>
+                </div>
+              </div>
+
+              {isSharingEnabled && (
+                <div className="space-y-2 pt-2 border-t border-border-light">
+                  <label className="block text-text-secondary uppercase text-[10px]">Expiry Time</label>
+                  <input
+                    type="datetime-local"
+                    value={shareExpiry}
+                    onChange={(e) => setShareExpiry(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-text-primary focus:outline-none"
+                  />
+                  <button
+                    onClick={handleGenerateShareLink}
+                    className="px-3 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-text-secondary"
+                  >
+                    Update Expiry Link
+                  </button>
+                </div>
+              )}
+
+              {shareUrl && (
+                <div className="space-y-2 pt-2 border-t border-border-light">
+                  <label className="block text-text-secondary uppercase text-[10px]">Public Sharing Link</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={shareUrl}
+                      className="flex-1 px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary select-all text-xs font-mono"
+                    />
+                    <button
+                      onClick={handleCopyLink}
+                      className="px-3 py-1.5 bg-primary-700 text-white hover:bg-primary-800 rounded-lg transition"
+                    >
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-border-app">
+              <button
+                type="button"
+                onClick={() => setShareModalOpen(false)}
+                className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

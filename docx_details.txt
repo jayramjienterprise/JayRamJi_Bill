@@ -1,0 +1,157 @@
+=== PARAGRAPHS ===
+P0: Text: 'TAX INVOICE' | Alignment: CENTER (1)
+  Run 0: Font=Arial, Size=14.0, Bold=True, Italic=False, Color=000000 | Text='TAX INVOICE'
+P1: Text: 'SOLD TO: 
+
+' | Alignment: LEFT
+  Run 0: Font=Arial, Size=10.0, Bold=True, Italic=False, Color=000000 | Text='SOLD TO: 
+
+'
+P11: Text: '          ____________________                                                                           ____________________' | Alignment: LEFT
+  Run 0: Font=Arial, Size=10.0, Bold=False, Italic=False, Color=000000 | Text='          ____________________                                                                           ____________________'
+P12: Text: '           SERVICE SUPERVISED BY 							            SIGN' | Alignment: LEFT
+  Run 0: Font=Arial, Size=8.0, Bold=False, Italic=False, Color=000000 | Text='SERVICE SUPERVISED BY 							            SIGN'
+
+=== TABLES ===
+
+Table 0 (Rows: 2, Cols: 3):
+  Row 0:
+    Cell 0: Width=None, BG=fce4d0, Texts=['Invoice No.']
+      Runs: 'Invoice No.'(sz=10.0,b=True,col=000000)
+    Cell 1: Width=None, BG=fce4d0, Texts=['Invoice Date']
+      Runs: 'Invoice Date'(sz=10.0,b=True,col=000000)
+    Cell 2: Width=None, BG=fce4d0, Texts=['Terms of Payment*']
+      Runs: 'Terms of Payment*'(sz=10.0,b=True,col=000000)
+  Row 1:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+
+Table 1 (Rows: 17, Cols: 5):
+  Row 0:
+    Cell 0: Width=None, BG=f6e0d0, Texts=['SR NO.']
+      Runs: 'SR NO.'(sz=8.5,b=True,col=None)
+    Cell 1: Width=None, BG=f6e0d0, Texts=['DESCRIPTION OF GOODS']
+      Runs: 'DESCRIPTION OF GOODS'(sz=8.5,b=True,col=None)
+    Cell 2: Width=None, BG=f6e0d0, Texts=['QTY']
+      Runs: 'QTY'(sz=8.5,b=True,col=None)
+    Cell 3: Width=None, BG=f6e0d0, Texts=['PRICE']
+      Runs: 'PRICE'(sz=8.5,b=True,col=None)
+    Cell 4: Width=None, BG=f6e0d0, Texts=['AMOUNT']
+      Runs: 'AMOUNT'(sz=8.5,b=True,col=None)
+  Row 1:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 2:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 3:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 4:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 5:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 6:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 7:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 8:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 9:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 10:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 11:
+    Cell 0: Width=None, BG=None, Texts=[]
+    Cell 1: Width=None, BG=None, Texts=[]
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 12:
+    Cell 0: Width=None, BG=None, Texts=['Total']
+      Runs: 'Total'(sz=8.5,b=None,col=None)
+    Cell 1: Width=None, BG=None, Texts=['Total']
+      Runs: 'Total'(sz=8.5,b=None,col=None)
+    Cell 2: Width=None, BG=None, Texts=[]
+    Cell 3: Width=None, BG=None, Texts=[]
+    Cell 4: Width=None, BG=None, Texts=['₹']
+      Runs: '₹'(sz=8.5,b=None,col=None)
+  Row 13:
+    Cell 0: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 1: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 2: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 3: Width=None, BG=None, Texts=['PARTS']
+      Runs: 'PARTS'(sz=8.5,b=False,col=None)
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 14:
+    Cell 0: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 1: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 2: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 3: Width=None, BG=None, Texts=['LABOR']
+      Runs: 'LABOR'(sz=8.5,b=False,col=None)
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 15:
+    Cell 0: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 1: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 2: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 3: Width=None, BG=None, Texts=['TAX']
+      Runs: 'TAX'(sz=8.5,b=False,col=None)
+    Cell 4: Width=None, BG=None, Texts=[]
+  Row 16:
+    Cell 0: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 1: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 2: Width=None, BG=None, Texts=['Amount In Words:-', 'Bank Details:-', 'AC Name:', 'AC NO:', 'Branch:', 'IFSC Code:', 'PAN NO:']
+      Runs: 'Amount In Words:-'(sz=8.5,b=True,col=None), 'Bank Details:-'(sz=8.5,b=True,col=None), 'AC Name:'(sz=8.5,b=None,col=None), 'AC NO:'(sz=8.5,b=None,col=None), 'Branch:'(sz=8.5,b=None,col=None), 'IFSC Code:'(sz=8.5,b=None,col=None), 'PAN NO:'(sz=8.5,b=None,col=None)
+    Cell 3: Width=None, BG=e7e6e6, Texts=['TOTAL']
+      Runs: 'TOTAL'(sz=8.5,b=True,col=None)
+    Cell 4: Width=None, BG=e7e6e6, Texts=['₹']
+      Runs: '₹'(sz=8.5,b=True,col=None)

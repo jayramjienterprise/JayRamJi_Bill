@@ -87,7 +87,7 @@ apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);
 
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
   res.status(200).json({
     status: 'UP',

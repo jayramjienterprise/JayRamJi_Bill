@@ -240,7 +240,7 @@ export default function CustomersPage() {
               </thead>
               <tbody className="divide-y divide-border-app text-sm">
                 {customers.map((c) => (
-                  <tr key={c.id} className="hover:bg-surface-2-app/30">
+                  <tr key={c.id || (c as any)._id} className="hover:bg-surface-2-app/30">
                     <td className="py-4 px-6 font-medium text-text-primary">{c.name}</td>
                     <td className="py-4 px-6 text-text-secondary space-y-0.5">
                       {c.contact?.phone && <p>📞 {c.contact.phone}</p>}

@@ -1,0 +1,32 @@
+--- PARAGRAPHS ---
+P0: TAX INVOICE
+P1: SOLD TO: 
+
+
+P11:           ____________________                                                                           ____________________
+P12:            SERVICE SUPERVISED BY 							            SIGN
+
+--- TABLES ---
+
+Table 0 (Rows: 2, Cols: 3):
+  Row 0: C0: Invoice No. ; C1: Invoice Date ; C2: Terms of Payment*
+  Row 1: C0:  ; C1:  ; C2: 
+
+Table 1 (Rows: 17, Cols: 5):
+  Row 0: C0: SR NO. ; C1: DESCRIPTION OF GOODS ; C2: QTY ; C3: PRICE ; C4: AMOUNT
+  Row 1: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 2: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 3: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 4: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 5: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 6: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 7: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 8: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 9: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 10: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 11: C0:  ; C1:  ; C2:  ; C3:  ; C4: 
+  Row 12: C0: Total ; C1: Total ; C2:  ; C3:  ; C4: ₹
+  Row 13: C0: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C1: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C2: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C3: PARTS ; C4: 
+  Row 14: C0: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C1: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C2: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C3: LABOR ; C4: 
+  Row 15: C0: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C1: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C2: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C3: TAX ; C4: 
+  Row 16: C0: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C1: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C2: Amount In Words:- |  | Bank Details:- | AC Name: | AC NO: | Branch: | IFSC Code: | PAN NO: ; C3: TOTAL ; C4: ₹

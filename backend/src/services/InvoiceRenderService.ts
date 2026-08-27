@@ -59,6 +59,7 @@ export interface InvoiceRenderData {
     quantity: number;
     unitPrice: number;
     amount: number;
+    type?: 'SERVICE' | 'PRODUCT';
   }>;
   totals: {
     subtotal: number;
@@ -92,52 +93,111 @@ export class InvoiceRenderService {
       year: 'numeric',
     });
 
+    const partsTotal = items.filter(it => it.type === 'PRODUCT').reduce((sum, it) => sum + it.amount, 0);
+    const laborTotal = items.filter(it => it.type === 'SERVICE').reduce((sum, it) => sum + it.amount, 0);
+
     // Populate billing item rows
     let rowsHtml = '';
     items.forEach((it) => {
       rowsHtml += `
-        <tr class="item-row">
-          <td style="text-align: center; border-right: 1px solid black; padding: 6px;">${it.serialNumber}</td>
-          <td style="border-right: 1px solid black; padding: 6px; white-space: pre-wrap;">${it.description}</td>
-          <td style="text-align: center; border-right: 1px solid black; padding: 6px;">${it.quantity}</td>
-          <td style="text-align: right; border-right: 1px solid black; padding: 6px;">${it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td style="text-align: right; padding: 6px; font-weight: bold;">${it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <tr style="height: 14.15pt;">
+          <td style="border: 1px solid black; padding: 6px; text-align: center;">${it.serialNumber}</td>
+          <td style="border: 1px solid black; padding: 6px; white-space: pre-wrap; text-align: left;">${it.description}</td>
+          <td style="border: 1px solid black; padding: 6px; text-align: center; font-weight: bold;">${it.quantity}</td>
+          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: 600;">${it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">${it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         </tr>
       `;
     });
 
     // Add padding rows to maintain visual layout height if items are few
-    if (items.length < 5) {
-      for (let i = 0; i < (5 - items.length); i++) {
-        rowsHtml += `
-          <tr class="padding-row" style="height: 24px;">
-            <td style="border-right: 1px solid black;"></td>
-            <td style="border-right: 1px solid black;"></td>
-            <td style="border-right: 1px solid black;"></td>
-            <td style="border-right: 1px solid black;"></td>
-            <td></td>
-          </tr>
-        `;
-      }
+    const paddingCount = Math.max(0, 11 - items.length);
+    for (let i = 0; i < paddingCount; i++) {
+      rowsHtml += `
+        <tr style="height: 14.15pt;">
+          <td style="border: 1px solid black;"></td>
+          <td style="border: 1px solid black;"></td>
+          <td style="border: 1px solid black;"></td>
+          <td style="border: 1px solid black;"></td>
+          <td style="border: 1px solid black;"></td>
+        </tr>
+      `;
     }
 
-    // Populate taxes breakdown
-    let taxesHtml = '';
-    totals.taxes.forEach((t) => {
-      taxesHtml += `
-        <div class="summary-line">
-          <span>${t.type} (${(t.rateBps / 100).toFixed(1)}%):</span>
-          <span>₹${t.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-        </div>
+    // Subtotal Row
+    rowsHtml += `
+      <tr style="font-weight: bold; height: 14.15pt;">
+        <td colspan="2" style="border: 1px solid black; padding: 6px; text-align: left;">Total</td>
+        <td style="border: 1px solid black;"></td>
+        <td style="border: 1px solid black;"></td>
+        <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">₹${totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    `;
+
+    // Dynamic Breakdown Rows
+    const breakdownRows: Array<{ label: string; amount: number; isTotal?: boolean }> = [
+      { label: 'PARTS', amount: partsTotal },
+      { label: 'LABOR', amount: laborTotal }
+    ];
+    if (totals.discount > 0) {
+      breakdownRows.push({ label: 'DISCOUNT', amount: -totals.discount });
+    }
+    breakdownRows.push({ label: 'TAX', amount: totals.taxTotal });
+    if (Math.abs(totals.rounding) > 0) {
+      breakdownRows.push({ label: 'ROUNDING', amount: totals.rounding });
+    }
+    breakdownRows.push({ label: 'TOTAL', amount: totals.grandTotal, isTotal: true });
+
+    // Merged Left block with the first breakdown row
+    rowsHtml += `
+      <tr style="vertical-align: top;">
+        <td colspan="3" rowspan="${breakdownRows.length}" style="border: 1px solid black; padding: 8px; text-align: left; text-transform: uppercase;">
+          <div>
+            <span style="font-weight: bold; font-size: 8.5pt;">Amount In Words:-</span>
+            <p style="font-weight: bold; font-size: 8.5pt; margin: 2px 0 0 0;">${invoice.amountInWords}</p>
+          </div>
+          <div style="height: 10px;"></div>
+          <div style="font-size: 8.5pt; line-height: 1.3;">
+            <span style="font-weight: bold; display: block; margin-bottom: 4px;">Bank Details:-</span>
+            <div><span style="font-weight: bold;">AC Name:</span> ${business.bankDetails?.accountHolderName || '-'}</div>
+            <div><span style="font-weight: bold;">AC NO:</span> ${business.bankDetails?.accountNumber || '-'}</div>
+            <div><span style="font-weight: bold;">Branch:</span> ${business.bankDetails?.branch || '-'}</div>
+            <div><span style="font-weight: bold;">IFSC Code:</span> ${business.bankDetails?.ifsc || '-'}</div>
+            <div><span style="font-weight: bold;">PAN NO:</span> ${business.taxProfile?.pan || '-'}</div>
+          </div>
+        </td>
+        <td style="border: 1px solid black; padding: 6px; text-align: left; font-size: 8.5pt; font-weight: 600;">
+          ${breakdownRows[0].label}
+        </td>
+        <td style="border: 1px solid black; padding: 6px; text-align: right; font-size: 8.5pt; font-weight: bold;">
+          ₹${breakdownRows[0].amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        </td>
+      </tr>
+    `;
+
+    // Remaining breakdown rows
+    breakdownRows.slice(1).forEach((row) => {
+      rowsHtml += `
+        <tr style="vertical-align: middle; ${row.isTotal ? 'background-color: #e7e6e6;' : ''}">
+          <td style="border: 1px solid black; padding: 6px; text-align: left; font-size: 8.5pt; ${row.isTotal ? 'font-weight: bold;' : 'font-weight: 600;'}">
+            ${row.label}
+          </td>
+          <td style="border: 1px solid black; padding: 6px; text-align: right; font-size: 8.5pt; font-weight: bold;">
+            ₹${row.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </td>
+        </tr>
       `;
     });
 
-    // Logo image rendering logic
-    const logoHtml = assets.logo?.secureUrl
-      ? `<img src="${assets.logo.secureUrl}" class="logo" />`
-      : `<div class="logo-placeholder">No Logo</div>`;
+    const isJayRamJi = business.name.toUpperCase().includes('JAY RAMJI') || 
+                       (business.legalName && business.legalName.toUpperCase().includes('JAY RAMJI'));
 
-    // Stamp & signature overlays
+    const sloganHtml = isJayRamJi ? `<p style="font-size: 10.5pt; font-weight: bold; margin: 0; margin-top: 2px;">YOUR SATISFACTION, OUR SUCCESS.</p>` : '';
+
+    const logoHtml = assets.logo?.secureUrl
+      ? `<img src="${assets.logo.secureUrl}" style="max-height: 20mm; max-width: 100%; object-fit: contain;" />`
+      : `<div style="width: 24mm; height: 16mm; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #999; font-weight: bold;">LOGO</div>`;
+
     const signatureHtml = assets.signature?.secureUrl
       ? `<img src="${assets.signature.secureUrl}" class="overlay-signature" />`
       : '';
@@ -145,6 +205,11 @@ export class InvoiceRenderService {
       ? `<img src="${assets.stamp.secureUrl}" class="overlay-stamp" />`
       : '';
 
+    const businessPhoneStr = business.contact?.phone ? `Contact No.: ${business.contact.phone}` : '';
+    const businessEmailStr = business.contact?.email ? `Email: ${business.contact.email}` : '';
+    const businessGstinStr = business.taxProfile?.gstin ? `GSTIN: ${business.taxProfile.gstin}` : '';
+
+    // Render HTML template
     return `
       <!DOCTYPE html>
       <html>
@@ -153,7 +218,7 @@ export class InvoiceRenderService {
         <title>Tax Invoice</title>
         <style>
           body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
             margin: 0;
             padding: 0;
             background-color: white;
@@ -163,402 +228,267 @@ export class InvoiceRenderService {
           .invoice-paper {
             width: 210mm;
             height: 297mm;
-            padding: 15mm;
+            padding: 10mm 17mm 15mm 17mm;
             box-sizing: border-box;
             background-color: white;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            border: 1.5px solid black;
           }
-          .header-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 2px solid black;
-            padding-bottom: 12px;
-          }
-          .header-left {
-            display: flex;
-            align-items: center;
-          }
-          .logo {
-            width: 64px;
-            height: 64px;
-            object-fit: contain;
-            margin-right: 16px;
-          }
-          .logo-placeholder {
-            width: 64px;
-            height: 64px;
-            border: 1px dashed #ccc;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            color: #999;
-            margin-right: 16px;
-          }
-          .business-title {
-            font-size: 20px;
-            font-weight: 900;
-            text-transform: uppercase;
-            margin: 0;
-            letter-spacing: 0.5px;
-          }
-          .business-details {
-            font-size: 10px;
-            color: #444;
-            margin: 4px 0 0 0;
-            line-height: 1.4;
-          }
-          .header-right {
-            text-align: right;
-          }
-          .invoice-title {
-            font-size: 18px;
-            font-weight: 900;
-            text-transform: uppercase;
-            margin: 0;
-            border-bottom: 2px solid black;
-            padding-bottom: 4px;
-            letter-spacing: 1px;
-          }
-          .business-gstin {
-            font-size: 10px;
-            font-weight: bold;
-            margin-top: 8px;
-          }
-          .grid-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 16px;
-          }
-          .info-card {
-            border: 1px solid black;
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 11px;
-          }
-          .card-title {
-            font-size: 10px;
-            font-weight: bold;
-            color: #666;
-            text-transform: uppercase;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 4px;
-            margin: 0 0 6px 0;
-            letter-spacing: 0.5px;
-          }
-          .customer-name {
-            font-size: 13px;
-            font-weight: bold;
-            margin: 0 0 4px 0;
-          }
-          .customer-details {
-            margin: 0;
-            color: #444;
-            line-height: 1.4;
-          }
-          .meta-table {
+          .header-grid-table {
             width: 100%;
             border-collapse: collapse;
+            border-bottom: 1px solid black;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
           }
-          .meta-label {
-            font-weight: bold;
-            color: #666;
-            padding: 2px 0;
+          .header-grid-table td {
+            border: none;
+            padding: 0;
+            vertical-align: middle;
+          }
+          .business-title-centered {
+            font-size: 26pt;
+            font-weight: 900;
+            text-transform: uppercase;
+            margin: 0;
+            letter-spacing: 1px;
+            line-height: 1.1;
+          }
+          .business-branding-cell {
+            text-align: center;
+            width: 75%;
+          }
+          .logo-cell {
+            width: 25%;
             text-align: left;
           }
-          .meta-val {
+          .tax-invoice-centered {
+            font-size: 14pt;
             font-weight: bold;
-            text-align: right;
-            padding: 2px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+            margin-bottom: 8px;
+            line-height: 1.2;
           }
-          .items-container {
+          .sold-to-block {
+            text-align: left;
+            margin-bottom: 8px;
+          }
+          .sold-to-title {
+            font-size: 10pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 0 0 4px 0;
+          }
+          .customer-details-box {
+            font-size: 10pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            padding-left: 4px;
+            margin: 0;
+            line-height: 1.3;
+          }
+          .customer-details-box p {
+            font-weight: normal;
+            font-size: 9pt;
+            margin: 2px 0 0 0;
+          }
+          .metadata-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
             border: 1px solid black;
-            border-radius: 4px;
-            margin-top: 16px;
-            overflow: hidden;
+            font-size: 10pt;
+            font-weight: bold;
+          }
+          .metadata-table th {
+            border-right: 1px solid black;
+            border-bottom: 1px solid black;
+            padding: 4px 8px;
+            text-align: left;
+            font-weight: bold;
+            background-color: #fce4d0;
+            text-transform: uppercase;
+          }
+          .metadata-table td {
+            border-right: 1px solid black;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: bold;
+            text-transform: uppercase;
           }
           .items-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 11px;
+            font-size: 8.5pt;
+            border: 1px solid black;
+            margin-bottom: 8px;
           }
           .items-table th {
-            background-color: #f3f4f6;
+            background-color: #f6e0d0;
             border-bottom: 1px solid black;
-            padding: 8px;
+            border-right: 1px solid black;
+            padding: 4px 8px;
             font-weight: bold;
             text-align: left;
             text-transform: uppercase;
-            font-size: 9px;
-          }
-          .items-table th.border-r {
-            border-right: 1px solid black;
           }
           .items-table td {
-            padding: 6px 8px;
-          }
-          .item-row {
-            border-bottom: 1px solid #eee;
-          }
-          .item-row td {
-            font-size: 10px;
-          }
-          .financials-grid {
-            display: grid;
-            grid-template-columns: 3fr 2fr;
-            gap: 16px;
-            margin-top: 16px;
-          }
-          .bank-card {
-            border: 1px solid black;
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 10px;
-            line-height: 1.4;
-          }
-          .bank-title {
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #666;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 4px;
-            margin: 0 0 6px 0;
-          }
-          .totals-card {
-            border: 1px solid black;
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-          }
-          .summary-line {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #444;
-            margin-bottom: 4px;
-          }
-          .grand-total-line {
-            border-top: 1px solid black;
-            padding-top: 6px;
-            display: flex;
-            justify-content: space-between;
-            font-weight: 900;
-            font-size: 13px;
-          }
-          .words-card {
-            border: 1px solid black;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 16px;
-            font-size: 10px;
-          }
-          .words-title {
-            font-weight: bold;
-            color: #666;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-          }
-          .words-val {
-            font-weight: bold;
-            text-transform: uppercase;
+            padding: 4px 8px;
           }
           .footer-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             font-size: 10px;
+            margin-top: 15px;
           }
           .sign-box {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            height: 90px;
+            height: 85px;
+            width: 50%;
           }
           .sign-box.right {
             align-items: flex-end;
             position: relative;
+            text-align: right;
           }
           .sign-title {
             font-weight: bold;
-            color: #666;
+            color: black;
             text-transform: uppercase;
+            font-size: 8.5pt;
           }
           .line {
             border-bottom: 1px solid black;
             width: 180px;
-            margin-top: 30px;
+            margin-top: auto;
           }
           .sign-subtitle {
-            margin-top: 4px;
+            margin-top: 6px;
+            font-size: 8pt;
+            font-weight: bold;
+            color: #666;
+            text-transform: uppercase;
           }
           .overlay-container {
             display: flex;
             align-items: center;
+            justify-content: center;
             position: absolute;
-            right: 0;
-            bottom: 15px;
+            right: 32px;
+            bottom: 16px;
             pointer-events: none;
+            width: 112px;
+            height: 112px;
           }
           .overlay-signature {
             height: 48px;
             width: 96px;
             object-fit: contain;
             opacity: 0.85;
-            margin-right: -20px;
+            position: absolute;
+            z-index: 2;
           }
           .overlay-stamp {
-            height: 64px;
-            width: 64px;
+            height: 96px;
+            width: 96px;
             object-fit: contain;
-            opacity: 0.75;
+            opacity: 0.7;
+            position: absolute;
+            z-index: 1;
+            transform: rotate(-5deg);
           }
         </style>
       </head>
       <body>
         <div class="invoice-paper">
           <div>
-            <!-- Header -->
-            <div class="header-container">
-              <div class="header-left">
-                ${logoHtml}
-                <div>
-                  <h1 class="business-title">${business.name}</h1>
-                  <p class="business-details">
-                    ${business.address.line1 || ''}${business.address.line2 ? ', ' + business.address.line2 : ''}<br/>
-                    ${business.address.city || ''}${business.address.state ? ', ' + business.address.state : ''}${business.address.postalCode ? ' - ' + business.address.postalCode : ''}<br/>
-                    ${business.contact.phone ? 'Mo: ' + business.contact.phone : ''}
-                  </p>
-                </div>
-              </div>
-              <div class="header-right">
-                <h2 class="invoice-title">${business.invoiceTitle}</h2>
-                ${business.taxProfile?.gstin ? `<div class="business-gstin">GSTIN: ${business.taxProfile.gstin}</div>` : ''}
+            <!-- Header Table -->
+            <table class="header-grid-table">
+              <tr>
+                <td class="logo-cell">
+                  ${logoHtml}
+                </td>
+                <td class="business-branding-cell">
+                  <h1 class="business-title-centered">${business.name}</h1>
+                  ${sloganHtml}
+                  <p style="font-size: 9pt; font-weight: bold; margin: 4px 0 0 0; text-transform: uppercase;">Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421</p>
+                  <p style="font-size: 9pt; font-weight: bold; margin: 2px 0 0 0;">${businessPhoneStr} ${businessEmailStr} ${businessGstinStr && `| ${businessGstinStr}`}</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Title -->
+            <div class="tax-invoice-centered">${business.invoiceTitle || 'TAX INVOICE'}</div>
+
+            <!-- Sold To -->
+            <div class="sold-to-block">
+              <h4 class="sold-to-title">SOLD TO:</h4>
+              <div class="customer-details-box">
+                ${customer.name}
+                ${customer.address?.line1 ? `<p>${customer.address.line1}</p>` : ''}
+                ${customer.address?.line2 ? `<p>${customer.address.line2}</p>` : ''}
+                ${(customer.address?.city || customer.address?.state) ? `<p>${[customer.address.city, customer.address.state].filter(Boolean).join(', ')}${customer.address?.postalCode ? ' - ' + customer.address.postalCode : ''}</p>` : ''}
+                ${customer.contact?.phone ? `<p>Mo: ${customer.contact.phone}</p>` : ''}
+                ${customer.taxProfile?.gstin ? `<p style="font-weight: bold; font-size: 9.5pt; margin-top: 4px;">GSTIN: ${customer.taxProfile.gstin}</p>` : ''}
               </div>
             </div>
 
-            <!-- Customer & Meta -->
-            <div class="grid-info">
-              <div class="info-card">
-                <h3 class="card-title">SOLD TO:</h3>
-                <h4 class="customer-name">${customer.name}</h4>
-                <p class="customer-details">
-                  ${customer.address?.line1 || ''}${customer.address?.line2 ? '<br/>' + customer.address.line2 : ''}<br/>
-                  ${[customer.address?.city, customer.address?.state].filter(Boolean).join(', ')}${customer.address?.postalCode ? ' - ' + customer.address.postalCode : ''}<br/>
-                  ${customer.contact?.phone ? 'Mo: ' + customer.contact.phone : ''}
-                  ${customer.taxProfile?.gstin ? `<br/><strong>GSTIN: ${customer.taxProfile.gstin}</strong>` : ''}
-                </p>
-              </div>
-
-              <div class="info-card" style="display: flex; flex-direction: column; justify-content: space-between;">
-                <div>
-                  <h3 class="card-title">Invoice Details</h3>
-                  <table class="meta-table">
-                    <tr>
-                      <td class="meta-label">Invoice No:</td>
-                      <td class="meta-val">${invoice.invoiceNumber || '#' + invoice.id.slice(-6).toUpperCase()}</td>
-                    </tr>
-                    <tr>
-                      <td class="meta-label">Invoice Date:</td>
-                      <td class="meta-val">${formattedDate}</td>
-                    </tr>
-                    ${invoice.paymentTerms ? `
-                      <tr>
-                        <td class="meta-label">Payment Terms:</td>
-                        <td class="meta-val">${invoice.paymentTerms}</td>
-                      </tr>
-                    ` : ''}
-                  </table>
-                </div>
-              </div>
-            </div>
+            <!-- Metadata Table -->
+            <table class="metadata-table">
+              <thead>
+                <tr>
+                  <th style="width: 21.6%;">Invoice No.</th>
+                  <th style="width: 25.5%;">Invoice Date</th>
+                  <th style="width: 52.9%;">Terms of Payment*</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>${invoice.invoiceNumber || 'DRAFT'}</td>
+                  <td>${formattedDate}</td>
+                  <td>${invoice.paymentTerms || 'IMMEDIATE BILLING'}</td>
+                </tr>
+              </tbody>
+            </table>
 
             <!-- Items Table -->
-            <div class="items-container">
-              <table class="items-table">
-                <thead>
-                  <tr>
-                    <th class="border-r" style="width: 40px; text-align: center;">SR.</th>
-                    <th class="border-r">DESCRIPTION OF GOODS</th>
-                    <th class="border-r" style="width: 50px; text-align: center;">QTY</th>
-                    <th class="border-r" style="width: 90px; text-align: right;">PRICE (₹)</th>
-                    <th style="width: 100px; text-align: right;">AMOUNT (₹)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${rowsHtml}
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Financials grid -->
-            <div class="financials-grid">
-              <div class="bank-card">
-                <h3 class="bank-title">Bank Details</h3>
-                <div><strong>A/C Name:</strong> ${business.bankDetails?.accountHolderName || '-'}</div>
-                <div><strong>Bank Name:</strong> ${business.bankDetails?.bankName || '-'}</div>
-                <div><strong>A/C No:</strong> ${business.bankDetails?.accountNumber || '-'}</div>
-                <div><strong>IFSC Code:</strong> ${business.bankDetails?.ifsc || '-'}</div>
-                <div style="margin-top: 4px;"><strong>PAN NO:</strong> ${business.taxProfile?.pan || '-'}</div>
-              </div>
-
-              <div class="totals-card">
-                <div style="width: 100%;">
-                  <div class="summary-line">
-                    <span>Subtotal:</span>
-                    <span>₹${totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                  ${totals.discount > 0 ? `
-                    <div class="summary-line" style="color: #b91c1c;">
-                      <span>Discount:</span>
-                      <span>-₹${totals.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  ` : ''}
-                  ${taxesHtml}
-                  ${Math.abs(totals.rounding) > 0 ? `
-                    <div class="summary-line" style="color: #999;">
-                      <span>Rounding:</span>
-                      <span>${totals.rounding > 0 ? '+' : ''}₹${totals.rounding.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  ` : ''}
-                </div>
-                <div class="grand-total-line">
-                  <span>TOTAL:</span>
-                  <span>₹${totals.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Amount in words -->
-            <div class="words-card">
-              <div class="words-title">Amount In Words:</div>
-              <div class="words-val">${invoice.amountInWords}</div>
-            </div>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 7.3%; text-align: center;">SR NO.</th>
+                  <th style="width: 43.8%;">DESCRIPTION OF GOODS</th>
+                  <th style="width: 8.9%; text-align: center;">QTY</th>
+                  <th style="width: 20.0%; text-align: right;">PRICE</th>
+                  <th style="width: 20.0%; text-align: right; border-right: none;">AMOUNT</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
           </div>
 
-          <!-- Footer signatory block -->
-          <div class="footer-container">
-            <div class="sign-box">
-              <span class="sign-title">Service Supervised By:</span>
+          <!-- Footer Signatures -->
+          <div class="footer-container" style="align-items: flex-end;">
+            <div class="sign-box" style="justify-content: flex-end;">
               <div class="line"></div>
               <span class="sign-subtitle">Supervisor Name / Designation</span>
             </div>
 
-            <div class="sign-box right">
-              <span class="sign-title">Authorized Signatory</span>
-              <div class="overlay-container">
+            <div class="sign-box right" style="justify-content: flex-end;">
+              <div class="overlay-container" style="bottom: 12px;">
                 ${signatureHtml}
                 ${stampHtml}
               </div>
               <div class="line"></div>
-              <span class="sign-subtitle" style="font-weight: bold;">For ${business.name}</span>
+              <span class="sign-subtitle">Authorized Signatory</span>
             </div>
           </div>
         </div>

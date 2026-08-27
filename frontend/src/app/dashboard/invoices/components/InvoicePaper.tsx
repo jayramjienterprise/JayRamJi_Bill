@@ -1,0 +1,407 @@
+import React from 'react';
+
+export interface InvoiceItem {
+  serialNumber?: number;
+  description: string;
+  quantity: number;
+  unitPrice: number; // float (Rupees)
+  amount: number; // float (Rupees)
+  type?: 'PRODUCT' | 'SERVICE';
+}
+
+export interface InvoiceTotals {
+  partsTotal: number; // float
+  laborTotal: number; // float
+  discount: number; // float (positive value if discount applied)
+  taxTotal: number; // float
+  rounding: number; // float
+  grandTotal: number; // float
+  subtotal: number; // float
+}
+
+export interface InvoicePaperProps {
+  invoice: {
+    invoiceNumber: string | null;
+    invoiceDate: string | Date;
+    paymentTerms: string | null;
+    amountInWords: string;
+  };
+  business: {
+    name: string;
+    legalName?: string | null;
+    address: {
+      line1: string;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      country?: string;
+    };
+    contact: {
+      phone?: string | null;
+      email?: string | null;
+    };
+    taxProfile?: {
+      gstin?: string | null;
+      pan?: string | null;
+    } | null;
+    bankDetails?: {
+      bankName?: string | null;
+      accountHolderName?: string | null;
+      accountNumber?: string | null;
+      ifsc?: string | null;
+      branch?: string | null;
+    } | null;
+    invoiceTitle?: string;
+  };
+  customer: {
+    name: string;
+    address?: {
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+    } | null;
+    contact?: {
+      phone?: string | null;
+    } | null;
+    taxProfile?: {
+      gstin?: string | null;
+    } | null;
+  };
+  items: InvoiceItem[];
+  totals: InvoiceTotals;
+  assets: {
+    logo?: { secureUrl: string } | null;
+    stamp?: { secureUrl: string } | null;
+    signature?: { secureUrl: string } | null;
+  };
+  isDraft?: boolean;
+}
+
+export default function InvoicePaper({
+  invoice,
+  business,
+  customer,
+  items,
+  totals,
+  assets,
+  isDraft = false,
+}: InvoicePaperProps) {
+  if (!business || !invoice) {
+    return (
+      <div className="w-full h-full min-h-[297mm] flex items-center justify-center bg-white text-gray-500 text-sm">
+        Loading preview...
+      </div>
+    );
+  }
+
+  // Format invoice date
+  const formattedDate = new Date(invoice.invoiceDate).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  // Business address lines
+  const businessAddrLines = [
+    business.address?.line1,
+    business.address?.line2,
+    business.address?.city,
+    business.address?.state,
+    business.address?.postalCode ? `${business.address.state}-${business.address.postalCode}` : business.address?.state,
+  ].filter(Boolean);
+  
+  const businessAddrStr = businessAddrLines.join(', ');
+  const businessPhoneStr = business.contact?.phone ? `Contact No.: ${business.contact.phone}` : '';
+  const businessEmailStr = business.contact?.email ? `Email: ${business.contact.email}` : '';
+  const businessGstinStr = business.taxProfile?.gstin ? `GSTIN: ${business.taxProfile.gstin}` : '';
+
+  // Determine item list with serial numbers
+  const displayItems = items.map((it, idx) => ({
+    ...it,
+    serialNumber: idx + 1,
+  }));
+
+  // Table 1 requires exactly 11 item rows.
+  // Pad with empty rows if items.length < 11.
+  const paddingRowsCount = Math.max(0, 11 - displayItems.length);
+
+  // Dynamic breakdown rows for the totals card on the right
+  const breakdownRows: Array<{ label: string; amount: number; isTotal?: boolean }> = [
+    { label: 'PARTS', amount: totals.partsTotal },
+    { label: 'LABOR', amount: totals.laborTotal },
+  ];
+
+  if (totals.discount > 0) {
+    breakdownRows.push({ label: 'DISCOUNT', amount: -totals.discount });
+  }
+
+  breakdownRows.push({ label: 'TAX', amount: totals.taxTotal });
+
+  if (Math.abs(totals.rounding) > 0) {
+    breakdownRows.push({ label: 'ROUNDING', amount: totals.rounding });
+  }
+
+  breakdownRows.push({ label: 'TOTAL', amount: totals.grandTotal, isTotal: true });
+
+  const isJayRamJi = business.name.toUpperCase().includes('JAY RAMJI') || 
+                     (business.legalName && business.legalName.toUpperCase().includes('JAY RAMJI'));
+
+  return (
+    <div 
+      className="bg-white text-black font-['Arial',_Helvetica,_sans-serif] relative flex flex-col justify-between w-full h-full box-border"
+      style={{
+        padding: '10mm 17mm 15mm 17mm',
+        fontSize: '8.5pt',
+        lineHeight: '1.2',
+      }}
+    >
+      <div>
+        {/* 1. Header Section - 1x2 layout grid mimicking DOCX Header Table */}
+        <div className="grid grid-cols-12 gap-4 items-center border-b border-black pb-2 mb-2">
+          {/* Column 1: Logo */}
+          <div className="col-span-3 flex justify-start items-center">
+            {assets?.logo?.secureUrl ? (
+              <img
+                src={assets.logo.secureUrl}
+                alt="Business Logo"
+                className="max-h-20 max-w-full object-contain"
+              />
+            ) : (
+              <div className="w-24 h-16 border-2 border-dashed border-gray-300 flex items-center justify-center text-[10px] text-gray-400 font-bold">
+                LOGO
+              </div>
+            )}
+          </div>
+          
+          {/* Column 2: Centered Business branding */}
+          <div className="col-span-9 text-center space-y-0.5">
+            <h1 className="text-[26pt] font-black uppercase text-black leading-none tracking-wide">
+              {business.name}
+            </h1>
+            {isJayRamJi && (
+              <p className="text-[10.5pt] font-bold text-black leading-tight">
+                YOUR SATISFACTION, OUR SUCCESS.
+              </p>
+            )}
+            <p className="text-[9pt] font-bold text-black uppercase leading-tight">
+              Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421
+            </p>
+            <p className="text-[9pt] font-bold text-black leading-tight">
+              {businessPhoneStr} {businessEmailStr} {businessGstinStr && `| ${businessGstinStr}`}
+            </p>
+          </div>
+        </div>
+
+        {/* 2. Document Title */}
+        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mb-2 leading-none">
+          {business.invoiceTitle || 'TAX INVOICE'}
+        </div>
+
+        {/* 3. Sold To Section */}
+        <div className="mb-2 text-left">
+          <span className="font-bold text-[10pt] text-black block leading-tight">
+            SOLD TO:
+          </span>
+          <div className="text-[10pt] text-black font-bold uppercase mt-1 leading-normal pl-1 space-y-0.5">
+            <h3>{customer.name}</h3>
+            {customer.address?.line1 && <p className="font-normal text-[9pt]">{customer.address.line1}</p>}
+            {customer.address?.line2 && <p className="font-normal text-[9pt]">{customer.address.line2}</p>}
+            {(customer.address?.city || customer.address?.state) && (
+              <p className="font-normal text-[9pt]">
+                {[customer.address.city, customer.address.state].filter(Boolean).join(', ')}
+                {customer.address?.postalCode ? ` - ${customer.address.postalCode}` : ''}
+              </p>
+            )}
+            {customer.contact?.phone && <p className="font-normal text-[9pt]">Mo: {customer.contact.phone}</p>}
+            {customer.taxProfile?.gstin && (
+              <p className="font-bold text-[9.5pt] mt-1">GSTIN: {customer.taxProfile.gstin}</p>
+            )}
+          </div>
+        </div>
+
+        {/* 4. Metadata Table - exactly 3 columns matching DOCX Table 0 */}
+        <div className="w-full mb-2">
+          <table className="w-full border-collapse border border-black text-[10pt] font-bold">
+            <thead>
+              <tr className="bg-[#fce4d0] border-b border-black">
+                <th className="py-1 px-2 border-r border-black text-left w-[21.6%] font-bold uppercase">Invoice No.</th>
+                <th className="py-1 px-2 border-r border-black text-left w-[25.5%] font-bold uppercase">Invoice Date</th>
+                <th className="py-1 px-2 text-left w-[52.9%] font-bold uppercase">Terms of Payment*</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-black text-black font-bold">
+                <td className="py-1 px-2 border-r border-black uppercase">
+                  {isDraft ? 'DRAFT' : (invoice.invoiceNumber || 'DRAFT')}
+                </td>
+                <td className="py-1 px-2 border-r border-black">
+                  {formattedDate}
+                </td>
+                <td className="py-1 px-2 uppercase">
+                  {invoice.paymentTerms || 'IMMEDIATE BILLING'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 5. Items Table - Table 1 matching DOCX width ratios & spacing */}
+        <div className="w-full mb-2">
+          <table className="w-full border-collapse border border-black text-[8.5pt]">
+            <thead>
+              <tr className="bg-[#f6e0d0] border-b border-black font-bold uppercase text-black">
+                <th className="py-1 px-2 border-r border-black text-center w-[7.3%]">SR NO.</th>
+                <th className="py-1 px-2 border-r border-black text-left w-[43.8%]">DESCRIPTION OF GOODS</th>
+                <th className="py-1 px-2 border-r border-black text-center w-[8.9%]">QTY</th>
+                <th className="py-1 px-2 border-r border-black text-right w-[20.0%]">PRICE</th>
+                <th className="py-1 px-2 text-right w-[20.0%]">AMOUNT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Actual line items */}
+              {displayItems.map((it) => (
+                <tr key={it.serialNumber} className="border-b border-black font-medium text-black h-[14.15pt]">
+                  <td className="py-1 px-2 border-r border-black text-center">{it.serialNumber}</td>
+                  <td className="py-1 px-2 border-r border-black uppercase whitespace-pre-wrap">{it.description}</td>
+                  <td className="py-1 px-2 border-r border-black text-center font-bold">{it.quantity}</td>
+                  <td className="py-1 px-2 border-r border-black text-right font-semibold">
+                    {it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-1 px-2 text-right font-bold">
+                    {it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+              
+              {/* Padding rows to maintain exact A4 height layout */}
+              {paddingRowsCount > 0 &&
+                Array.from({ length: paddingRowsCount }).map((_, i) => (
+                  <tr key={`pad-${i}`} className="border-b border-black h-[14.15pt]">
+                    <td className="border-r border-black"></td>
+                    <td className="border-r border-black"></td>
+                    <td className="border-r border-black"></td>
+                    <td className="border-r border-black"></td>
+                    <td></td>
+                  </tr>
+                ))}
+
+              {/* Subtotal Row */}
+              <tr className="border-b border-black font-bold h-[14.15pt]">
+                <td colSpan={2} className="py-1 px-2 border-r border-black text-left font-bold">
+                  Total
+                </td>
+                <td className="border-r border-black"></td>
+                <td className="border-r border-black"></td>
+                <td className="py-1 px-2 text-right font-bold">
+                  ₹{totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+              </tr>
+
+              {/* Dynamic Footer section row details */}
+              <tr className="align-top">
+                {/* Column 0,1,2: Bank Details & Amount in Words merged block */}
+                <td 
+                  colSpan={3} 
+                  rowSpan={breakdownRows.length} 
+                  className="p-2 border-r border-black border-b border-black text-left uppercase space-y-1 select-text"
+                >
+                  <div>
+                    <span className="font-bold text-[8.5pt]">Amount In Words:-</span>
+                    <p className="font-bold text-[8.5pt] mt-0.5">{invoice.amountInWords}</p>
+                  </div>
+                  <div className="h-2"></div>
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-[8.5pt] block mb-1">Bank Details:-</span>
+                    <p><span className="font-bold text-black">AC Name:</span> {business.bankDetails?.accountHolderName || '-'}</p>
+                    <p><span className="font-bold text-black">AC NO:</span> {business.bankDetails?.accountNumber || '-'}</p>
+                    <p><span className="font-bold text-black">Branch:</span> {business.bankDetails?.branch || '-'}</p>
+                    <p><span className="font-bold text-black">IFSC Code:</span> {business.bankDetails?.ifsc || '-'}</p>
+                    <p><span className="font-bold text-black">PAN NO:</span> {business.taxProfile?.pan || '-'}</p>
+                  </div>
+                </td>
+
+                {/* Column 3: First breakdown label */}
+                <td className="py-1 px-2 border-r border-black border-b border-black text-left font-semibold">
+                  {breakdownRows[0].label}
+                </td>
+                {/* Column 4: First breakdown amount */}
+                <td className="py-1 px-2 border-b border-black text-right font-bold">
+                  ₹{breakdownRows[0].amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+              </tr>
+
+              {/* Columns 3 and 4: Remaining breakdown rows */}
+              {breakdownRows.slice(1).map((row, idx) => (
+                <tr 
+                  key={idx}
+                  className="align-middle"
+                  style={{
+                    backgroundColor: row.isTotal ? '#e7e6e6' : 'transparent',
+                  }}
+                >
+                  {/* Column 3 */}
+                  <td 
+                    className="py-1 px-2 border-r border-black border-b border-black text-left"
+                    style={{
+                      fontWeight: row.isTotal ? 'bold' : '600',
+                    }}
+                  >
+                    {row.label}
+                  </td>
+                  {/* Column 4 */}
+                  <td className="py-1 px-2 border-b border-black text-right font-bold">
+                    ₹{row.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 6. Signatory and Supervision Footer Block */}
+      <div>
+        <div className="flex justify-between items-center text-[10px] select-none">
+          {/* Left Signatory */}
+          <div className="flex flex-col justify-end h-[85px] w-1/2">
+            <div className="border-b border-black w-48"></div>
+            <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase">
+              Supervisor Name / Designation
+            </span>
+          </div>
+
+          {/* Right Signatory & Stamp Overlay */}
+          <div className="flex flex-col items-end justify-end h-[85px] w-1/2 text-right relative">
+            {/* Absolute positioning container for stamp and signature overlay */}
+            <div className="absolute right-10 bottom-6 w-28 h-28 flex items-center justify-center pointer-events-none">
+              {assets?.stamp?.secureUrl && (
+                <img
+                  src={assets.stamp.secureUrl}
+                  alt="Business Stamp"
+                  className="absolute w-24 h-24 object-contain opacity-70"
+                  style={{ transform: 'rotate(-5deg)' }}
+                />
+              )}
+              {assets?.signature?.secureUrl && (
+                <img
+                  src={assets.signature.secureUrl}
+                  alt="Authorized Signature"
+                  className="absolute w-24 h-12 object-contain opacity-85 z-10"
+                />
+              )}
+            </div>
+            
+            <div className="border-b border-black w-48"></div>
+            <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase">
+              Authorized Signatory
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

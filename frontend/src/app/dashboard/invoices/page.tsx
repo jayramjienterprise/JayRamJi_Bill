@@ -28,6 +28,7 @@ export default function InvoicesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [openDownloadId, setOpenDownloadId] = useState<string | null>(null);
 
   async function loadCustomers() {
     if (!activeBusinessId) return;
@@ -302,141 +303,111 @@ export default function InvoicesPage() {
                     <th className="py-3 px-6">Invoice Number / Date</th>
                     <th className="py-3 px-6">Customer</th>
                     <th className="py-3 px-6">Grand Total</th>
-                    <th className="py-3 px-6">Payment</th>
                     <th className="py-3 px-6">Status</th>
                     <th className="py-3 px-6 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-app text-sm">
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-surface-2-app/30">
-                      <td className="py-4 px-6">
-                        <Link href={`/dashboard/invoices/detail/${inv.id}`} className="hover:underline font-bold text-primary-700">
-                          {inv.invoiceNumber ? inv.invoiceNumber : `#${inv.id.slice(-6).toUpperCase()}`}
-                        </Link>
-                        <p className="text-xs text-text-secondary mt-0.5">
-                          📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </p>
-                      </td>
-                      <td className="py-4 px-6 text-text-primary font-medium">
-                        {inv.customer?.name || <span className="text-text-muted italic">No customer linked</span>}
-                      </td>
-                      <td className="py-4 px-6 text-text-primary font-bold">
-                        ₹{(inv.totalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          inv.paymentStatus === 'PAID'
-                            ? 'bg-success-soft text-success-app'
-                            : inv.paymentStatus === 'PARTIALLY_PAID'
-                            ? 'bg-warning-soft text-warning-app'
-                            : 'bg-danger-soft text-danger-app'
-                        }`}>
-                          {inv.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY PAID' : inv.paymentStatus}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          inv.status === 'DRAFT'
-                            ? 'bg-warning-soft text-warning-app'
-                            : inv.status === 'FINALIZED'
-                            ? 'bg-success-soft text-success-app'
-                            : 'bg-danger-soft text-danger-app'
-                        }`}>
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right space-x-3">
-                        <Link
-                          href={`/dashboard/invoices/preview/${inv.id}`}
-                          className="text-success-app hover:text-success-app/80 text-xs font-bold cursor-pointer"
-                        >
-                          Print Copy
-                        </Link>
-                        <Link
-                          href={`/dashboard/invoices/detail/${inv.id}`}
-                          className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
-                        >
-                          View Details
-                        </Link>
-                        {inv.status === 'DRAFT' && (
-                          <button
-                            onClick={() => handleDelete(inv.id)}
-                            className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                  {invoices.map((inv) => {
+                    const statusText = inv.status === 'DRAFT'
+                      ? 'DRAFT'
+                      : (inv.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
+
+                    const badgeClass = statusText === 'DRAFT'
+                      ? 'bg-warning-soft text-warning-app'
+                      : statusText === 'PAID'
+                      ? 'bg-success-soft text-success-app'
+                      : 'bg-danger-soft text-danger-app';
+
+                    return (
+                      <tr key={inv.id || (inv as any)._id} className="hover:bg-surface-2-app/30">
+                        <td className="py-4 px-6">
+                          <Link href={`/dashboard/invoices/detail/${inv.id || (inv as any)._id}`} className="hover:underline font-bold text-primary-700">
+                            {inv.invoiceNumber ? inv.invoiceNumber : `#${(inv.id || (inv as any)._id).slice(-6).toUpperCase()}`}
+                          </Link>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
+                        </td>
+                        <td className="py-4 px-6 text-text-primary font-medium">
+                          {inv.customer?.name || <span className="text-text-muted italic">No customer linked</span>}
+                        </td>
+                        <td className="py-4 px-6 text-text-primary font-bold">
+                          ₹{(inv.totalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${badgeClass}`}>
+                            {statusText}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-right">
+                          <Link
+                            href={`/dashboard/invoices/detail/${inv.id || (inv as any)._id}`}
+                            className="px-3 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary cursor-pointer transition inline-block"
                           >
-                            Delete
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                            Open
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* Mobile Responsive Cards View */}
             <div className="md:hidden divide-y divide-border-app">
-              {invoices.map((inv) => (
-                <div key={inv.id} className="p-4 space-y-3 hover:bg-surface-2-app/10">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <Link href={`/dashboard/invoices/detail/${inv.id}`} className="font-bold text-sm text-primary-700 hover:underline">
-                        {inv.invoiceNumber ? inv.invoiceNumber : `#${inv.id.slice(-6).toUpperCase()}`}
-                      </Link>
-                      <p className="text-[10px] text-text-secondary mt-0.5">
-                        📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end space-y-1">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                        inv.status === 'DRAFT'
-                          ? 'bg-warning-soft text-warning-app'
-                          : inv.status === 'FINALIZED'
-                          ? 'bg-success-soft text-success-app'
-                          : 'bg-danger-soft text-danger-app'
-                      }`}>
-                        {inv.status}
-                      </span>
-                    </div>
-                  </div>
+              {invoices.map((inv) => {
+                const statusText = inv.status === 'DRAFT'
+                  ? 'DRAFT'
+                  : (inv.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
 
-                  <div className="flex justify-between items-center text-xs">
-                    <div>
-                      <p className="text-text-muted text-[10px] uppercase font-bold tracking-wider">Customer</p>
-                      <p className="font-semibold text-text-primary">{inv.customer?.name || '-'}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-text-muted text-[10px] uppercase font-bold tracking-wider">Grand Total</p>
-                      <p className="font-bold text-text-primary text-sm">₹{(inv.totalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                    </div>
-                  </div>
+                const badgeClass = statusText === 'DRAFT'
+                  ? 'bg-warning-soft text-warning-app'
+                  : statusText === 'PAID'
+                  ? 'bg-success-soft text-success-app'
+                  : 'bg-danger-soft text-danger-app';
 
-                  <div className="flex items-center justify-between border-t border-border-app/40 pt-2.5">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                      inv.paymentStatus === 'PAID'
-                        ? 'bg-success-soft text-success-app'
-                        : inv.paymentStatus === 'PARTIALLY_PAID'
-                        ? 'bg-warning-soft text-warning-app'
-                        : 'bg-danger-soft text-danger-app'
-                    }`}>
-                      {inv.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY PAID' : inv.paymentStatus}
-                    </span>
-                    <div className="flex space-x-3 text-[11px] font-bold">
-                      <Link href={`/dashboard/invoices/preview/${inv.id}`} className="text-success-app hover:underline">
-                        Print
+                return (
+                  <div key={inv.id || (inv as any)._id} className="p-4 space-y-3 hover:bg-surface-2-app/10">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <Link href={`/dashboard/invoices/detail/${inv.id || (inv as any)._id}`} className="font-bold text-sm text-primary-700 hover:underline">
+                          {inv.invoiceNumber ? inv.invoiceNumber : `#${(inv.id || (inv as any)._id).slice(-6).toUpperCase()}`}
+                        </Link>
+                        <p className="text-[10px] text-text-secondary mt-0.5">
+                          📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                      <div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badgeClass}`}>
+                          {statusText}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <div>
+                        <p className="text-text-muted text-[10px] uppercase font-bold tracking-wider">Customer</p>
+                        <p className="font-semibold text-text-primary">{inv.customer?.name || '-'}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-text-muted text-[10px] uppercase font-bold tracking-wider">Grand Total</p>
+                        <p className="font-bold text-text-primary text-sm">₹{(inv.totalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end border-t border-border-app/40 pt-2.5">
+                      <Link
+                        href={`/dashboard/invoices/detail/${inv.id || (inv as any)._id}`}
+                        className="px-3 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary cursor-pointer transition"
+                      >
+                        Open
                       </Link>
-                      <Link href={`/dashboard/invoices/detail/${inv.id}`} className="text-primary-700 hover:underline">
-                        Details
-                      </Link>
-                      {inv.status === 'DRAFT' && (
-                        <button onClick={() => handleDelete(inv.id)} className="text-danger-app hover:underline">
-                          Delete
-                        </button>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

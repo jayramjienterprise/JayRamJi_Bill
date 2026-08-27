@@ -19,6 +19,9 @@ export class ApiError extends Error {
 }
 
 class ApiClient {
+  public getBaseUrl(): string {
+    return BASE_URL;
+  }
   /**
    * Performs an asynchronous fetch request and returns structured data
    */

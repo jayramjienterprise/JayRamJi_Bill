@@ -223,6 +223,41 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* Contact Info */}
+            <div className="space-y-4 border-t border-border-light pt-4">
+              <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wide">Contact Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">Contact Number</label>
+                  <input
+                    type="text"
+                    value={profile.contact.phone}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        contact: { ...profile.contact, phone: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    value={profile.contact.email}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        contact: { ...profile.contact, email: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Address */}
             <div className="space-y-4">
               <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wide">Workspace Address</h3>
