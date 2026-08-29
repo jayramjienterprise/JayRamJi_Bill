@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, use, useRef } from 'react';
+import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useDashboard } from '../../../layout';
 import { apiClient } from '../../../../../lib/api/client';
-import { Customer, Product, Invoice } from '../../../../../lib/api/types';
+import { Customer, Product, PaymentAccount, PaymentMethod, PaymentProof } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
-
 
 interface ItemInput {
   productId: string | null;
@@ -21,13 +21,13 @@ interface ItemInput {
 
 export default function EditInvoicePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { activeBusinessId } = useDashboard();
   const { id } = use(params);
+  const { activeBusinessId } = useDashboard();
 
   // Master Data lists
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [productSearch, setProductSearch] = useState('');
 
   // UI state
@@ -45,7 +45,22 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   const [invoiceDate, setInvoiceDate] = useState('');
   const [items, setItems] = useState<ItemInput[]>([]);
   const [taxOption, setTaxOption] = useState<'NONE' | 'EXCLUSIVE_18' | 'INCLUSIVE_18'>('NONE');
-  const [paymentStatus, setPaymentStatus] = useState<'PAID' | 'UNPAID'>('UNPAID');
+
+  // Payment Details states
+  const [paymentStatus, setPaymentStatus] = useState<'UNPAID' | 'PAID' | 'PARTIAL'>('UNPAID');
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [referenceNumber, setReferenceNumber] = useState<string>('');
+  const [chequeNumber, setChequeNumber] = useState<string>('');
+  const [chequeDate, setChequeDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [chequeBankName, setChequeBankName] = useState<string>('');
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
+
+  // Finalize Confirmation Modal
+  const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
 
   // Calculated Totals from Server Preview API
   const [previewTotals, setPreviewTotals] = useState<any>(null);
@@ -108,7 +123,26 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         initialTaxOption = 'INCLUSIVE_18';
       }
       setTaxOption(initialTaxOption);
-      setPaymentStatus(inv.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
+
+      // Load draft payment details
+      const draftPayment = (inv as any).draftPaymentDetails;
+      if (draftPayment) {
+        setPaymentStatus(draftPayment.status || (inv.paymentSummary?.status === 'PAID' ? 'PAID' : (inv.paymentSummary?.status === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID')));
+        setPaymentAmount(draftPayment.amount ? String(draftPayment.amount) : (draftPayment.amountMinor ? (draftPayment.amountMinor / 100).toFixed(2) : ''));
+        setPaymentMethod(draftPayment.method || 'CASH');
+        setSelectedAccountId(draftPayment.paymentAccountId || '');
+        if (draftPayment.paymentDate) setPaymentDate(new Date(draftPayment.paymentDate).toISOString().split('T')[0]);
+        if (draftPayment.referenceNumber) setReferenceNumber(draftPayment.referenceNumber);
+        if (draftPayment.chequeDetails?.chequeNumber) setChequeNumber(draftPayment.chequeDetails.chequeNumber);
+        if (draftPayment.chequeDetails?.chequeDate) setChequeDate(new Date(draftPayment.chequeDetails.chequeDate).toISOString().split('T')[0]);
+        if (draftPayment.chequeDetails?.bankName) setChequeBankName(draftPayment.chequeDetails.bankName);
+        if (draftPayment.notes) setPaymentNotes(draftPayment.notes);
+      } else {
+        setPaymentStatus(inv.paymentSummary?.status === 'PAID' ? 'PAID' : (inv.paymentSummary?.status === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID'));
+        if (inv.paymentSummary?.paidAmountMinor && inv.paymentSummary.paidAmountMinor > 0) {
+          setPaymentAmount((inv.paymentSummary.paidAmountMinor / 100).toFixed(2));
+        }
+      }
 
       // Load items mapping sections
       const loadedItems: ItemInput[] = inv.items.map((it) => ({
@@ -119,11 +153,12 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         quantity: it.quantity,
         unitPriceMinor: it.unitPriceMinor,
         priceFloat: (it.unitPriceMinor / 100).toFixed(2),
-        section: (it as any).section || (it.type === 'SERVICE' ? 'LABOUR' : 'ITEM'),
+        section: it.section || (it.type === 'SERVICE' ? 'LABOUR' : 'ITEM'),
       }));
       setItems(loadedItems);
+
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to load invoice draft details');
+      setErrorMsg(err.message || 'Failed to load invoice draft');
     } finally {
       setLoading(false);
     }
@@ -135,10 +170,6 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     try {
       const data = await apiClient.listCustomers({ active: true, search });
       setCustomers(data.customers);
-      if (selectedCustomerId) {
-        const found = data.customers.find((c) => c.id === selectedCustomerId || (c as any)._id === selectedCustomerId);
-        if (found) setSelectedCustomer(found);
-      }
     } catch (err) {
       console.error(err);
     }
@@ -155,7 +186,18 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     }
   }
 
-  // Load active business settings and branding assets for layout preview
+  // Load active payment accounts
+  async function loadPaymentAccounts() {
+    if (!activeBusinessId) return;
+    try {
+      const accs = await apiClient.listPaymentAccounts({ active: true });
+      setPaymentAccounts(accs || []);
+    } catch (err) {
+      console.error('Failed to load payment accounts:', err);
+    }
+  }
+
+  // Load business branding for preview
   async function loadBusinessAndAssets() {
     if (!activeBusinessId) return;
     try {
@@ -168,7 +210,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       const signature = assetsList.find((a) => a.type === 'SIGNATURE' && a.active);
       setActiveAssets({ logo, stamp, signature });
     } catch (err) {
-      console.error('Error loading business profile or assets:', err);
+      console.error(err);
     }
   }
 
@@ -176,9 +218,21 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     loadInvoiceData();
     loadCustomers();
     loadProducts();
+    loadPaymentAccounts();
     loadBusinessAndAssets();
   }, [id, activeBusinessId]);
 
+  // Sync grand total with payment amount when in PAID mode
+  const currentGrandTotal = previewTotals ? (previewTotals.grandTotalMinor / 100) : 0;
+  useEffect(() => {
+    if (paymentStatus === 'PAID') {
+      setPaymentAmount(currentGrandTotal > 0 ? currentGrandTotal.toFixed(2) : '');
+    } else if (paymentStatus === 'UNPAID') {
+      setPaymentAmount('');
+    }
+  }, [paymentStatus, currentGrandTotal]);
+
+  // Auto-fit A4 Paper scaling
   useEffect(() => {
     const el = previewContainerRef.current;
     if (!el) return;
@@ -194,72 +248,51 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     return () => resizeObserver.disconnect();
   }, [loading]);
 
-  // Debounced search trigger for customers
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadCustomers(customerSearch);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [customerSearch]);
-
-  // Debounced search trigger for services
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadProducts(productSearch);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [productSearch]);
-
-  // Append a product to line items list (defaults to section: ITEM unless p.type === 'SERVICE')
-  function handleAddProduct(p: Product) {
-    const section = p.type === 'SERVICE' ? 'LABOUR' : 'ITEM';
-    const newItem: ItemInput = {
-      productId: p.id || (p as any)._id,
-      type: p.type,
-      description: p.name,
-      uom: p.uom || 'JOB',
-      quantity: 1,
-      unitPriceMinor: p.defaultPriceMinor,
-      priceFloat: (p.defaultPriceMinor / 100).toFixed(2),
-      section,
-    };
-    setItems((prev) => [...prev, newItem]);
-    setProductSearch('');
+  function handleAddItemFromProduct(product: Product, section: 'ITEM' | 'LABOUR' | 'PART' = 'ITEM') {
+    const priceFloat = (product.defaultPriceMinor / 100).toFixed(2);
+    setItems((prev) => [
+      ...prev,
+      {
+        productId: product.id || (product as any)._id,
+        type: product.type || 'PRODUCT',
+        description: product.name,
+        uom: product.uom || 'JOB',
+        quantity: 1,
+        unitPriceMinor: product.defaultPriceMinor,
+        priceFloat,
+        section,
+      },
+    ]);
   }
 
-  // Add custom item under specific section
-  const handleAddSectionItem = (section: 'ITEM' | 'LABOUR' | 'PART') => {
-    const newItem: ItemInput = {
-      productId: null,
-      type: section === 'LABOUR' ? 'SERVICE' : 'PRODUCT',
-      description: '',
-      uom: 'JOB',
-      quantity: 1,
-      unitPriceMinor: 0,
-      priceFloat: '0.00',
-      section,
-    };
-    setItems((prev) => [...prev, newItem]);
-  };
+  function handleAddCustomItem(section: 'ITEM' | 'LABOUR' | 'PART' = 'ITEM') {
+    setItems((prev) => [
+      ...prev,
+      {
+        productId: null,
+        type: section === 'LABOUR' ? 'SERVICE' : 'PRODUCT',
+        description: '',
+        uom: 'JOB',
+        quantity: 1,
+        unitPriceMinor: 0,
+        priceFloat: '',
+        section,
+      },
+    ]);
+  }
 
-  // Update field of an item by its index in the main list
-  function handleUpdateItem(index: number, updates: Partial<ItemInput>) {
+  function handleUpdateItem(index: number, fields: Partial<ItemInput>) {
     setItems((prev) => {
-      const nextItems = [...prev];
-      const target = nextItems[index];
+      const next = [...prev];
+      const current = { ...next[index], ...fields };
 
-      let unitPriceMinor = target.unitPriceMinor;
-      if (updates.priceFloat !== undefined) {
-        const parsed = parseFloat(updates.priceFloat);
-        unitPriceMinor = isNaN(parsed) ? 0 : Math.round(parsed * 100);
+      if (fields.priceFloat !== undefined) {
+        const parsed = parseFloat(fields.priceFloat);
+        current.unitPriceMinor = isNaN(parsed) ? 0 : Math.round(parsed * 100);
       }
 
-      nextItems[index] = {
-        ...target,
-        ...updates,
-        unitPriceMinor,
-      };
-      return nextItems;
+      next[index] = current;
+      return next;
     });
   }
 
@@ -267,7 +300,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // Query Server calculation preview on input adjustments
+  // Real-time calculation preview
   useEffect(() => {
     if (items.length === 0) {
       setPreviewTotals(null);
@@ -287,7 +320,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     }
 
     const payload = {
-      customerId: selectedCustomerId || '600000000000000000000001',
+      customerId: selectedCustomerId || null,
       invoiceDate,
       items: items.map((it) => ({
         productId: it.productId || null,
@@ -369,22 +402,41 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     };
 
     try {
-      const newCustomer = await apiClient.createCustomer(payload);
-      setCustomers((prev) => [newCustomer, ...prev]);
-      const custId = newCustomer.id || (newCustomer as any)._id;
-      setSelectedCustomerId(custId);
-      setSelectedCustomer(newCustomer);
+      const created = await apiClient.createCustomer(payload);
+      await loadCustomers();
+      setSelectedCustomerId(created.id || (created as any)._id);
+      setSelectedCustomer(created);
       setAddCustomerOpen(false);
     } catch (err: any) {
-      setCustomerErrorMsg(err.message || 'Failed to create customer');
+      setCustomerErrorMsg(err.message || 'Failed creating customer');
     } finally {
       setCustomerSubmitLoading(false);
     }
   }
 
-  async function handleSubmit(e: React.FormEvent, shouldFinalize: boolean) {
-    e.preventDefault();
-    if (!activeBusinessId) return;
+  // Filter accounts for selected payment method
+  const matchingAccounts = paymentAccounts.filter((a) => {
+    if (paymentMethod === 'UPI' || paymentMethod === 'QR_CODE') return a.type === 'UPI';
+    if (paymentMethod === 'BANK_TRANSFER' || paymentMethod === 'CHEQUE') return a.type === 'BANK';
+    if (paymentMethod === 'CASH') return a.type === 'CASH';
+    return false;
+  });
+
+  const selectedAccount = paymentAccounts.find((a) => a.id === selectedAccountId || (a as any)._id === selectedAccountId);
+
+  // Compute live Payment Summary
+  const invoiceTotalRupees = currentGrandTotal;
+  const paymentNowRupees = paymentStatus === 'PAID'
+    ? invoiceTotalRupees
+    : paymentStatus === 'PARTIAL'
+    ? (parseFloat(paymentAmount) || 0)
+    : 0;
+  const outstandingRupees = Math.max(0, invoiceTotalRupees - paymentNowRupees);
+
+  // Submit Draft Update or Finalize
+  async function handleSubmit(e?: React.FormEvent, shouldFinalize: boolean = false) {
+    if (e) e.preventDefault();
+    if (!editable) return;
     if (!selectedCustomerId) {
       setErrorMsg('Please select a customer for this invoice');
       return;
@@ -392,6 +444,33 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     if (items.length === 0) {
       setErrorMsg('Please add at least one item, labour, or part to the invoice');
       return;
+    }
+
+    if (paymentStatus === 'PARTIAL') {
+      const pAmount = parseFloat(paymentAmount);
+      if (isNaN(pAmount) || pAmount <= 0) {
+        setErrorMsg('Please enter a valid partial payment amount greater than ₹0');
+        return;
+      }
+      if (pAmount >= invoiceTotalRupees) {
+        setErrorMsg(`Partial payment amount ₹${pAmount.toFixed(2)} must be less than invoice total ₹${invoiceTotalRupees.toFixed(2)}`);
+        return;
+      }
+    }
+
+    if (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') {
+      if ((paymentMethod === 'UPI' || paymentMethod === 'QR_CODE') && !selectedAccountId) {
+        setErrorMsg('Please select a receiving UPI account');
+        return;
+      }
+      if ((paymentMethod === 'BANK_TRANSFER' || paymentMethod === 'CHEQUE') && !selectedAccountId) {
+        setErrorMsg('Please select a receiving / deposit bank account');
+        return;
+      }
+      if (paymentMethod === 'CHEQUE' && !chequeNumber.trim()) {
+        setErrorMsg('Please enter the cheque number');
+        return;
+      }
     }
 
     setSubmitLoading(true);
@@ -405,6 +484,26 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     } else if (taxOption === 'INCLUSIVE_18') {
       mappedTaxMode = 'INCLUSIVE';
       mappedTaxRateBps = 1800;
+    }
+
+    let paymentPayload: any = null;
+    if (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') {
+      paymentPayload = {
+        status: paymentStatus,
+        amount: paymentNowRupees,
+        amountMinor: Math.round(paymentNowRupees * 100),
+        method: paymentMethod,
+        paymentAccountId: selectedAccountId || null,
+        paymentDate,
+        paidAt: paymentDate ? new Date(paymentDate).toISOString() : undefined,
+        referenceNumber: referenceNumber.trim() || undefined,
+        chequeDetails: paymentMethod === 'CHEQUE' ? {
+          chequeNumber: chequeNumber.trim(),
+          chequeDate: chequeDate ? new Date(chequeDate).toISOString() : undefined,
+          bankName: chequeBankName.trim() || undefined,
+        } : undefined,
+        notes: paymentNotes.trim() || undefined,
+      };
     }
 
     const payload = {
@@ -425,19 +524,31 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       paymentTerms: undefined,
       notes: undefined,
       paymentStatus,
+      payment: paymentPayload,
     };
 
     try {
-      await apiClient.patch(`/invoices/${id}`, payload);
+      await apiClient.updateInvoiceDraft(id, payload);
+
+      if (paymentProofFile && paymentPayload) {
+        try {
+          const proofRes = await apiClient.uploadPaymentProof(id, paymentProofFile);
+          paymentPayload.proof = proofRes.proof;
+        } catch (proofErr) {
+          console.warn('Payment proof upload issue:', proofErr);
+        }
+      }
 
       if (shouldFinalize) {
-        router.push(`/dashboard/invoices/preview/${id}`);
+        await apiClient.finalizeInvoice(id, { payment: paymentPayload });
+        router.push(`/dashboard/invoices/detail/${id}`);
       } else {
-        router.push('/dashboard/invoices');
+        router.push(`/dashboard/invoices/preview/${id}`);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to process invoice update');
+      setErrorMsg(err.message || 'Failed updating invoice draft');
       setSubmitLoading(false);
+      setConfirmFinalizeOpen(false);
     }
   }
 
@@ -482,30 +593,29 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     );
   }
 
-
   if (loading) {
     return (
-      <div className="text-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-700 mx-auto mb-4"></div>
-        <p className="text-sm text-text-secondary">Loading draft workspace...</p>
+      <div className="flex justify-center items-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-700"></div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center flex-wrap gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Edit Draft Workspace</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Edit Draft Bill</h1>
           <p className="text-xs text-text-secondary mt-1">
-            Modify this saved workspace draft, assign/adjust services catalog items, and finalize the bill.
+            Modify entries and payment details for this unfinalized invoice.
           </p>
         </div>
-        {!editable && (
-          <span className="px-3 py-1 bg-danger-soft text-danger-app rounded-full text-xs font-bold uppercase">
-            Read-only
-          </span>
-        )}
+        <Link
+          href={`/dashboard/invoices/preview/${id}`}
+          className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+        >
+          View Live Print Bill →
+        </Link>
       </div>
 
       {errorMsg && (
@@ -514,144 +624,175 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      {editable && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Form inputs */}
-          <div className="xl:col-span-7 space-y-6">
-            <form className="space-y-6">
-              
-              {/* Customer & Date */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-semibold text-text-secondary uppercase">
-                        Customer *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={openAddCustomerModal}
-                        className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
-                      >
-                        + Add Customer
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <select
-                        value={selectedCustomerId}
-                        onChange={(e) => handleCustomerChange(e.target.value)}
-                        required
-                        className="w-full pl-3 pr-8 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none appearance-none cursor-pointer font-semibold"
-                      >
-                        <option value="">-- Choose Customer --</option>
-                        {customers.map((c) => (
-                          <option key={c.id || (c as any)._id} value={c.id || (c as any)._id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="absolute right-3.5 top-3 text-[8px] pointer-events-none">▼</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={customerSearch}
-                      onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Search/filter customers..."
-                      className="w-full mt-2 px-3 py-1 bg-surface-2-app border border-border-app rounded-md text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-text-secondary uppercase mb-1">
-                      Invoice Date *
+      {/* Main Container */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Editor Controls */}
+        <div className="xl:col-span-7 space-y-6">
+          <div className="space-y-6">
+            
+            {/* Customer & Date */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-text-secondary uppercase">
+                      Customer *
                     </label>
-                    <input
-                      type="date"
-                      required
-                      value={invoiceDate}
-                      onChange={(e) => setInvoiceDate(e.target.value)}
-                      className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none font-semibold"
-                    />
+                    <button
+                      type="button"
+                      disabled={!editable}
+                      onClick={openAddCustomerModal}
+                      className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                    >
+                      + Add Customer
+                    </button>
                   </div>
+                  <div className="relative">
+                    <select
+                      value={selectedCustomerId}
+                      onChange={(e) => handleCustomerChange(e.target.value)}
+                      disabled={!editable}
+                      required
+                      className="w-full pl-3 pr-8 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none appearance-none cursor-pointer font-semibold disabled:opacity-50"
+                    >
+                      <option value="">-- Choose Customer --</option>
+                      {customers.map((c) => (
+                        <option key={c.id || (c as any)._id} value={c.id || (c as any)._id}>
+                          {c.name} {c.contact?.phone ? `(${c.contact.phone})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-text-secondary uppercase mb-1">
+                    Invoice Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                    disabled={!editable}
+                    required
+                    className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none font-semibold disabled:opacity-50"
+                  />
                 </div>
               </div>
+            </div>
 
-              {/* Section 1: ITEMS / SERVICES */}
+            {/* Quick Product Search / Catalogue Selector */}
+            {editable && (
               <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-border-light pb-2">
-                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
-                    Items / Services
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => handleAddSectionItem('ITEM')}
-                    className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
-                  >
-                    + Add Item
-                  </button>
-                </div>
-
-                {/* Catalogue Search Selector */}
+                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
+                  Add Items from Catalogue
+                </h3>
                 <div className="relative">
                   <input
                     type="text"
+                    placeholder="Search catalogue items or service jobs..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Quick search/select catalog products..."
-                    className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary"
+                    className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
                   />
-                  {productSearch.trim() && products.length > 0 && (
-                    <div className="absolute left-0 right-0 mt-1 bg-surface-app border border-border-app rounded-lg shadow-lg max-h-48 overflow-y-auto z-50 p-2">
-                      {products.map((p) => (
-                        <div
-                          key={p.id || (p as any)._id}
-                          onClick={() => handleAddProduct(p)}
-                          className="p-2 hover:bg-surface-2-app text-xs flex justify-between cursor-pointer rounded-md text-text-primary"
-                        >
-                          <span className="font-semibold">{p.name}</span>
-                          <span className="text-text-muted">₹{(p.defaultPriceMinor / 100).toFixed(2)} ({p.uom})</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
+                <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-border-light">
+                  {products
+                    .filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()))
+                    .map((p) => (
+                      <div key={p.id || (p as any)._id} className="pt-1.5 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="font-bold text-text-primary">{p.name}</span>
+                          <span className="text-text-secondary ml-2">₹{(p.defaultPriceMinor / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="flex space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAddItemFromProduct(p, 'ITEM')}
+                            className="px-2 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded text-[10px] font-bold text-text-primary cursor-pointer"
+                          >
+                            + Item
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddItemFromProduct(p, 'LABOUR')}
+                            className="px-2 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded text-[10px] font-bold text-text-primary cursor-pointer"
+                          >
+                            + Labour
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddItemFromProduct(p, 'PART')}
+                            className="px-2 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded text-[10px] font-bold text-text-primary cursor-pointer"
+                          >
+                            + Part
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
-                {items.filter(it => it.section === 'ITEM').length > 0 && (
-                  <div className="space-y-3">
-                    {items.map((it, idx) => {
-                      if (it.section !== 'ITEM') return null;
-                      return (
-                        <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                          <div className="col-span-6">
-                            <input
-                              type="text"
-                              placeholder="Description"
-                              value={it.description}
-                              onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold"
-                              required
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold"
-                              required
-                            />
-                          </div>
-                          <div className="col-span-3">
-                            <input
-                              type="number"
-                              placeholder="Price"
-                              value={it.priceFloat || ''}
-                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold"
-                              required
-                            />
-                          </div>
+            {/* Section 1: Main Items */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-border-light pb-2">
+                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
+                  Items / Products
+                </h3>
+                {editable && (
+                  <button
+                    type="button"
+                    onClick={() => handleAddCustomItem('ITEM')}
+                    className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                  >
+                    + Add Custom Item
+                  </button>
+                )}
+              </div>
+
+              {items.filter(it => it.section === 'ITEM').length === 0 ? (
+                <p className="text-xs text-text-muted italic py-2">No main items added.</p>
+              ) : (
+                <div className="space-y-3">
+                  {items.map((it, idx) => {
+                    if (it.section !== 'ITEM') return null;
+                    return (
+                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="col-span-6">
+                          <input
+                            type="text"
+                            placeholder="Description"
+                            value={it.description}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="number"
+                            placeholder="Qty"
+                            value={it.quantity || ''}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <input
+                            type="number"
+                            placeholder="Price"
+                            value={it.priceFloat || ''}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        {editable && (
                           <div className="col-span-1 text-center">
                             <button
                               type="button"
@@ -661,54 +802,60 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                               &times;
                             </button>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-              {/* Section 2: LABOUR (Optional) */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-border-light pb-2">
-                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
-                    Labour
-                  </h3>
+            {/* Section 2: LABOUR */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-border-light pb-2">
+                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
+                  Labour / Service
+                </h3>
+                {editable && (
                   <button
                     type="button"
-                    onClick={() => handleAddSectionItem('LABOUR')}
+                    onClick={() => handleAddCustomItem('LABOUR')}
                     className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
                   >
                     + Add Labour
                   </button>
-                </div>
+                )}
+              </div>
 
-                {items.filter(it => it.section === 'LABOUR').length > 0 && (
-                  <div className="space-y-3">
-                    {items.map((it, idx) => {
-                      if (it.section !== 'LABOUR') return null;
-                      return (
-                        <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                          <div className="col-span-8">
-                            <input
-                              type="text"
-                              placeholder="Labour description"
-                              value={it.description}
-                              onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold"
-                              required
-                            />
-                          </div>
-                          <div className="col-span-3">
-                            <input
-                              type="number"
-                              placeholder="Amount"
-                              value={it.priceFloat || ''}
-                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold"
-                              required
-                            />
-                          </div>
+              {items.filter(it => it.section === 'LABOUR').length > 0 && (
+                <div className="space-y-3">
+                  {items.map((it, idx) => {
+                    if (it.section !== 'LABOUR') return null;
+                    return (
+                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="col-span-8">
+                          <input
+                            type="text"
+                            placeholder="Labour description"
+                            value={it.description}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <input
+                            type="number"
+                            placeholder="Amount"
+                            value={it.priceFloat || ''}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        {editable && (
                           <div className="col-span-1 text-center">
                             <button
                               type="button"
@@ -718,64 +865,71 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                               &times;
                             </button>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-              {/* Section 3: PARTS (Optional) */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-border-light pb-2">
-                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
-                    Parts
-                  </h3>
+            {/* Section 3: PARTS */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-border-light pb-2">
+                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
+                  Parts
+                </h3>
+                {editable && (
                   <button
                     type="button"
-                    onClick={() => handleAddSectionItem('PART')}
+                    onClick={() => handleAddCustomItem('PART')}
                     className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
                   >
                     + Add Part
                   </button>
-                </div>
+                )}
+              </div>
 
-                {items.filter(it => it.section === 'PART').length > 0 && (
-                  <div className="space-y-3">
-                    {items.map((it, idx) => {
-                      if (it.section !== 'PART') return null;
-                      return (
-                        <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                          <div className="col-span-6">
-                            <input
-                              type="text"
-                              placeholder="Part description"
-                              value={it.description}
-                              onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold"
-                              required
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold"
-                              required
-                            />
-                          </div>
-                          <div className="col-span-3">
-                            <input
-                              type="number"
-                              placeholder="Price"
-                              value={it.priceFloat || ''}
-                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                              className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold"
-                              required
-                            />
-                          </div>
+              {items.filter(it => it.section === 'PART').length > 0 && (
+                <div className="space-y-3">
+                  {items.map((it, idx) => {
+                    if (it.section !== 'PART') return null;
+                    return (
+                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="col-span-6">
+                          <input
+                            type="text"
+                            placeholder="Part description"
+                            value={it.description}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="number"
+                            placeholder="Qty"
+                            value={it.quantity || ''}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <input
+                            type="number"
+                            placeholder="Price"
+                            value={it.priceFloat || ''}
+                            disabled={!editable}
+                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
+                            required
+                          />
+                        </div>
+                        {editable && (
                           <div className="col-span-1 text-center">
                             <button
                               type="button"
@@ -785,160 +939,480 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                               &times;
                             </button>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Section 4: TAX */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
-                  Tax
-                </h3>
-                <div className="max-w-xs">
-                  <select
-                    value={taxOption}
-                    onChange={(e) => setTaxOption(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none cursor-pointer font-semibold"
-                  >
-                    <option value="NONE">No Tax</option>
-                    <option value="EXCLUSIVE_18">GST 18% (Exclusive)</option>
-                    <option value="INCLUSIVE_18">GST 18% (Inclusive)</option>
-                  </select>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
+              )}
+            </div>
 
-              {/* Section 5: PAYMENT STATUS */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
+            {/* Section 4: TAX */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
+                Tax
+              </h3>
+              <div className="max-w-xs">
+                <select
+                  value={taxOption}
+                  disabled={!editable}
+                  onChange={(e) => setTaxOption(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none cursor-pointer font-semibold disabled:opacity-50"
+                >
+                  <option value="NONE">No Tax</option>
+                  <option value="EXCLUSIVE_18">GST 18% (Exclusive)</option>
+                  <option value="INCLUSIVE_18">GST 18% (Inclusive)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Section 5: PAYMENT DETAILS */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-5">
+              <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2 flex items-center space-x-2">
+                <span>💳</span>
+                <span>Payment Details</span>
+              </h3>
+
+              {/* 1. Payment Status Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary uppercase mb-2">
                   Payment Status
-                </h3>
-                <div className="flex space-x-4">
+                </label>
+                <div className="flex space-x-6">
                   <label className="inline-flex items-center space-x-2 cursor-pointer">
                     <input
                       type="radio"
-                      checked={paymentStatus === 'PAID'}
-                      onChange={() => setPaymentStatus('PAID')}
-                      className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
-                    />
-                    <span className="text-sm font-bold text-text-primary">Paid</span>
-                  </label>
-                  <label className="inline-flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
+                      name="paymentStatusRadioEdit"
+                      disabled={!editable}
                       checked={paymentStatus === 'UNPAID'}
                       onChange={() => setPaymentStatus('UNPAID')}
                       className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
                     />
-                    <span className="text-sm font-bold text-text-primary">Unpaid</span>
+                    <span className="text-sm font-bold text-text-primary">○ Unpaid</span>
+                  </label>
+                  <label className="inline-flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentStatusRadioEdit"
+                      disabled={!editable}
+                      checked={paymentStatus === 'PAID'}
+                      onChange={() => setPaymentStatus('PAID')}
+                      className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
+                    />
+                    <span className="text-sm font-bold text-text-primary">● Paid</span>
+                  </label>
+                  <label className="inline-flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentStatusRadioEdit"
+                      disabled={!editable}
+                      checked={paymentStatus === 'PARTIAL'}
+                      onChange={() => setPaymentStatus('PARTIAL')}
+                      className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
+                    />
+                    <span className="text-sm font-bold text-text-primary">◐ Partial</span>
                   </label>
                 </div>
               </div>
 
-              {/* Calculations Summary & Save/Finalize buttons */}
-              <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-                <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
-                  Calculations Summary
-                </h3>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between font-semibold">
-                    <span className="text-text-secondary">Items / Parts:</span>
-                    <span className="text-text-primary">
-                      ₹{items.filter((it: any) => it.section === 'ITEM' || it.section === 'PART').reduce((sum: number, it: any) => sum + (it.quantity * (parseFloat(it.priceFloat) || 0)), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span className="text-text-secondary">Labour:</span>
-                    <span className="text-text-primary">
-                      ₹{items.filter((it: any) => it.section === 'LABOUR').reduce((sum: number, it: any) => sum + (it.quantity * (parseFloat(it.priceFloat) || 0)), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span className="text-text-secondary">Tax:</span>
-                    <span className="text-text-primary">
-                      ₹{(previewTotals ? previewTotals.taxTotalMinor / 100 : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="border-t border-border-light pt-2 flex justify-between font-black text-sm text-text-primary">
-                    <span>TOTAL:</span>
-                    <span>
-                      ₹{(previewTotals ? previewTotals.grandTotalMinor / 100 : items.reduce((sum: number, it: any) => sum + (it.quantity * (parseFloat(it.priceFloat) || 0)), 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
+              {/* Conditional Rendering for Paid or Partial */}
+              {(paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') && (
+                <div className="space-y-4 pt-3 border-t border-border-light text-xs">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-text-secondary font-bold uppercase tracking-wider mb-1">
+                        Payment Amount (₹) <span className="text-danger-app">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={paymentStatus === 'PARTIAL' ? invoiceTotalRupees - 0.01 : invoiceTotalRupees}
+                        required
+                        disabled={!editable || paymentStatus === 'PAID'}
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        placeholder={paymentStatus === 'PAID' ? `₹${invoiceTotalRupees.toFixed(2)}` : 'Enter amount'}
+                        className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-sm font-bold text-text-primary focus:outline-none focus:border-primary-700 disabled:opacity-75"
+                      />
+                    </div>
 
+                    <div>
+                      <label className="block text-text-secondary font-bold uppercase tracking-wider mb-1">
+                        Payment Method <span className="text-danger-app">*</span>
+                      </label>
+                      <select
+                        value={paymentMethod}
+                        disabled={!editable}
+                        onChange={(e) => {
+                          const m = e.target.value as PaymentMethod;
+                          setPaymentMethod(m);
+                          const matching = paymentAccounts.filter((a) => {
+                            if (m === 'UPI' || m === 'QR_CODE') return a.type === 'UPI';
+                            if (m === 'BANK_TRANSFER' || m === 'CHEQUE') return a.type === 'BANK';
+                            if (m === 'CASH') return a.type === 'CASH';
+                            return false;
+                          });
+                          setSelectedAccountId(matching.length > 0 ? (matching[0].id || (matching[0] as any)._id) : '');
+                        }}
+                        className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-sm font-bold text-text-primary focus:outline-none cursor-pointer disabled:opacity-50"
+                      >
+                        <option value="CASH">💵 CASH</option>
+                        <option value="UPI">📱 UPI</option>
+                        <option value="QR_CODE">🔳 QR_CODE</option>
+                        <option value="BANK_TRANSFER">🏦 BANK_TRANSFER</option>
+                        <option value="CHEQUE">📜 CHEQUE</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Receiving Account */}
+                  {(paymentMethod === 'UPI' || paymentMethod === 'QR_CODE' || paymentMethod === 'BANK_TRANSFER' || paymentMethod === 'CHEQUE') && (
+                    <div className="bg-surface-2-app/40 p-3.5 rounded-xl border border-border-app space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-text-secondary font-bold uppercase text-[10.5px]">
+                          {paymentMethod === 'CHEQUE' ? 'Deposit Bank Account' : 'Receiving Account'}{' '}
+                          <span className="text-danger-app">*</span>
+                        </label>
+                        <Link
+                          href="/dashboard/settings/payment-accounts"
+                          target="_blank"
+                          className="text-[10px] text-primary-700 hover:underline font-bold"
+                        >
+                          + Manage Accounts
+                        </Link>
+                      </div>
+
+                      {matchingAccounts.length === 0 ? (
+                        <div className="p-2.5 bg-warning-soft border border-warning-app/20 text-warning-app text-xs rounded-lg font-medium">
+                          No active {paymentMethod === 'UPI' || paymentMethod === 'QR_CODE' ? 'UPI' : 'Bank'} accounts found. Please add one in{' '}
+                          <Link href="/dashboard/settings/payment-accounts" target="_blank" className="underline font-bold">
+                            Settings → Payment Accounts
+                          </Link>.
+                        </div>
+                      ) : (
+                        <select
+                          required
+                          disabled={!editable}
+                          value={selectedAccountId}
+                          onChange={(e) => setSelectedAccountId(e.target.value)}
+                          className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary focus:outline-none cursor-pointer disabled:opacity-50"
+                        >
+                          <option value="">-- Select Receiving Account --</option>
+                          {matchingAccounts.map((acc) => (
+                            <option key={acc.id || (acc as any)._id} value={acc.id || (acc as any)._id}>
+                              {acc.displayName || acc.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* Small QR preview */}
+                      {paymentMethod === 'QR_CODE' && selectedAccount?.qrAssetUrl && (
+                        <div className="p-2.5 bg-white rounded-lg border border-border-app flex items-center space-x-3 mt-2">
+                          <img src={selectedAccount.qrAssetUrl} alt="UPI QR" className="w-16 h-16 object-contain rounded border border-gray-200 shadow-xs" />
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-800 uppercase">Customer Scan QR</p>
+                            <p className="text-[11px] font-mono font-bold text-gray-700">{selectedAccount.upiId}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Cheque Specific Fields */}
+                  {paymentMethod === 'CHEQUE' && (
+                    <div className="bg-surface-2-app/40 p-3.5 rounded-xl border border-border-app space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-text-secondary font-bold mb-1">
+                            Cheque Number <span className="text-danger-app">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            disabled={!editable}
+                            placeholder="e.g. 000123"
+                            value={chequeNumber}
+                            onChange={(e) => setChequeNumber(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-xs font-mono font-bold text-text-primary focus:outline-none disabled:opacity-50"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-text-secondary font-bold mb-1">Cheque Date</label>
+                          <input
+                            type="date"
+                            disabled={!editable}
+                            value={chequeDate}
+                            onChange={(e) => setChequeDate(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-xs text-text-primary focus:outline-none disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-text-secondary font-bold mb-1">Issuing Bank Name (Optional)</label>
+                        <input
+                          type="text"
+                          disabled={!editable}
+                          placeholder="e.g. State Bank of India"
+                          value={chequeBankName}
+                          onChange={(e) => setChequeBankName(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-xs text-text-primary focus:outline-none disabled:opacity-50"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment Date & Reference */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-text-secondary font-bold mb-1">
+                        Payment Date <span className="text-danger-app">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        disabled={!editable}
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs font-semibold text-text-primary focus:outline-none disabled:opacity-50"
+                      />
+                    </div>
+
+                    {(paymentMethod === 'UPI' || paymentMethod === 'QR_CODE' || paymentMethod === 'BANK_TRANSFER') && (
+                      <div>
+                        <label className="block text-text-secondary font-bold mb-1">
+                          {paymentMethod === 'BANK_TRANSFER' ? 'Bank Ref / UTR #' : 'UPI / Transaction Reference'} (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          disabled={!editable}
+                          placeholder="e.g. 12-digit UTR or Reference ID"
+                          value={referenceNumber}
+                          onChange={(e) => setReferenceNumber(e.target.value)}
+                          className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs font-mono text-text-primary focus:outline-none disabled:opacity-50"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional Payment Proof Upload */}
+                  <div>
+                    <label className="block text-text-secondary font-bold mb-1">
+                      Payment Proof (Optional Screenshot / Cheque Photo / Receipt)
+                    </label>
+                    <input
+                      type="file"
+                      disabled={!editable}
+                      accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setPaymentProofFile(e.target.files[0]);
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-secondary file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-primary-700 file:text-white cursor-pointer disabled:opacity-50"
+                    />
+                    {paymentProofFile && (
+                      <p className="text-[10px] text-success-app mt-1 font-semibold">
+                        ✓ Attached: {paymentProofFile.name} ({(paymentProofFile.size / 1024).toFixed(1)} KB)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  <div>
+                    <label className="block text-text-secondary font-bold mb-1">Payment Notes (Optional)</label>
+                    <input
+                      type="text"
+                      disabled={!editable}
+                      placeholder="e.g. Counter payment"
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                      className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+
+                  {/* Live Payment Summary Card */}
+                  <div className="bg-surface-2-app/60 border border-border-app rounded-xl p-4 space-y-2 mt-3">
+                    <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                      Payment Summary
+                    </h4>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-text-secondary">Invoice Total:</span>
+                      <span className="font-bold text-text-primary">
+                        ₹{invoiceTotalRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-text-secondary">Payment Now:</span>
+                      <span className="font-bold text-success-app">
+                        ₹{paymentNowRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs border-t border-border-light pt-1.5 font-bold">
+                      <span className="text-text-primary">Outstanding Due:</span>
+                      <span className="text-danger-app font-black">
+                        ₹{outstandingRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
+
+            {/* Calculations Summary & Action Buttons */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
+                Calculations Summary
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between font-semibold">
+                  <span className="text-text-secondary">Subtotal:</span>
+                  <span className="text-text-primary">
+                    ₹{(previewTotals ? previewTotals.subtotalMinor / 100 : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                {previewTotals && previewTotals.taxTotalMinor > 0 && (
+                  <div className="flex justify-between font-semibold text-primary-700">
+                    <span>Tax Total (GST 18%):</span>
+                    <span>₹{(previewTotals.taxTotalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                {previewTotals && previewTotals.roundingMinor !== 0 && (
+                  <div className="flex justify-between text-text-muted">
+                    <span>Rounding:</span>
+                    <span>₹{(previewTotals.roundingMinor / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-base font-black text-text-primary border-t border-border-light pt-2">
+                  <span>Grand Total:</span>
+                  <span>₹{invoiceTotalRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+
+              {editable && (
                 <div className="flex space-x-3 pt-4 border-t border-border-light">
                   <button
                     type="button"
+                    disabled={submitLoading}
                     onClick={(e) => handleSubmit(e, false)}
-                    disabled={submitLoading || items.length === 0}
-                    className="flex-1 text-center py-2.5 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer transition disabled:opacity-50"
+                    className="flex-1 py-2.5 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl font-bold text-text-primary text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
-                    Save Draft
+                    Save Draft Changes
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => handleSubmit(e, true)}
-                    disabled={submitLoading || items.length === 0}
-                    className="flex-1 text-center py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                    disabled={submitLoading || items.length === 0 || !selectedCustomerId}
+                    onClick={() => setConfirmFinalizeOpen(true)}
+                    className="flex-1 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
-                    {submitLoading ? 'Saving...' : 'Preview & Finalize'}
+                    Finalize & Issue Bill
                   </button>
                 </div>
-              </div>
-            </form>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* Right Column: Live Visual A4 Preview */}
+        <div className="xl:col-span-5 space-y-4">
+          <div className="bg-surface-app border border-border-app p-4 rounded-xl shadow-sm flex items-center justify-between">
+            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wide">
+              Live Bill Preview
+            </h3>
+            <button
+              type="button"
+              onClick={() => setExpandPreview(!expandPreview)}
+              className="text-xs text-primary-700 hover:underline font-bold cursor-pointer"
+            >
+              {expandPreview ? 'Collapse' : 'Expand A4'}
+            </button>
           </div>
 
-          {/* Right Column: Live A4 Bill Preview */}
-          <div className="xl:col-span-5 space-y-6 xl:sticky xl:top-6">
-            <div className="bg-surface-app border border-border-app p-4 rounded-xl shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-border-light pb-2">
-                <div className="flex items-center space-x-2">
-                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
-                    Live Bill Preview
-                  </h3>
-                  <span className="text-[10px] bg-primary-900/10 text-primary-700 px-2 py-0.5 rounded font-bold uppercase">
-                    Draft Mode
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setExpandPreview(true)}
-                  className="px-3 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-[10px] font-bold shadow-sm transition cursor-pointer"
-                >
-                  Expand Preview
-                </button>
-              </div>
+          <div
+            ref={previewContainerRef}
+            className="w-full relative overflow-hidden flex justify-center items-start bg-surface-2-app/10 p-4 border border-border-app rounded-2xl"
+          >
+            <div
+              style={{
+                transform: `scale(${scale})`,
+                transformOrigin: 'top center',
+                width: '794px',
+                height: '1123px',
+                minWidth: '794px',
+                minHeight: '1123px',
+                marginBottom: `${(scale - 1) * 1123}px`
+              }}
+              className="invoice-paper bg-white text-black border-[1.5px] border-black shadow-2xl w-[210mm] min-h-[297mm] h-[297mm] box-border relative flex flex-col justify-between select-none"
+            >
+              {renderInvoicePaper()}
+            </div>
+          </div>
+        </div>
+      </div>
 
-              <div ref={previewContainerRef} className="w-full relative overflow-hidden bg-surface-2-app/20 border border-border-app rounded-xl p-4 flex justify-center items-center">
-                <div
-                  style={{
-                    transform: `scale(${scale})`,
-                    transformOrigin: 'top center',
-                    width: '794px',
-                    height: '1123px',
-                    minWidth: '794px',
-                    minHeight: '1123px',
-                    marginBottom: `${(scale - 1) * 1123}px`
-                  }}
-                  className="invoice-paper bg-white text-black border-[1.5px] border-black shadow-lg box-border relative flex flex-col justify-between select-none"
-                >
-                  {renderInvoicePaper()}
-                </div>
-              </div>
+      {/* Finalize Confirmation Modal */}
+      {confirmFinalizeOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border-light pb-2">
+              <h3 className="text-base font-bold text-text-primary">Confirm Invoice Finalization</h3>
+              <button
+                type="button"
+                onClick={() => setConfirmFinalizeOpen(false)}
+                className="text-text-muted hover:text-text-primary font-bold text-xl cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-text-primary font-semibold text-sm">
+                {paymentStatus === 'PAID' && (
+                  <>Record <strong>₹{invoiceTotalRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> full payment and finalize this invoice?</>
+                )}
+                {paymentStatus === 'PARTIAL' && (
+                  <>Record <strong>₹{paymentNowRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> partial payment (Remaining: ₹{outstandingRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) and finalize this invoice?</>
+                )}
+                {paymentStatus === 'UNPAID' && (
+                  <>Finalize this invoice as <strong>UNPAID</strong> (Total Due: ₹{invoiceTotalRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })})?</>
+                )}
+              </p>
+              <p className="text-text-muted text-[11px]">
+                Once finalized, the invoice will receive an official consecutive invoice sequence number and become immutable.
+              </p>
+            </div>
+
+            <div className="flex space-x-3 pt-3 border-t border-border-app">
+              <button
+                type="button"
+                onClick={() => setConfirmFinalizeOpen(false)}
+                className="flex-1 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg font-bold text-text-secondary cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitLoading}
+                onClick={() => handleSubmit(undefined, true)}
+                className="flex-1 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+              >
+                {submitLoading ? 'Finalizing...' : 'Confirm & Finalize'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Customer Modal Drawer */}
+      {/* Inline Add Customer Modal */}
       {addCustomerOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border-light pb-2">
-              <h3 className="text-base font-bold text-text-primary">Create New Customer</h3>
+              <h3 className="text-base font-bold text-text-primary">Add New Customer</h3>
               <button
                 type="button"
                 onClick={() => setAddCustomerOpen(false)}
@@ -949,147 +1423,110 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
             </div>
 
             {customerErrorMsg && (
-              <div className="p-3 bg-danger-soft border border-danger-app/20 text-danger-app text-xs rounded-lg font-semibold">
+              <div className="p-3 bg-danger-soft border border-danger-app/20 text-danger-app text-xs rounded-lg font-medium">
                 {customerErrorMsg}
               </div>
             )}
 
-            <form onSubmit={handleCreateCustomer} className="space-y-4">
-              <div className="space-y-3">
+            <form onSubmit={handleCreateCustomer} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-text-secondary font-semibold mb-1">Customer Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={customerForm.name}
+                  onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none font-semibold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-                    Customer Name *
-                  </label>
+                  <label className="block text-text-secondary font-semibold mb-1">Phone Number</label>
                   <input
                     type="text"
-                    required
-                    value={customerForm.name}
-                    onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                    placeholder="e.g. AON Engineers"
-                    className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
+                    value={customerForm.phone}
+                    onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none"
                   />
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-                      Phone Number
-                    </label>
-                    <input
-                      type="text"
-                      value={customerForm.phone}
-                      onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
-                      placeholder="e.g. +91 9876543210"
-                      className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={customerForm.email}
-                      onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
-                      placeholder="email@example.com"
-                      className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-text-secondary font-semibold mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={customerForm.email}
+                    onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none"
+                  />
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wide border-b border-border-light pb-1">
-                  Billing Address
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs text-text-secondary mb-1">Address Line 1</label>
-                    <input
-                      type="text"
-                      value={customerForm.line1}
-                      onChange={(e) => setCustomerForm({ ...customerForm, line1: e.target.value })}
-                      placeholder="Street, Complex name, etc."
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs text-text-secondary mb-1">Address Line 2</label>
-                    <input
-                      type="text"
-                      value={customerForm.line2}
-                      onChange={(e) => setCustomerForm({ ...customerForm, line2: e.target.value })}
-                      placeholder="Floor, suite, building details"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-secondary mb-1">City</label>
-                    <input
-                      type="text"
-                      value={customerForm.city}
-                      onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })}
-                      placeholder="City"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-secondary mb-1">State</label>
-                    <input
-                      type="text"
-                      value={customerForm.state}
-                      onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value })}
-                      placeholder="State"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-secondary mb-1">Postal Code</label>
-                    <input
-                      type="text"
-                      value={customerForm.postalCode}
-                      onChange={(e) => setCustomerForm({ ...customerForm, postalCode: e.target.value })}
-                      placeholder="PIN Code"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-secondary mb-1">GSTIN</label>
-                    <input
-                      type="text"
-                      value={customerForm.gstin}
-                      onChange={(e) => setCustomerForm({ ...customerForm, gstin: e.target.value })}
-                      placeholder="15-character GSTIN"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary uppercase"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-secondary mb-1">PAN</label>
-                    <input
-                      type="text"
-                      value={customerForm.pan}
-                      onChange={(e) => setCustomerForm({ ...customerForm, pan: e.target.value })}
-                      placeholder="10-character PAN"
-                      className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary uppercase"
-                    />
-                  </div>
+              <div>
+                <label className="block text-text-secondary font-semibold mb-1">Address Line 1</label>
+                <input
+                  type="text"
+                  value={customerForm.line1}
+                  onChange={(e) => setCustomerForm({ ...customerForm, line1: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-text-secondary font-semibold mb-1">City</label>
+                  <input
+                    type="text"
+                    value={customerForm.city}
+                    onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-semibold mb-1">State</label>
+                  <input
+                    type="text"
+                    value={customerForm.state}
+                    onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none"
+                  />
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-3 border-t border-border-app pt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-text-secondary font-semibold mb-1">GSTIN</label>
+                  <input
+                    type="text"
+                    value={customerForm.gstin}
+                    onChange={(e) => setCustomerForm({ ...customerForm, gstin: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none uppercase font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-semibold mb-1">PAN</label>
+                  <input
+                    type="text"
+                    value={customerForm.pan}
+                    onChange={(e) => setCustomerForm({ ...customerForm, pan: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary focus:outline-none uppercase font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 pt-3 border-t border-border-app">
                 <button
                   type="button"
                   onClick={() => setAddCustomerOpen(false)}
-                  className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-sm font-semibold cursor-pointer"
+                  className="flex-1 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg font-bold text-text-secondary cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={customerSubmitLoading}
-                  className="px-5 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-sm font-semibold shadow-sm disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
                 >
-                  {customerSubmitLoading ? 'Saving...' : 'Save Customer'}
+                  {customerSubmitLoading ? 'Saving...' : 'Create Customer'}
                 </button>
               </div>
             </form>
@@ -1097,40 +1534,6 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      {/* Expand Preview Modal Overlay */}
-      {expandPreview && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 md:p-8 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-surface-app border border-border-app rounded-2xl w-full max-w-4xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto flex flex-col">
-            <div className="flex items-center justify-between border-b border-border-light pb-3 mb-4 flex-wrap gap-2">
-              <h3 className="text-base font-bold text-text-primary uppercase tracking-wider">
-                Full Bill Preview
-              </h3>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold cursor-pointer transition"
-                >
-                  Print / Save PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExpandPreview(false)}
-                  className="px-3 py-1.5 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-auto p-4 flex justify-center bg-surface-2-app/30 border border-border-light rounded-xl">
-              <div className="invoice-paper bg-white text-black border-[1.5px] border-black shadow-lg w-[210mm] min-h-[297mm] h-[297mm] box-border relative flex flex-col justify-between select-none">
-                {renderInvoicePaper()}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

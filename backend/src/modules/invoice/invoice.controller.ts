@@ -49,7 +49,9 @@ const CreateInvoiceSchema = z.object({
   discount: DiscountSchema.optional(),
   paymentTerms: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
-  paymentStatus: z.enum(['PAID', 'UNPAID']).optional(),
+  paymentStatus: z.enum(['PAID', 'UNPAID', 'PARTIAL']).optional(),
+  payment: z.any().optional(),
+  paymentDetails: z.any().optional(),
 });
 
 export async function createInvoiceDraft(req: Request, res: Response, next: NextFunction) {
@@ -69,7 +71,11 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       paymentTerms,
       notes,
       paymentStatus,
+      payment,
+      paymentDetails,
     } = bodyResult.data;
+
+    const paymentInput = payment || paymentDetails;
 
     // 1. Verify active customer belongs to business
     const customer = await Customer.findOne({
@@ -109,6 +115,17 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       return next(new AppError('Active business context not found', 404, 'NOT_FOUND'));
     }
 
+    let initialPaidMinor = 0;
+    let initialStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' = 'UNPAID';
+    if (paymentStatus === 'PAID' || paymentInput?.status === 'PAID') {
+      initialPaidMinor = calcResult.totals.grandTotalMinor;
+      initialStatus = 'PAID';
+    } else if (paymentStatus === 'PARTIAL' || paymentInput?.status === 'PARTIAL') {
+      const parsedPartial = Math.round(Number(paymentInput?.amountMinor !== undefined ? paymentInput.amountMinor : (Number(paymentInput?.amount) * 100)));
+      initialPaidMinor = !isNaN(parsedPartial) && parsedPartial > 0 ? parsedPartial : 0;
+      initialStatus = initialPaidMinor >= calcResult.totals.grandTotalMinor ? 'PAID' : (initialPaidMinor > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+    }
+
     // Create draft document
     const newInvoice = new Invoice({
       businessId: req.businessId,
@@ -128,10 +145,11 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       amountInWords: calcResult.amountInWords,
       paymentTerms: paymentTerms || business.invoiceSettings?.defaultPaymentTerms || null,
       notes: notes || null,
+      draftPaymentDetails: paymentInput || null,
       paymentSummary: {
-        paidAmountMinor: paymentStatus === 'PAID' ? calcResult.totals.grandTotalMinor : 0,
-        dueAmountMinor: paymentStatus === 'PAID' ? 0 : calcResult.totals.grandTotalMinor,
-        status: paymentStatus === 'PAID' ? 'PAID' : 'UNPAID',
+        paidAmountMinor: initialPaidMinor,
+        dueAmountMinor: Math.max(0, calcResult.totals.grandTotalMinor - initialPaidMinor),
+        status: initialStatus,
       },
       document: {
         snapshot: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' },
@@ -838,12 +856,176 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
       invoice.assetSnapshot = assetSnapshot;
       invoice.items = calcResult.items as any;
       invoice.totals = calcResult.totals;
-      invoice.amountInWords = calcResult.amountInWords;
-      invoice.paymentSummary.dueAmountMinor = calcResult.totals.grandTotalMinor - invoice.paymentSummary.paidAmountMinor;
-      if (invoice.paymentSummary.dueAmountMinor < 0) {
-        invoice.paymentSummary.dueAmountMinor = 0;
+      // 8. Process Initial Payment (if provided upon finalization)
+      const paymentInput = req.body.payment || req.body.paymentDetails || invoice.draftPaymentDetails;
+      let initialPaymentRecord: any = null;
+
+      if (paymentInput && (paymentInput.status === 'PAID' || paymentInput.status === 'PARTIAL')) {
+        let amountMinor = 0;
+        if (paymentInput.status === 'PAID') {
+          amountMinor = calcResult.totals.grandTotalMinor;
+        } else if (paymentInput.status === 'PARTIAL') {
+          amountMinor = Math.round(Number(paymentInput.amountMinor !== undefined ? paymentInput.amountMinor : (Number(paymentInput.amount) * 100)));
+          if (isNaN(amountMinor) || amountMinor <= 0) {
+            throw new AppError('Partial payment amount must be greater than zero', 400, 'BAD_REQUEST');
+          }
+          if (amountMinor >= calcResult.totals.grandTotalMinor) {
+            throw new AppError('Partial payment amount must be less than the invoice total', 400, 'BAD_REQUEST');
+          }
+        }
+
+        const allowedMethods = ['CASH', 'UPI', 'QR_CODE', 'BANK_TRANSFER', 'CHEQUE'];
+        const paymentMethod = paymentInput.method && allowedMethods.includes(paymentInput.method) ? paymentInput.method : 'CASH';
+
+        let resolvedPaymentAccountId: any = null;
+        let paymentAccountSnapshot: any = null;
+
+        if (paymentMethod === 'CASH') {
+          if (paymentInput.paymentAccountId) {
+            const cashAcc = await PaymentAccount.findOne({
+              _id: paymentInput.paymentAccountId,
+              businessId: req.businessId,
+            }).session(session);
+            if (!cashAcc) {
+              throw new AppError('Payment account not found or belongs to another business', 404, 'NOT_FOUND');
+            }
+            if (!cashAcc.active) {
+              throw new AppError('Selected payment account is inactive', 400, 'BAD_REQUEST');
+            }
+            if (cashAcc.type !== 'CASH') {
+              throw new AppError('Cash payment requires a CASH account', 400, 'BAD_REQUEST');
+            }
+            resolvedPaymentAccountId = cashAcc._id;
+            paymentAccountSnapshot = {
+              name: cashAcc.name,
+              type: 'CASH',
+              displayName: cashAcc.displayName || cashAcc.name || 'Cash',
+            };
+          } else {
+            paymentAccountSnapshot = {
+              name: 'Cash',
+              type: 'CASH',
+              displayName: 'Cash',
+            };
+          }
+        } else if (paymentMethod === 'UPI' || paymentMethod === 'QR_CODE') {
+          if (!paymentInput.paymentAccountId) {
+            throw new AppError(`Receiving account is required for ${paymentMethod}`, 400, 'BAD_REQUEST');
+          }
+          const upiAcc = await PaymentAccount.findOne({
+            _id: paymentInput.paymentAccountId,
+            businessId: req.businessId,
+          }).session(session);
+          if (!upiAcc) {
+            throw new AppError('Payment account not found or belongs to another business', 404, 'NOT_FOUND');
+          }
+          if (!upiAcc.active) {
+            throw new AppError('Selected payment account is inactive', 400, 'BAD_REQUEST');
+          }
+          if (upiAcc.type !== 'UPI') {
+            throw new AppError(`Payment method ${paymentMethod} requires a UPI account`, 400, 'BAD_REQUEST');
+          }
+          resolvedPaymentAccountId = upiAcc._id;
+          paymentAccountSnapshot = {
+            name: upiAcc.name,
+            type: 'UPI',
+            displayName: upiAcc.displayName,
+            upiId: upiAcc.upiId,
+            qrAssetUrl: upiAcc.qrAssetUrl || null,
+          };
+        } else if (paymentMethod === 'BANK_TRANSFER' || paymentMethod === 'CHEQUE') {
+          if (!paymentInput.paymentAccountId) {
+            throw new AppError(`Receiving/Deposit bank account is required for ${paymentMethod}`, 400, 'BAD_REQUEST');
+          }
+          const bankAcc = await PaymentAccount.findOne({
+            _id: paymentInput.paymentAccountId,
+            businessId: req.businessId,
+          }).session(session);
+          if (!bankAcc) {
+            throw new AppError('Payment account not found or belongs to another business', 404, 'NOT_FOUND');
+          }
+          if (!bankAcc.active) {
+            throw new AppError('Selected payment account is inactive', 400, 'BAD_REQUEST');
+          }
+          if (bankAcc.type !== 'BANK') {
+            throw new AppError(`Payment method ${paymentMethod} requires a BANK account`, 400, 'BAD_REQUEST');
+          }
+          resolvedPaymentAccountId = bankAcc._id;
+          paymentAccountSnapshot = {
+            name: bankAcc.name,
+            type: 'BANK',
+            displayName: bankAcc.displayName,
+            bankName: bankAcc.bankName,
+            maskedAccountNumber: bankAcc.maskedAccountNumber,
+            ifsc: bankAcc.ifsc,
+          };
+        }
+
+        let structuredChequeDetails: any = null;
+        if (paymentMethod === 'CHEQUE') {
+          structuredChequeDetails = {
+            chequeNumber: paymentInput.chequeDetails?.chequeNumber ? String(paymentInput.chequeDetails.chequeNumber).trim() : (paymentInput.referenceNumber ? String(paymentInput.referenceNumber).trim() : null),
+            chequeDate: paymentInput.chequeDetails?.chequeDate ? new Date(paymentInput.chequeDetails.chequeDate) : (paymentInput.paymentDate ? new Date(paymentInput.paymentDate) : new Date()),
+            bankName: paymentInput.chequeDetails?.bankName ? String(paymentInput.chequeDetails.bankName).trim() : null,
+            status: 'RECEIVED',
+          };
+        }
+
+        let structuredProof: any = null;
+        if (paymentInput.proof && paymentInput.proof.secureUrl) {
+          structuredProof = {
+            publicId: paymentInput.proof.publicId || null,
+            secureUrl: paymentInput.proof.secureUrl,
+            format: paymentInput.proof.format || null,
+            fileType: paymentInput.proof.fileType || null,
+            uploadedAt: paymentInput.proof.uploadedAt ? new Date(paymentInput.proof.uploadedAt) : new Date(),
+          };
+        }
+
+        const [paymentRecord] = await Payment.create([
+          {
+            businessId: req.businessId,
+            invoiceId: invoice._id,
+            amountMinor,
+            currency: 'INR',
+            method: paymentMethod,
+            paymentAccountId: resolvedPaymentAccountId,
+            paymentAccountSnapshot,
+            referenceNumber: paymentInput.referenceNumber ? String(paymentInput.referenceNumber).trim() : null,
+            chequeDetails: structuredChequeDetails,
+            proof: structuredProof,
+            paidAt: paymentInput.paidAt || paymentInput.paymentDate ? new Date(paymentInput.paidAt || paymentInput.paymentDate) : new Date(),
+            notes: paymentInput.notes ? String(paymentInput.notes).trim() : null,
+            recordedBy: req.user?._id,
+            status: 'CONFIRMED',
+          }
+        ], { session });
+
+        initialPaymentRecord = paymentRecord;
+
+        invoice.paymentSummary = {
+          paidAmountMinor: amountMinor,
+          dueAmountMinor: calcResult.totals.grandTotalMinor - amountMinor,
+          status: amountMinor >= calcResult.totals.grandTotalMinor ? 'PAID' : 'PARTIALLY_PAID',
+        };
+      } else {
+        invoice.paymentSummary = {
+          paidAmountMinor: 0,
+          dueAmountMinor: calcResult.totals.grandTotalMinor,
+          status: 'UNPAID',
+        };
       }
-      invoice.paymentSummary.status = invoice.paymentSummary.dueAmountMinor <= 0 ? 'PAID' : (invoice.paymentSummary.paidAmountMinor > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+
+      // 9. Apply Updates & Save Invoice Status change
+      invoice.status = 'FINALIZED';
+      invoice.invoiceNumber = invoiceNumber;
+      invoice.customerSnapshot = customerSnapshot;
+      invoice.businessSnapshot = businessSnapshot;
+      invoice.assetSnapshot = assetSnapshot;
+      invoice.items = calcResult.items as any;
+      invoice.totals = calcResult.totals;
+      invoice.amountInWords = calcResult.amountInWords;
+      invoice.draftPaymentDetails = null;
       invoice.finalizedBy = req.user?._id;
       invoice.finalizedAt = new Date();
       invoice.document.snapshot.status = 'GENERATING';
@@ -855,7 +1037,7 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
 
       await invoice.save({ session });
 
-      // 9. Write Audit Log
+      // 10. Write Audit Logs
       await AuditLog.create([
         {
           businessId: req.businessId,
@@ -864,11 +1046,32 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
           entity: 'INVOICE',
           entityId: invoice._id,
           previousState: { status: 'DRAFT' },
-          newState: { status: 'FINALIZED', invoiceNumber },
+          newState: { status: 'FINALIZED', invoiceNumber, paymentSummary: invoice.paymentSummary },
           metadata: { invoiceNumber },
           timestamp: new Date(),
         }
       ], { session });
+
+      if (initialPaymentRecord) {
+        await AuditLog.create([
+          {
+            businessId: req.businessId,
+            actorId: req.user?._id,
+            action: 'PAYMENT_CREATED',
+            entity: 'PAYMENT',
+            entityId: initialPaymentRecord._id,
+            previousState: null,
+            newState: {
+              status: 'CONFIRMED',
+              amountMinor: initialPaymentRecord.amountMinor,
+              method: initialPaymentRecord.method,
+              accountSnapshot: initialPaymentRecord.paymentAccountSnapshot,
+            },
+            metadata: { invoiceId: invoice._id, invoiceNumber, isInitialPayment: true },
+            timestamp: new Date(),
+          }
+        ], { session });
+      }
 
       return {
         invoice: {

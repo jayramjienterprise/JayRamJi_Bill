@@ -52,6 +52,7 @@ export interface IInvoice extends Document {
   amountInWords: string;
   paymentTerms: string | null;
   notes: string | null;
+  draftPaymentDetails?: any;
   paymentSummary: {
     paidAmountMinor: number;
     dueAmountMinor: number;
@@ -157,6 +158,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     amountInWords: { type: String, default: '' },
     paymentTerms: { type: String, default: null },
     notes: { type: String, default: null },
+    draftPaymentDetails: { type: Schema.Types.Mixed, default: null },
     paymentSummary: {
       paidAmountMinor: { type: Number, default: 0 },
       dueAmountMinor: { type: Number, required: true },

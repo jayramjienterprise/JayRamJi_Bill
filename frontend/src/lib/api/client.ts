@@ -276,8 +276,8 @@ class ApiClient {
     return this.get<any>(`/invoices/${invoiceId}/preview`);
   }
 
-  public async finalizeInvoice(invoiceId: string): Promise<any> {
-    const data = await this.post<{ invoice: any }>(`/invoices/${invoiceId}/finalize`, {});
+  public async finalizeInvoice(invoiceId: string, payload: { payment?: any } = {}): Promise<any> {
+    const data = await this.post<{ invoice: any }>(`/invoices/${invoiceId}/finalize`, payload);
     return data.invoice;
   }
 

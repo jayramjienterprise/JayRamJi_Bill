@@ -652,4 +652,205 @@ describe('Payment Accounts & Proof Management Suite', () => {
       });
     expect(blockedPay.status).toBe(400); // Inactive account blocked for new payments
   });
+
+  describe('Create Invoice Form + Initial Payment Integration', () => {
+    it('28. should create invoice and atomically record full payment on finalization (PAID via UPI)', async () => {
+      const upiAcc = await PaymentAccount.create({
+        businessId: business._id,
+        name: 'GPay Shop',
+        displayName: 'GPay Shop - gpay@upi',
+        type: 'UPI',
+        upiId: 'gpay@upi',
+        active: true,
+      });
+
+      const draftRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          invoiceDate: '2026-08-30',
+          customerId: customer._id.toString(),
+          items: [{ productId: product._id.toString(), type: 'SERVICE', description: 'AC Job', uom: 'JOB', quantity: 1, unitPriceMinor: 300000 }],
+          taxMode: 'NONE',
+          defaultTaxRateBps: 0,
+          paymentStatus: 'PAID',
+          payment: {
+            status: 'PAID',
+            method: 'UPI',
+            paymentAccountId: upiAcc._id.toString(),
+            referenceNumber: 'UPI987654',
+          },
+        });
+
+      expect(draftRes.status).toBe(201);
+      const invoiceId = draftRes.body.data.invoice._id;
+
+      // Finalize with payment
+      const finRes = await request(app)
+        .post(`/api/invoices/${invoiceId}/finalize`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          payment: {
+            status: 'PAID',
+            method: 'UPI',
+            paymentAccountId: upiAcc._id.toString(),
+            referenceNumber: 'UPI987654',
+          },
+        });
+
+      expect(finRes.status).toBe(200);
+
+      // Verify invoice payment summary
+      const invRes = await request(app)
+        .get(`/api/invoices/${invoiceId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString());
+
+      expect(invRes.body.data.invoice.status).toBe('FINALIZED');
+      expect(invRes.body.data.invoice.paymentSummary.paidAmountMinor).toBe(300000);
+      expect(invRes.body.data.invoice.paymentSummary.dueAmountMinor).toBe(0);
+      expect(invRes.body.data.invoice.paymentSummary.status).toBe('PAID');
+
+      // Verify payment history
+      const payHist = await request(app)
+        .get(`/api/invoices/${invoiceId}/payments`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString());
+
+      expect(payHist.body.data.payments.length).toBe(1);
+      expect(payHist.body.data.payments[0].amountMinor).toBe(300000);
+      expect(payHist.body.data.payments[0].method).toBe('UPI');
+      expect(payHist.body.data.payments[0].paymentAccountSnapshot.name).toBe('GPay Shop');
+    });
+
+    it('29. should create invoice and atomically record partial payment on finalization (PARTIAL via Bank)', async () => {
+      const bankAcc = await PaymentAccount.create({
+        businessId: business._id,
+        name: 'SBI Current',
+        displayName: 'SBI Current ••••1122',
+        type: 'BANK',
+        bankName: 'SBI',
+        accountNumber: '9988771122',
+        active: true,
+      });
+
+      const draftRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          invoiceDate: '2026-08-30',
+          customerId: customer._id.toString(),
+          items: [{ productId: product._id.toString(), type: 'SERVICE', description: 'AC Job', uom: 'JOB', quantity: 1, unitPriceMinor: 300000 }],
+          taxMode: 'NONE',
+          defaultTaxRateBps: 0,
+        });
+
+      const invoiceId = draftRes.body.data.invoice._id;
+
+      // Finalize with partial payment ₹1,000 (100000 paise)
+      const finRes = await request(app)
+        .post(`/api/invoices/${invoiceId}/finalize`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          payment: {
+            status: 'PARTIAL',
+            amountMinor: 100000,
+            method: 'BANK_TRANSFER',
+            paymentAccountId: bankAcc._id.toString(),
+            referenceNumber: 'NEFT55555',
+          },
+        });
+
+      expect(finRes.status).toBe(200);
+
+      const invRes = await request(app)
+        .get(`/api/invoices/${invoiceId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString());
+
+      expect(invRes.body.data.invoice.paymentSummary.paidAmountMinor).toBe(100000);
+      expect(invRes.body.data.invoice.paymentSummary.dueAmountMinor).toBe(200000);
+      expect(invRes.body.data.invoice.paymentSummary.status).toBe('PARTIALLY_PAID');
+    });
+
+    it('30. should reject partial payment amount greater than or equal to invoice total in PARTIAL mode', async () => {
+      const draftRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          invoiceDate: '2026-08-30',
+          customerId: customer._id.toString(),
+          items: [{ productId: product._id.toString(), type: 'SERVICE', description: 'AC Job', uom: 'JOB', quantity: 1, unitPriceMinor: 300000 }],
+          taxMode: 'NONE',
+          defaultTaxRateBps: 0,
+        });
+
+      const invoiceId = draftRes.body.data.invoice._id;
+
+      const finRes = await request(app)
+        .post(`/api/invoices/${invoiceId}/finalize`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          payment: {
+            status: 'PARTIAL',
+            amountMinor: 300000, // Equal to total in partial mode -> must be rejected
+            method: 'CASH',
+          },
+        });
+
+      expect(finRes.status).toBe(400);
+    });
+
+    it('31. should create finalized UNPAID invoice when payment status is UNPAID', async () => {
+      const draftRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          invoiceDate: '2026-08-30',
+          customerId: customer._id.toString(),
+          items: [{ productId: product._id.toString(), type: 'SERVICE', description: 'AC Job', uom: 'JOB', quantity: 1, unitPriceMinor: 300000 }],
+          taxMode: 'NONE',
+          defaultTaxRateBps: 0,
+          paymentStatus: 'UNPAID',
+        });
+
+      const invoiceId = draftRes.body.data.invoice._id;
+
+      const finRes = await request(app)
+        .post(`/api/invoices/${invoiceId}/finalize`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString())
+        .send({
+          payment: {
+            status: 'UNPAID',
+          },
+        });
+
+      expect(finRes.status).toBe(200);
+
+      const invRes = await request(app)
+        .get(`/api/invoices/${invoiceId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString());
+
+      expect(invRes.body.data.invoice.paymentSummary.paidAmountMinor).toBe(0);
+      expect(invRes.body.data.invoice.paymentSummary.dueAmountMinor).toBe(300000);
+      expect(invRes.body.data.invoice.paymentSummary.status).toBe('UNPAID');
+
+      // No payment records in history
+      const payHist = await request(app)
+        .get(`/api/invoices/${invoiceId}/payments`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-business-id', business._id.toString());
+
+      expect(payHist.body.data.payments.length).toBe(0);
+    });
+  });
 });

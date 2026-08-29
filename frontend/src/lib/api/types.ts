@@ -106,6 +106,7 @@ export interface InvoiceItem {
   }>;
   taxAmountMinor: number;
   lineTotalMinor: number;
+  section?: 'ITEM' | 'LABOUR' | 'PART';
 }
 
 export interface Invoice {
