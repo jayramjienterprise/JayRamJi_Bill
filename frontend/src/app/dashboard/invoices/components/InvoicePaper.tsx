@@ -129,23 +129,52 @@ export default function InvoicePaper({
   // Pad with empty rows if items.length < 11.
   const paddingRowsCount = Math.max(0, 11 - displayItems.length);
 
+  // Compute robust parts and labor amounts from items if not provided directly on totals
+  const computedPartsTotal = typeof totals?.partsTotal === 'number'
+    ? totals.partsTotal
+    : displayItems.filter(it => it.type === 'PRODUCT' || (it as any).section === 'PART' || (it as any).section === 'ITEM').reduce((sum, it) => sum + (it.amount || 0), 0);
+
+  const computedLaborTotal = typeof totals?.laborTotal === 'number'
+    ? totals.laborTotal
+    : displayItems.filter(it => it.type === 'SERVICE' || (it as any).section === 'LABOUR').reduce((sum, it) => sum + (it.amount || 0), 0);
+
+  const subtotalValue = typeof totals?.subtotal === 'number'
+    ? totals.subtotal
+    : (typeof (totals as any)?.subtotalMinor === 'number' ? (totals as any).subtotalMinor / 100 : (computedPartsTotal + computedLaborTotal));
+
+  const discountValue = typeof totals?.discount === 'number'
+    ? totals.discount
+    : (typeof (totals as any)?.discountMinor === 'number' ? (totals as any).discountMinor / 100 : 0);
+
+  const taxTotalValue = typeof totals?.taxTotal === 'number'
+    ? totals.taxTotal
+    : (typeof (totals as any)?.taxTotalMinor === 'number' ? (totals as any).taxTotalMinor / 100 : 0);
+
+  const roundingValue = typeof totals?.rounding === 'number'
+    ? totals.rounding
+    : (typeof (totals as any)?.roundingMinor === 'number' ? (totals as any).roundingMinor / 100 : 0);
+
+  const grandTotalValue = typeof totals?.grandTotal === 'number'
+    ? totals.grandTotal
+    : (typeof (totals as any)?.grandTotalMinor === 'number' ? (totals as any).grandTotalMinor / 100 : (subtotalValue - discountValue + taxTotalValue + roundingValue));
+
   // Dynamic breakdown rows for the totals card on the right
   const breakdownRows: Array<{ label: string; amount: number; isTotal?: boolean }> = [
-    { label: 'PARTS', amount: totals.partsTotal },
-    { label: 'LABOR', amount: totals.laborTotal },
+    { label: 'PARTS', amount: computedPartsTotal },
+    { label: 'LABOR', amount: computedLaborTotal },
   ];
 
-  if (totals.discount > 0) {
-    breakdownRows.push({ label: 'DISCOUNT', amount: -totals.discount });
+  if (discountValue > 0) {
+    breakdownRows.push({ label: 'DISCOUNT', amount: -discountValue });
   }
 
-  breakdownRows.push({ label: 'TAX', amount: totals.taxTotal });
+  breakdownRows.push({ label: 'TAX', amount: taxTotalValue });
 
-  if (Math.abs(totals.rounding) > 0) {
-    breakdownRows.push({ label: 'ROUNDING', amount: totals.rounding });
+  if (Math.abs(roundingValue) > 0) {
+    breakdownRows.push({ label: 'ROUNDING', amount: roundingValue });
   }
 
-  breakdownRows.push({ label: 'TOTAL', amount: totals.grandTotal, isTotal: true });
+  breakdownRows.push({ label: 'TOTAL', amount: grandTotalValue, isTotal: true });
 
   const isJayRamJi = business.name.toUpperCase().includes('JAY RAMJI') || 
                      (business.legalName && business.legalName.toUpperCase().includes('JAY RAMJI'));
@@ -297,7 +326,7 @@ export default function InvoicePaper({
                 <td className="border-r border-black"></td>
                 <td className="border-r border-black"></td>
                 <td className="py-1 px-2 text-right font-bold">
-                  ₹{totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹{subtotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
               </tr>
 
@@ -330,7 +359,7 @@ export default function InvoicePaper({
                 </td>
                 {/* Column 4: First breakdown amount */}
                 <td className="py-1 px-2 border-b border-black text-right font-bold">
-                  ₹{breakdownRows[0].amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹{(breakdownRows[0]?.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
               </tr>
 
@@ -354,7 +383,7 @@ export default function InvoicePaper({
                   </td>
                   {/* Column 4 */}
                   <td className="py-1 px-2 border-b border-black text-right font-bold">
-                    ₹{row.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    ₹{(row.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
               ))}

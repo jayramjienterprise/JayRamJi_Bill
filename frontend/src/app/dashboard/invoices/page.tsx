@@ -309,15 +309,15 @@ export default function InvoicesPage() {
                 </thead>
                 <tbody className="divide-y divide-border-app text-sm">
                   {invoices.map((inv) => {
-                    const statusText = inv.status === 'DRAFT'
-                      ? 'DRAFT'
-                      : (inv.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
+                    const payStatus = inv.paymentStatus === 'PAID' 
+                      ? 'PAID' 
+                      : (inv.paymentStatus === 'PARTIALLY_PAID' || inv.paymentStatus === 'PARTIAL' ? 'PARTIAL' : 'UNPAID');
 
-                    const badgeClass = statusText === 'DRAFT'
-                      ? 'bg-warning-soft text-warning-app'
-                      : statusText === 'PAID'
-                      ? 'bg-success-soft text-success-app'
-                      : 'bg-danger-soft text-danger-app';
+                    const payBadgeClass = payStatus === 'PAID'
+                      ? 'bg-success-soft text-success-app border border-success-app/20'
+                      : payStatus === 'PARTIAL'
+                      ? 'bg-warning-soft text-warning-app border border-warning-app/20'
+                      : 'bg-danger-soft text-danger-app border border-danger-app/20';
 
                     return (
                       <tr key={inv.id || (inv as any)._id} className="hover:bg-surface-2-app/30">
@@ -336,9 +336,26 @@ export default function InvoicesPage() {
                           ₹{(inv.totalMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="py-4 px-6">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${badgeClass}`}>
-                            {statusText}
-                          </span>
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-1">
+                            {inv.status === 'DRAFT' ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-surface-2-app text-text-secondary border border-border-app">
+                                DRAFT
+                              </span>
+                            ) : inv.status === 'CANCELLED' ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-danger-soft text-danger-app border border-danger-app/20">
+                                CANCELLED
+                              </span>
+                            ) : (
+                              <>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${payBadgeClass}`}>
+                                  {payStatus}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-success-soft/60 text-success-app border border-success-app/20">
+                                  FINALIZED
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-6 text-right">
                           <Link
@@ -358,15 +375,15 @@ export default function InvoicesPage() {
             {/* Mobile Responsive Cards View */}
             <div className="md:hidden divide-y divide-border-app">
               {invoices.map((inv) => {
-                const statusText = inv.status === 'DRAFT'
-                  ? 'DRAFT'
-                  : (inv.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
+                const payStatus = inv.paymentStatus === 'PAID' 
+                  ? 'PAID' 
+                  : (inv.paymentStatus === 'PARTIALLY_PAID' || inv.paymentStatus === 'PARTIAL' ? 'PARTIAL' : 'UNPAID');
 
-                const badgeClass = statusText === 'DRAFT'
-                  ? 'bg-warning-soft text-warning-app'
-                  : statusText === 'PAID'
-                  ? 'bg-success-soft text-success-app'
-                  : 'bg-danger-soft text-danger-app';
+                const payBadgeClass = payStatus === 'PAID'
+                  ? 'bg-success-soft text-success-app border border-success-app/20'
+                  : payStatus === 'PARTIAL'
+                  ? 'bg-warning-soft text-warning-app border border-warning-app/20'
+                  : 'bg-danger-soft text-danger-app border border-danger-app/20';
 
                 return (
                   <div key={inv.id || (inv as any)._id} className="p-4 space-y-3 hover:bg-surface-2-app/10">
@@ -379,10 +396,22 @@ export default function InvoicesPage() {
                           📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </p>
                       </div>
-                      <div>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badgeClass}`}>
-                          {statusText}
-                        </span>
+                      <div className="flex items-center space-x-1">
+                        {inv.status === 'DRAFT' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-surface-2-app text-text-secondary">
+                            DRAFT
+                          </span>
+                        ) : inv.status === 'CANCELLED' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-danger-soft text-danger-app">
+                            CANCELLED
+                          </span>
+                        ) : (
+                          <>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${payBadgeClass}`}>
+                              {payStatus}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 

@@ -195,7 +195,7 @@ export default function BrandingPage() {
                 <h4 className="text-[10px] font-bold text-text-secondary uppercase tracking-wide">Historical versions</h4>
                 <div className="max-h-24 overflow-y-auto space-y-1.5 pr-1">
                   {historicalLogos.map((hl) => (
-                    <div key={hl.id} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
+                    <div key={hl.id || (hl as any)._id || hl.cloudinaryPublicId} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hl.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button
@@ -263,7 +263,7 @@ export default function BrandingPage() {
                 <h4 className="text-[10px] font-bold text-text-secondary uppercase tracking-wide">Historical versions</h4>
                 <div className="max-h-24 overflow-y-auto space-y-1.5 pr-1">
                   {historicalStamps.map((hs) => (
-                    <div key={hs.id} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
+                    <div key={hs.id || (hs as any)._id || hs.cloudinaryPublicId} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hs.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button
@@ -331,7 +331,7 @@ export default function BrandingPage() {
                 <h4 className="text-[10px] font-bold text-text-secondary uppercase tracking-wide">Historical versions</h4>
                 <div className="max-h-24 overflow-y-auto space-y-1.5 pr-1">
                   {historicalSignatures.map((hsi) => (
-                    <div key={hsi.id} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
+                    <div key={hsi.id || (hsi as any)._id || hsi.cloudinaryPublicId} className="flex items-center justify-between p-1 bg-surface-2-app rounded-md text-[10px]">
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hsi.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button

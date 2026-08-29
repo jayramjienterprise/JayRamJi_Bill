@@ -49,13 +49,9 @@ export default function InvoicePreviewPage({ params }: { params: Promise<{ id: s
     setSuccessMsg(null);
     try {
       await apiClient.finalizeInvoice(id);
-      setSuccessMsg('Invoice finalized successfully! Sequence allocated and documents are being uploaded.');
-      // Reload details from server (assigned sequence and finalized state)
-      const preview = await apiClient.getInvoicePreview(id);
-      setData(preview);
+      router.push(`/dashboard/invoices/detail/${id}`);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to finalize invoice draft');
-    } finally {
       setFinalizing(false);
     }
   }

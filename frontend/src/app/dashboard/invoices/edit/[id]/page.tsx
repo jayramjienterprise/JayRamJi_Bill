@@ -431,8 +431,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       await apiClient.patch(`/invoices/${id}`, payload);
 
       if (shouldFinalize) {
-        await apiClient.finalizeInvoice(id);
-        router.push(`/dashboard/invoices/detail/${id}`);
+        router.push(`/dashboard/invoices/preview/${id}`);
       } else {
         router.push('/dashboard/invoices');
       }
@@ -885,7 +884,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                     disabled={submitLoading || items.length === 0}
                     className="flex-1 text-center py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
-                    {submitLoading ? 'Generating...' : 'FINALIZE & GENERATE BILL'}
+                    {submitLoading ? 'Saving...' : 'Preview & Finalize'}
                   </button>
                 </div>
               </div>
