@@ -1,129 +1,126 @@
 # Jay Ramji Enterprise - Automated Billing & Invoice Management System
 
-This project is a modular monolith application for managing billing and invoices. It replaces manual Excel-based document creation with a clean, fast, and mobile-friendly web application.
-
-Currently, the application is in:
-**PHASE 1 — PROJECT FOUNDATION**
+A production-grade, secure, multi-tenant billing and invoice management system built for high-reliability shopkeeper operations. Replaces manual Excel/Word sheet editing with an automated digital bill book, automated A4 document generation, immutable sequence numbering, live calculations, and secure sharing.
 
 ---
 
 ## Technical Stack
 
-- **Frontend:** Next.js (App Router) + React + TypeScript + Tailwind CSS (v4)
+- **Frontend:** Next.js (App Router) + React 19 + TypeScript + Tailwind CSS (v4) + Turbopack
 - **Backend:** Node.js + Express.js + TypeScript
-- **Database:** MongoDB + Mongoose ODM
-- **Storage:** Cloudinary (configured for assets and snapshots)
+- **Database:** MongoDB (with ACID multi-document transactions & indexes) + Mongoose ODM
+- **Document Engine:** Puppeteer (Headless Chrome rendering exact A4 vector PDFs and PNG snapshots)
+- **Asset / Cloud Storage:** Cloudinary
+- **Testing:** Jest + Supertest (19 comprehensive end-to-end and financial suites)
 
 ---
 
-## Directory Structure
+## Core Shopkeeper Workflow
 
 ```text
-JayRamJi_Bill/
-├── package.json         # Workspace control scripts
-├── .gitignore           # Git ignore exclusions
-├── README.md            # Setup and instructions
-├── backend/             # Express.js server application
-│   ├── src/
-│   │   ├── config/      # System config validation (Zod)
-│   │   ├── database/    # Mongoose connection & graceful shutdown
-│   │   ├── middleware/  # Request validation & centralized error handler
-│   │   ├── services/    # Integration services (Cloudinary)
-│   │   ├── app.ts       # Express app setup, CORS, parsing rules
-│   │   └── server.ts    # Application bootstrap entrypoint
-│   ├── tsconfig.json    # Strict TypeScript configuration
-│   └── .env.example     # Environment template keys
-└── frontend/            # Next.js web client
-    ├── src/
-    │   ├── app/         # App router pages & Tailwind styling
-    │   └── lib/api/     # Centralized fetch API client & types
-    ├── tsconfig.json    # TypeScript configurations
-    └── package.json     # Web configuration rules
+LOGIN / REGISTER
+       ↓
+  DASHBOARD
+       ↓
+  CREATE BILL
+       ↓
+SELECT CUSTOMER (Inline search & instant add)
+       ↓
+ADD ITEMS & SERVICES (Live calculation & price override)
+       ↓
+PREVIEW INVOICE (Exact A4 draft layout review)
+       ↓
+FINALIZE INVOICE (Destructive warning confirmation modal)
+       ↓
+SEQUENCE ALLOCATED & SNAPSHOTS FROZEN (Immutable)
+       ↓
+BACKGROUND PDF / PNG GENERATED (With real-time polling & retry)
+       ↓
+DOWNLOAD / SHARE (Print, Download PDF/PNG, or generate public share link)
 ```
 
 ---
 
-## Prerequisites
+## Key Architectural Guarantees
 
-- **Node.js** (v18 or higher recommended)
-- **npm** (v9 or higher)
-- **MongoDB** (running locally or a cloud URI instance)
+1. **Financial Precision:** All monetary amounts are processed internally in minor units (paise/integer cents) to prevent floating-point inaccuracies. Grand totals round to the nearest rupee with automated Indian currency numbering words (e.g. `₹2,220` -> "Two Thousand Two Hundred Twenty Rupees Only").
+2. **Document & Invoice Immutability:** Once finalized, invoice records, financial totals, customer snapshots, business snapshots, and asset snapshots are permanently frozen. Later changes to master customer or business records do not alter historical invoices.
+3. **Strict Business Isolation (IDOR Protection):** Every database query and route is scoped to the active tenant business ID extracted from validated JWT session cookies and headers. Cross-business data access is rejected with `404 Not Found`.
+4. **Resilient Background Document Generation:** PDF and PNG generation runs asynchronously via Puppeteer and uploads directly to Cloudinary. Invoices display real-time status indicators (`GENERATING`, `READY`, `FAILED`) with automated client polling and retry capabilities.
+5. **Multi-Document ACID Transactions:** All finalization sequences, draft updates, payments, and member registrations execute within MongoDB sessions with rollback safety.
 
 ---
 
-## Environment Variables
+## Getting Started & Development
 
-### Backend Configuration
+### 1. Prerequisites
+- **Node.js:** v18.0.0 or higher
+- **MongoDB:** v6.0+ (running locally or MongoDB Atlas)
+- **npm:** v9.0+
 
-Create a `.env` file in the `backend/` directory referencing `backend/.env.example`:
+### 2. Environment Configuration
 
+Copy the example environment files:
+```bash
+# Root & Backend configuration
+cp backend/.env.example backend/.env
+
+# Frontend configuration
+cp frontend/.env.example frontend/.env.local
+```
+
+Configure your `backend/.env` with your MongoDB URI, JWT Secret, and Cloudinary keys:
 ```env
 PORT=5000
 NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/jayramji_bill
+JWT_SECRET=development_jwt_signing_secret_key_1234567890
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_api_key
 CLOUDINARY_API_SECRET=your_api_secret
 FRONTEND_URL=http://localhost:3000
 ```
 
----
-
-## Development Instructions
-
-### 1. Install Dependencies
-
-Install all project dependencies across the workspace using the root script:
+### 3. Install Dependencies
 ```bash
 npm install
 npm run install:all
 ```
 
-### 2. Start Services
-
-To launch both the Next.js frontend and Express backend concurrently:
+### 4. Running Locally
+Start both backend and frontend concurrently:
 ```bash
 npm run dev
 ```
+- **Frontend App:** [http://localhost:3000](http://localhost:3000)
+- **Backend API:** [http://localhost:5000](http://localhost:5000)
+- **Health Check:** [http://localhost:5000/api/health](http://localhost:5000/api/health)
 
-Or run them individually:
-- **Backend only:** `npm run dev:backend` (Runs on `http://localhost:5000`)
-- **Frontend only:** `npm run dev:frontend` (Runs on `http://localhost:3000`)
+---
 
-### 3. Verify Health Check
+## Automated Test Suites
 
-The backend health check is accessible at:
-```http
-GET http://localhost:5000/api/health
-```
-
-Expected Response:
-```json
-{
-  "success": true,
-  "data": {
-    "status": "ok"
-  }
-}
+Run the complete billing and E2E test suite:
+```bash
+npm run test --prefix backend
 ```
 
 ---
 
-## MongoDB Transactions Configuration (Local Replica Set)
+## Production Build & Deployment
 
-User registration uses MongoDB transactions to guarantee data integrity across the `User`, `Business`, and `BusinessMember` collections. Transactions require MongoDB to run as a replica set rather than a standalone instance.
+### Production Build Verification
+```bash
+# Backend compilation
+npm run build --prefix backend
 
-To configure a single-node replica set for local development:
+# Frontend compilation
+npm run build --prefix frontend
+```
 
-1. Stop your local MongoDB service.
-2. Edit your MongoDB configuration file (typically `mongod.cfg` or `mongod.conf` inside the MongoDB Server directory) and append:
-   ```yaml
-   replication:
-     replSetName: rs0
-   ```
-3. Restart the MongoDB service.
-4. Open the MongoDB shell (`mongosh`) and initiate the replica set:
-   ```javascript
-   rs.initiate()
-   ```
-5. Verification: Verify status returns successfully (`rs.status()`). You can now execute registration requests with transaction safety.
+### Deployment Guidelines
+1. **Database:** Use MongoDB Atlas or a self-hosted replica set (required for transactions). Enable automated hourly/daily backups.
+2. **Cloud Storage:** Configure Cloudinary credentials in `backend/.env`. Generated PDFs and PNGs are stored under `businesses/:businessId/invoices/:invoiceId/`.
+3. **Backend Service:** Run with Node.js process manager (e.g. PM2 or Docker container) setting `NODE_ENV=production`.
+4. **Frontend Service:** Deploy Next.js to Vercel, Node.js server, or standalone Docker container.
+5. **HTTPS / Domain:** Place behind reverse proxy (Nginx / Cloudflare) with valid SSL certificates and `FRONTEND_URL` matching the public domain.

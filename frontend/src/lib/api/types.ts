@@ -187,3 +187,75 @@ export interface InvoiceListResponse {
   invoices: Invoice[];
   pagination: Pagination;
 }
+
+export type PaymentMethod = 'CASH' | 'UPI' | 'QR_CODE' | 'BANK_TRANSFER' | 'CHEQUE';
+export type PaymentAccountType = 'BANK' | 'UPI' | 'CASH';
+
+export interface PaymentAccount {
+  id: string;
+  _id?: string;
+  businessId: string;
+  name: string;
+  displayName: string;
+  type: PaymentAccountType;
+  bankName?: string | null;
+  accountHolderName?: string | null;
+  accountNumber?: string | null;
+  maskedAccountNumber?: string | null;
+  ifsc?: string | null;
+  branch?: string | null;
+  upiId?: string | null;
+  qrAssetId?: string | null;
+  qrAssetUrl?: string | null;
+  active: boolean;
+  isDefault: boolean;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentAccountSnapshot {
+  name: string;
+  type: PaymentAccountType;
+  displayName: string;
+  bankName?: string | null;
+  maskedAccountNumber?: string | null;
+  ifsc?: string | null;
+  upiId?: string | null;
+  qrAssetUrl?: string | null;
+}
+
+export interface PaymentProof {
+  publicId: string | null;
+  secureUrl: string | null;
+  format: string | null;
+  fileType: string | null;
+  uploadedAt: string | null;
+}
+
+export interface ChequeDetails {
+  chequeNumber?: string | null;
+  chequeDate?: string | null;
+  bankName?: string | null;
+  status?: 'RECEIVED' | 'DEPOSITED' | 'CLEARED' | 'BOUNCED';
+}
+
+export interface PaymentRecord {
+  id: string;
+  _id?: string;
+  businessId: string;
+  invoiceId: string;
+  amountMinor: number;
+  currency: 'INR';
+  method: PaymentMethod;
+  paymentAccountId?: string | null;
+  paymentAccountSnapshot?: PaymentAccountSnapshot | null;
+  referenceNumber: string | null;
+  chequeDetails?: ChequeDetails | null;
+  proof?: PaymentProof | null;
+  paidAt: string;
+  notes: string | null;
+  status: 'CONFIRMED' | 'REVERSED';
+  createdAt: string;
+  updatedAt: string;
+}

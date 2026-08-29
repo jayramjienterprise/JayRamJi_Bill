@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useDashboard } from '../layout';
 import { apiClient } from '../../../lib/api/client';
+import PaymentAccountsManager from './components/PaymentAccountsManager';
 
 export default function SettingsPage() {
   const { activeBusinessId, refreshSession } = useDashboard();
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'PAYMENT_ACCOUNTS'>('PROFILE');
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -168,27 +170,59 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">Business Settings</h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Configure JRE business information, default tax values, prefix sequences, and bank details.
-        </p>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-light pb-4">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">Business Settings</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            Configure business identity, invoices, prefixes, and receiving payment accounts.
+          </p>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex bg-surface-2-app p-1 rounded-xl border border-border-app self-start">
+          <button
+            type="button"
+            onClick={() => setActiveTab('PROFILE')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
+              activeTab === 'PROFILE'
+                ? 'bg-surface-app text-text-primary shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            🏢 Business & Defaults
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('PAYMENT_ACCOUNTS')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
+              activeTab === 'PAYMENT_ACCOUNTS'
+                ? 'bg-surface-app text-text-primary shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            💳 Payment Accounts
+          </button>
+        </div>
       </div>
 
-      {successMsg && (
-        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium">
-          {successMsg}
-        </div>
-      )}
+      {activeTab === 'PAYMENT_ACCOUNTS' ? (
+        <PaymentAccountsManager />
+      ) : (
+        <>
+          {successMsg && (
+            <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium">
+              {successMsg}
+            </div>
+          )}
 
-      {errorMsg && (
-        <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-sm rounded-lg font-medium">
-          {errorMsg}
-        </div>
-      )}
+          {errorMsg && (
+            <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-sm rounded-lg font-medium">
+              {errorMsg}
+            </div>
+          )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Segment 1: General Business Profile */}
         <div className="lg:col-span-2 space-y-8">
           <form onSubmit={handleUpdateProfile} className="bg-surface-app border border-border-app rounded-xl p-6 shadow-sm space-y-6">
@@ -536,6 +570,8 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse } from './types';
+import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse, PaymentAccount, PaymentProof, PaymentRecord, PaymentMethod } from './types';
 
 // Fallback to local express server endpoint
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -292,6 +292,76 @@ class ApiClient {
 
   public async retryPdf(invoiceId: string): Promise<any> {
     return this.post<any>(`/invoices/${invoiceId}/documents/pdf/retry`, {});
+  }
+
+  // Payment Accounts API calls
+  public async listPaymentAccounts(params?: { active?: boolean; type?: string }): Promise<PaymentAccount[]> {
+    const query = new URLSearchParams();
+    if (params?.active !== undefined) query.append('active', String(params.active));
+    if (params?.type) query.append('type', params.type);
+    const queryString = query.toString();
+    const res = await this.get<{ accounts: PaymentAccount[] }>(`/payment-accounts${queryString ? `?${queryString}` : ''}`);
+    return res.accounts;
+  }
+
+  public async getPaymentAccount(id: string): Promise<PaymentAccount> {
+    const res = await this.get<{ account: PaymentAccount }>(`/payment-accounts/${id}`);
+    return res.account;
+  }
+
+  public async createPaymentAccount(accountData: Partial<PaymentAccount>): Promise<PaymentAccount> {
+    const res = await this.post<{ account: PaymentAccount }>('/payment-accounts', accountData);
+    return res.account;
+  }
+
+  public async updatePaymentAccount(id: string, accountData: Partial<PaymentAccount>): Promise<PaymentAccount> {
+    const res = await this.patch<{ account: PaymentAccount }>(`/payment-accounts/${id}`, accountData);
+    return res.account;
+  }
+
+  public async deactivatePaymentAccount(id: string): Promise<PaymentAccount> {
+    const res = await this.post<{ account: PaymentAccount }>(`/payment-accounts/${id}/deactivate`, {});
+    return res.account;
+  }
+
+  public async activatePaymentAccount(id: string): Promise<PaymentAccount> {
+    const res = await this.post<{ account: PaymentAccount }>(`/payment-accounts/${id}/activate`, {});
+    return res.account;
+  }
+
+  // Payment Proof Upload API call
+  public async uploadPaymentProof(invoiceId: string, file: File): Promise<{ proof: PaymentProof }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.post<{ proof: PaymentProof }>(`/invoices/${invoiceId}/payments/proof`, formData);
+  }
+
+  // Payments Module API calls
+  public async recordPayment(invoiceId: string, paymentData: {
+    amountMinor: number;
+    method: PaymentMethod;
+    paymentAccountId?: string | null;
+    referenceNumber?: string;
+    chequeDetails?: {
+      chequeNumber?: string | null;
+      chequeDate?: string | null;
+      bankName?: string | null;
+      status?: 'RECEIVED' | 'DEPOSITED' | 'CLEARED' | 'BOUNCED';
+    };
+    proof?: PaymentProof | null;
+    paidAt?: string;
+    notes?: string;
+  }): Promise<{ payment: PaymentRecord; paymentSummary: any }> {
+    return this.post<{ payment: PaymentRecord; paymentSummary: any }>(`/invoices/${invoiceId}/payments`, paymentData);
+  }
+
+  public async listPayments(invoiceId: string): Promise<PaymentRecord[]> {
+    const res = await this.get<{ payments: PaymentRecord[] }>(`/invoices/${invoiceId}/payments`);
+    return res.payments;
+  }
+
+  public async reversePayment(invoiceId: string, paymentId: string, reason?: string): Promise<{ payment: PaymentRecord; paymentSummary: any }> {
+    return this.post<{ payment: PaymentRecord; paymentSummary: any }>(`/invoices/${invoiceId}/payments/${paymentId}/reverse`, { reason });
   }
 
   // Dashboard & Analytics Module API calls
