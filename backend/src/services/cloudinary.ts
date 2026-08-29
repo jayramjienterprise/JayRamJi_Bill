@@ -39,13 +39,17 @@ export function uploadBufferToCloudinary(
 ): Promise<{ public_id: string; secure_url: string }> {
   return new Promise((resolve, reject) => {
     if (!isCloudinaryConfigured) {
-      const mockPublicId = `${options.folder}/${options.public_id}`;
-      const format = options.resource_type === 'raw' ? 'pdf' : 'png';
-      const mockUrl = `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockPublicId}.${format}`;
-      return resolve({
-        public_id: mockPublicId,
-        secure_url: mockUrl,
-      });
+      if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') {
+        const mockPublicId = `${options.folder}/${options.public_id}`;
+        const format = options.resource_type === 'raw' ? 'pdf' : 'png';
+        const mockUrl = `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockPublicId}.${format}`;
+        return resolve({
+          public_id: mockPublicId,
+          secure_url: mockUrl,
+        });
+      } else {
+        return reject(new Error('Cloudinary is not configured. Cloudinary credentials are required in production.'));
+      }
     }
 
     const stream = cloudinary.uploader.upload_stream(

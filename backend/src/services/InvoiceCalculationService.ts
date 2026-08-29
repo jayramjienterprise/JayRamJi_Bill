@@ -144,6 +144,7 @@ export class InvoiceCalculationService {
     let cgstAmountMinor = 0;
     let sgstAmountMinor = 0;
     let grandTotalPreRounding = taxableAmountMinor;
+    let invoiceTaxableAmountMinor = taxableAmountMinor;
 
     if (input.taxMode === 'EXCLUSIVE') {
       const rateBps = input.defaultTaxRateBps;
@@ -161,6 +162,7 @@ export class InvoiceCalculationService {
         cgstAmountMinor = Math.round(taxTotalMinor / 2);
         sgstAmountMinor = taxTotalMinor - cgstAmountMinor;
         grandTotalPreRounding = taxableAmountMinor;
+        invoiceTaxableAmountMinor = taxableAmountPreTax;
       }
     }
 
@@ -175,7 +177,7 @@ export class InvoiceCalculationService {
       totals: {
         subtotalMinor,
         discountMinor,
-        taxableAmountMinor,
+        taxableAmountMinor: invoiceTaxableAmountMinor,
         taxes: taxTotalMinor > 0 ? [
           { type: 'CGST', rateBps: input.defaultTaxRateBps / 2, amountMinor: cgstAmountMinor },
           { type: 'SGST', rateBps: input.defaultTaxRateBps / 2, amountMinor: sgstAmountMinor }

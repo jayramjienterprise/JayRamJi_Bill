@@ -74,6 +74,9 @@ export interface IInvoice extends Document {
       height: number | null;
       generatedAt: Date | null;
       checksum: string | null;
+      errorMessage?: string | null;
+      lastAttemptedAt?: Date | null;
+      retryCount?: number;
     };
     pdf: {
       status: 'NOT_GENERATED' | 'GENERATING' | 'READY' | 'FAILED';
@@ -82,6 +85,9 @@ export interface IInvoice extends Document {
       secureUrl: string | null;
       generatedAt: Date | null;
       checksum: string | null;
+      errorMessage?: string | null;
+      lastAttemptedAt?: Date | null;
+      retryCount?: number;
     };
   };
   createdBy: mongoose.Types.ObjectId;
@@ -173,6 +179,9 @@ const InvoiceSchema = new Schema<IInvoice>(
         height: { type: Number, default: null },
         generatedAt: { type: Date, default: null },
         checksum: { type: String, default: null },
+        errorMessage: { type: String, default: null },
+        lastAttemptedAt: { type: Date, default: null },
+        retryCount: { type: Number, default: 0 },
       },
       pdf: {
         status: { type: String, default: 'NOT_GENERATED', enum: ['NOT_GENERATED', 'GENERATING', 'READY', 'FAILED'] },
@@ -181,6 +190,9 @@ const InvoiceSchema = new Schema<IInvoice>(
         secureUrl: { type: String, default: null },
         generatedAt: { type: Date, default: null },
         checksum: { type: String, default: null },
+        errorMessage: { type: String, default: null },
+        lastAttemptedAt: { type: Date, default: null },
+        retryCount: { type: Number, default: 0 },
       },
     },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

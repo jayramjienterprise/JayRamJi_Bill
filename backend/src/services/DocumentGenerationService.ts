@@ -75,20 +75,8 @@ export class DocumentGenerationService {
           await browser.close();
         } catch (_) {}
       }
-      console.error('⚠️ Headless browser error, falling back to mock files:', error.message);
-
-      const mockFolder = `businesses/${businessId}/invoices/${invoiceId}`;
-      return {
-        snapshot: {
-          publicId: `${mockFolder}/original`,
-          secureUrl: `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockFolder}/original.png`,
-          width: 794,
-          height: 1123,
-        },
-        pdf: {
-          secureUrl: `https://res.cloudinary.com/mock-cloud/image/upload/v1/${mockFolder}/invoice.pdf`,
-        },
-      };
+      console.error('⚠️ Document generation error:', error.message);
+      throw error;
     }
   }
   public static async generateBuffers(

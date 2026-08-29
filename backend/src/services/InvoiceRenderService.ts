@@ -93,8 +93,8 @@ export class InvoiceRenderService {
       year: 'numeric',
     });
 
-    const partsTotal = items.filter(it => it.type === 'PRODUCT').reduce((sum, it) => sum + it.amount, 0);
-    const laborTotal = items.filter(it => it.type === 'SERVICE').reduce((sum, it) => sum + it.amount, 0);
+    const partsTotal = items.filter(it => it.type === 'PRODUCT' || (it as any).section === 'PART' || (it as any).section === 'ITEM').reduce((sum, it) => sum + (it.amount || 0), 0);
+    const laborTotal = items.filter(it => it.type === 'SERVICE' || (it as any).section === 'LABOUR').reduce((sum, it) => sum + (it.amount || 0), 0);
 
     // Populate billing item rows
     let rowsHtml = '';
@@ -104,8 +104,8 @@ export class InvoiceRenderService {
           <td style="border: 1px solid black; padding: 6px; text-align: center;">${it.serialNumber}</td>
           <td style="border: 1px solid black; padding: 6px; white-space: pre-wrap; text-align: left;">${it.description}</td>
           <td style="border: 1px solid black; padding: 6px; text-align: center; font-weight: bold;">${it.quantity}</td>
-          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: 600;">${it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">${it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: 600;">${(it.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">${(it.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         </tr>
       `;
     });
@@ -125,12 +125,18 @@ export class InvoiceRenderService {
     }
 
     // Subtotal Row
+    const subtotalValue = typeof totals?.subtotal === 'number' ? totals.subtotal : (partsTotal + laborTotal);
+    const discountValue = typeof totals?.discount === 'number' ? totals.discount : 0;
+    const taxTotalValue = typeof totals?.taxTotal === 'number' ? totals.taxTotal : 0;
+    const roundingValue = typeof totals?.rounding === 'number' ? totals.rounding : 0;
+    const grandTotalValue = typeof totals?.grandTotal === 'number' ? totals.grandTotal : (subtotalValue - discountValue + taxTotalValue + roundingValue);
+
     rowsHtml += `
       <tr style="font-weight: bold; height: 14.15pt;">
         <td colspan="2" style="border: 1px solid black; padding: 6px; text-align: left;">Total</td>
         <td style="border: 1px solid black;"></td>
         <td style="border: 1px solid black;"></td>
-        <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">₹${totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td style="border: 1px solid black; padding: 6px; text-align: right; font-weight: bold;">₹${subtotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>
     `;
 
@@ -139,14 +145,14 @@ export class InvoiceRenderService {
       { label: 'PARTS', amount: partsTotal },
       { label: 'LABOR', amount: laborTotal }
     ];
-    if (totals.discount > 0) {
-      breakdownRows.push({ label: 'DISCOUNT', amount: -totals.discount });
+    if (discountValue > 0) {
+      breakdownRows.push({ label: 'DISCOUNT', amount: -discountValue });
     }
-    breakdownRows.push({ label: 'TAX', amount: totals.taxTotal });
-    if (Math.abs(totals.rounding) > 0) {
-      breakdownRows.push({ label: 'ROUNDING', amount: totals.rounding });
+    breakdownRows.push({ label: 'TAX', amount: taxTotalValue });
+    if (Math.abs(roundingValue) > 0) {
+      breakdownRows.push({ label: 'ROUNDING', amount: roundingValue });
     }
-    breakdownRows.push({ label: 'TOTAL', amount: totals.grandTotal, isTotal: true });
+    breakdownRows.push({ label: 'TOTAL', amount: grandTotalValue, isTotal: true });
 
     // Merged Left block with the first breakdown row
     rowsHtml += `

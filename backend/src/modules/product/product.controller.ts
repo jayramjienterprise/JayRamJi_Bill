@@ -11,7 +11,7 @@ export const createProductSchema = z.object({
   uom: z.string().min(1, 'Unit of measurement (UOM) is required'),
   defaultPriceMinor: z.coerce.number().min(0, 'Default price cannot be negative'),
   currency: z.enum(['INR']).default('INR'),
-  defaultTaxRateBps: z.coerce.number().min(0, 'Tax rate cannot be negative'),
+  defaultTaxRateBps: z.coerce.number().min(0, 'Tax rate cannot be negative').default(0),
 });
 
 export const updateProductSchema = z.object({
