@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticate, requireBusiness } from '../../middleware/auth';
+import { idempotency } from '../../middleware/idempotency';
 import {
   createInvoiceDraft,
   getInvoice,
@@ -15,9 +17,15 @@ import {
   enableShareLink,
   disableShareLink,
   downloadInvoiceFile,
+  listPayments,
+  recordPayment,
+  reversePayment,
+  uploadPaymentProof,
 } from './invoice.controller';
 
 const router = Router();
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 // Apply auth protection & tenancy context to all invoice endpoints
 router.use(authenticate);
@@ -32,12 +40,19 @@ router.get('/:id/download', downloadInvoiceFile);
 router.patch('/:id', updateInvoiceDraft);
 router.delete('/:id', deleteInvoiceDraft);
 
-router.post('/:id/finalize', finalizeInvoice);
+router.post('/:id/finalize', idempotency, finalizeInvoice);
 router.post('/:id/cancel', cancelInvoice);
 router.post('/:id/documents/snapshot/retry', retrySnapshotGeneration);
 router.post('/:id/documents/pdf/retry', retryPdfGeneration);
 
-router.post('/:id/share', enableShareLink);
+router.post('/:id/share', idempotency, enableShareLink);
 router.post('/:id/share/disable', disableShareLink);
+router.delete('/:id/share', disableShareLink);
+
+// Payments endpoints
+router.get('/:id/payments', listPayments);
+router.post('/:id/payments', idempotency, recordPayment);
+router.post('/:id/payments/proof', upload.single('file'), uploadPaymentProof);
+router.post('/:id/payments/:paymentId/reverse', reversePayment);
 
 export default router;

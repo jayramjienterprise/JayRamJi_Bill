@@ -29,7 +29,6 @@ export async function getPublicInvoice(req: Request, res: Response, next: NextFu
       success: true,
       data: {
         invoice: {
-          id: invoice._id,
           invoiceNumber: invoice.invoiceNumber,
           invoiceDate: invoice.invoiceDate,
           business: invoice.businessSnapshot,
