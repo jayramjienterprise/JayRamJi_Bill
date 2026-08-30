@@ -58,8 +58,10 @@ export async function bootstrap() {
   }
 }
 
-// Start standalone server
-bootstrap();
+// Start standalone server only when run directly as the main process
+if (require.main === module) {
+  bootstrap();
+}
 
 // Export app for Vercel Function invocation compatibility
 export default app;
