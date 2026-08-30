@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { z } from 'zod';
 import { Product } from '../../database/models/Product';
 import { AppError } from '../../middleware/errorHandler';
@@ -112,7 +113,11 @@ export async function listProducts(req: Request, res: Response, next: NextFuncti
  */
 export async function getProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { productId } = req.params;
+    const productId = req.params.productId || req.params.id;
+
+    if (!productId || !mongoose.isValidObjectId(productId)) {
+      return next(new AppError('Invalid or missing product ID parameter', 400, 'INVALID_ID'));
+    }
 
     const product = await Product.findOne({
       _id: productId,
@@ -139,7 +144,12 @@ export async function getProduct(req: Request, res: Response, next: NextFunction
  */
 export async function updateProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { productId } = req.params;
+    const productId = req.params.productId || req.params.id;
+
+    if (!productId || !mongoose.isValidObjectId(productId)) {
+      return next(new AppError('Invalid or missing product ID parameter', 400, 'INVALID_ID'));
+    }
+
     const validated = updateProductSchema.parse(req.body);
 
     const product = await Product.findOneAndUpdate(
@@ -168,7 +178,11 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
  */
 export async function deactivateProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { productId } = req.params;
+    const productId = req.params.productId || req.params.id;
+
+    if (!productId || !mongoose.isValidObjectId(productId)) {
+      return next(new AppError('Invalid or missing product ID parameter', 400, 'INVALID_ID'));
+    }
 
     const product = await Product.findOneAndUpdate(
       { _id: productId, businessId: req.businessId },

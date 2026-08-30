@@ -72,6 +72,20 @@ const ProductSchema = new Schema<IProduct>(
   {
     timestamps: true,
     collection: 'products',
+    toJSON: {
+      virtuals: true,
+      transform: (_doc, ret: any) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+      transform: (_doc, ret: any) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        return ret;
+      },
+    },
   }
 );
 

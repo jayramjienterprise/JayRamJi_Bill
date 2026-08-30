@@ -104,6 +104,20 @@ const CustomerSchema = new Schema<ICustomer>(
   {
     timestamps: true,
     collection: 'customers',
+    toJSON: {
+      virtuals: true,
+      transform: (_doc, ret: any) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+      transform: (_doc, ret: any) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        return ret;
+      },
+    },
   }
 );
 

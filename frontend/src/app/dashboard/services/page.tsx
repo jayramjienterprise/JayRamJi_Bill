@@ -134,7 +134,13 @@ export default function ServicesPage() {
         setSuccessMsg('Service created successfully');
       } else {
         if (!editingProduct) return;
-        await apiClient.updateProduct(editingProduct.id, payload);
+        const productId = editingProduct.id || (editingProduct as any)._id;
+        if (!productId) {
+          setErrorMsg('Missing product identifier');
+          setSubmitLoading(false);
+          return;
+        }
+        await apiClient.updateProduct(productId, payload);
         setSuccessMsg('Service details updated successfully');
       }
       setModalOpen(false);
@@ -147,6 +153,7 @@ export default function ServicesPage() {
   }
 
   async function handleDeactivate(id: string) {
+    if (!id) return;
     if (!confirm('Are you sure you want to deactivate this service? It will no longer appear in the active selection list.')) return;
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -234,40 +241,43 @@ export default function ServicesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-app text-sm">
-                {products.map((p) => (
-                  <tr key={p.id} className="hover:bg-surface-2-app/30">
-                    <td className="py-4 px-6">
-                      <p className="font-medium text-text-primary">{p.name}</p>
-                      {p.description && <p className="text-xs text-text-secondary mt-0.5">{p.description}</p>}
-                    </td>
-                    <td className="py-4 px-6 text-text-secondary">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === 'SERVICE' ? 'bg-primary-900/10 text-primary-700' : 'bg-success-soft text-success-app'}`}>
-                        {p.type}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-text-secondary font-medium">{p.uom}</td>
-                    <td className="py-4 px-6 text-text-primary font-bold">
-                      ₹{(p.defaultPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-4 px-6 text-text-secondary">
-                      {p.defaultTaxRateBps > 0 ? `${(p.defaultTaxRateBps / 100).toFixed(1)}%` : '0% (Exempt)'}
-                    </td>
-                    <td className="py-4 px-6 text-right space-x-3">
-                      <button
-                        onClick={() => openEditModal(p)}
-                        className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeactivate(p.id)}
-                        className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
-                      >
-                        Deactivate
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {products.map((p) => {
+                  const pId = p.id || (p as any)._id;
+                  return (
+                    <tr key={pId} className="hover:bg-surface-2-app/30">
+                      <td className="py-4 px-6">
+                        <p className="font-medium text-text-primary">{p.name}</p>
+                        {p.description && <p className="text-xs text-text-secondary mt-0.5">{p.description}</p>}
+                      </td>
+                      <td className="py-4 px-6 text-text-secondary">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === 'SERVICE' ? 'bg-primary-900/10 text-primary-700' : 'bg-success-soft text-success-app'}`}>
+                          {p.type}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-text-secondary font-medium">{p.uom}</td>
+                      <td className="py-4 px-6 text-text-primary font-bold">
+                        ₹{(p.defaultPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 px-6 text-text-secondary">
+                        {p.defaultTaxRateBps > 0 ? `${(p.defaultTaxRateBps / 100).toFixed(1)}%` : '0% (Exempt)'}
+                      </td>
+                      <td className="py-4 px-6 text-right space-x-3">
+                        <button
+                          onClick={() => openEditModal(p)}
+                          className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeactivate(pId)}
+                          className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                        >
+                          Deactivate
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

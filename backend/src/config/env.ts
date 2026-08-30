@@ -36,5 +36,16 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+const validatedEnv = parsed.data;
+
+// Automatically isolate automated test runs into a dedicated test database
+if (process.env.NODE_ENV === 'test') {
+  if (process.env.TEST_MONGODB_URI) {
+    validatedEnv.MONGODB_URI = process.env.TEST_MONGODB_URI;
+  } else if (!validatedEnv.MONGODB_URI.includes('_test')) {
+    validatedEnv.MONGODB_URI = validatedEnv.MONGODB_URI.replace(/\/?$/, '') + '_test';
+  }
+}
+
+export const env = validatedEnv;
 export type Env = z.infer<typeof envSchema>;
