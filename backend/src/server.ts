@@ -63,3 +63,5 @@ bootstrap();
 
 // Export app for Vercel Function invocation compatibility
 export default app;
+module.exports = app;
+(module.exports as any).default = app;
