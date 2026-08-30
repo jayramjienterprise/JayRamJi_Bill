@@ -1,3 +1,4 @@
+import fs from 'fs';
 import puppeteer from 'puppeteer';
 import { InvoiceRenderService, InvoiceRenderData } from './InvoiceRenderService';
 import { uploadBufferToCloudinary } from './cloudinary';
@@ -11,7 +12,16 @@ function getBrowserLaunchOptions() {
     '--no-first-run',
     '--no-zygote',
   ];
-  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+  
+  let executablePath: string | undefined = undefined;
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    if (fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+      executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    } else {
+      console.warn(`⚠️ PUPPETEER_EXECUTABLE_PATH was set to '${process.env.PUPPETEER_EXECUTABLE_PATH}' but file does not exist. Falling back to default browser.`);
+    }
+  }
+
   return {
     headless: true,
     args,
