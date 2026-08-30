@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "seed": "ts-node-dev --transpile-only src/database/seed.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest"
@@ -33,6 +34,7 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.2.0",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.2.1",
     "jest": "^30.5.0",
     "supertest": "^7.2.2",
