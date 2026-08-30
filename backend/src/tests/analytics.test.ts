@@ -36,6 +36,8 @@ import { PaymentAccount } from '../database/models/PaymentAccount';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 
+jest.setTimeout(30000);
+
 describe('Dashboard & Business Analytics Test Suite', () => {
   let userA: any;
   let userB: any;

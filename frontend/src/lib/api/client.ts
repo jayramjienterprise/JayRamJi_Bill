@@ -1,7 +1,11 @@
 import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse, PaymentAccount, PaymentProof, PaymentRecord, PaymentMethod } from './types';
 
-// Fallback to local express server endpoint
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+// Fallback to same-domain proxy in production and local express in dev
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? '/api/backend/api'
+    : 'http://localhost:5000/api');
 
 export class ApiError extends Error {
   public code: string;

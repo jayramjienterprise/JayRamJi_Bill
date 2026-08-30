@@ -2,6 +2,23 @@ import puppeteer from 'puppeteer';
 import { InvoiceRenderService, InvoiceRenderData } from './InvoiceRenderService';
 import { uploadBufferToCloudinary } from './cloudinary';
 
+function getBrowserLaunchOptions() {
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-zygote',
+  ];
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+  return {
+    headless: true,
+    args,
+    ...(executablePath ? { executablePath } : {}),
+  };
+}
+
 export class DocumentGenerationService {
   public static async generateDocuments(
     businessId: string,
@@ -15,10 +32,7 @@ export class DocumentGenerationService {
 
     let browser;
     try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
+      browser = await puppeteer.launch(getBrowserLaunchOptions());
 
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'load' });
@@ -84,10 +98,7 @@ export class DocumentGenerationService {
   ): Promise<{ pngBuffer: Buffer; pdfBuffer: Buffer }> {
     const html = InvoiceRenderService.render(renderData);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    const browser = await puppeteer.launch(getBrowserLaunchOptions());
 
     try {
       const page = await browser.newPage();

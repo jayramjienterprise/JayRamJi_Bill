@@ -27,12 +27,12 @@ app.use(
       if (!origin) return callback(null, true);
       
       const allowedOrigins = [env.FRONTEND_URL];
-      // In development mode, also permit local addresses
-      if (env.NODE_ENV === 'development') {
-        allowedOrigins.push('http://localhost:3000', 'http://127.0.0.1:3000');
-      }
+      // Permit local addresses for dev
+      allowedOrigins.push('http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://localhost:5000');
 
-      if (allowedOrigins.indexOf(origin) !== -1) {
+      // Check if origin matches allowed origins or is a vercel deployment domain
+      const isVercelDomain = origin.endsWith('.vercel.app') || origin.includes('localhost');
+      if (allowedOrigins.includes(origin) || isVercelDomain) {
         callback(null, true);
       } else {
         callback(new Error('Blocked by CORS policy'));
@@ -62,16 +62,24 @@ if (env.NODE_ENV !== 'test') {
 }
 
 // ----------------------------------------------------
-// Health Endpoint (Directly accessible on base app)
+// Health Endpoints
 // ----------------------------------------------------
-app.get('/api/health', (_req, res) => {
+const healthHandler = async (_req: express.Request, res: express.Response) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
   res.status(200).json({
     success: true,
     data: {
       status: 'ok',
+      database: dbStatus,
+      timestamp: new Date().toISOString(),
     },
   });
-});
+};
+
+app.get('/api/health', healthHandler);
+app.get('/api/backend/api/health', healthHandler);
+app.get('/api/backend/health', healthHandler);
+app.get('/health', healthHandler);
 
 // ----------------------------------------------------
 // Modular Routing Architecture Foundation
@@ -91,16 +99,10 @@ apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);
 
-app.get('/health', async (_req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  res.status(200).json({
-    status: 'UP',
-    database: dbStatus,
-    timestamp: new Date().toISOString(),
-  });
-});
-
+// Support direct /api, same-domain proxy /api/backend/api, and /api/backend
 app.use('/api', apiRouter);
+app.use('/api/backend/api', apiRouter);
+app.use('/api/backend', apiRouter);
 
 // ----------------------------------------------------
 // Catch-All 404 Route handler

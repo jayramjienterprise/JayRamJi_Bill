@@ -56,8 +56,12 @@ export async function seedDatabase() {
     business = await Business.create({
       name: 'Jay Ramji Enterprise',
       legalName: 'Jay Ramji Automotive & Engineering Services',
-      tagline: 'Vehicle AC, Radiator & Electrical Works',
-      gstin: '24AAAAA0000A1Z5',
+      displayName: 'Jay Ramji Enterprise',
+      taxProfile: {
+        gstin: '24AAAAA0000A1Z5',
+        pan: null,
+        taxRegistrationType: 'REGULAR',
+      },
       address: {
         line1: 'Near GIDC Gate, Mundra Highway Road',
         line2: 'Plot No. 12, Industrial Area',
@@ -614,7 +618,7 @@ export async function seedDatabase() {
       businessSnapshot: {
         name: business.name,
         legalName: business.legalName,
-        gstin: business.gstin,
+        gstin: business.taxProfile?.gstin || '24AAAAA0000A1Z5',
       },
       items,
       totals: {

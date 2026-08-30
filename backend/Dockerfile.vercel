@@ -1,0 +1,59 @@
+# Multi-stage Dockerfile optimized for Vercel Container Runtime with Puppeteer & Chromium
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /app
+
+# Copy package definition and TypeScript configuration
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install all dependencies (including devDependencies needed for compiling TypeScript)
+RUN npm ci
+
+# Copy backend source code
+COPY src ./src
+
+# Compile TypeScript to dist
+RUN npm run build
+
+# ----------------------------------------------------
+# Production Runner Image
+# ----------------------------------------------------
+FROM node:20-bookworm-slim AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Install Chromium and system dependencies for headless document generation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    fonts-liberation \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-thai-tlwg \
+    fonts-kacst \
+    fonts-freefont-ttf \
+    ca-certificates \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Copy compiled JavaScript output from builder stage
+COPY --from=builder /app/dist ./dist
+
+# Vercel provides dynamic PORT at runtime
+EXPOSE 5000
+
+# Use dumb-init to properly handle signal forwarding and prevent zombie processes
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+
+# Start the Express server
+CMD ["node", "dist/server.js"]

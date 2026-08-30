@@ -38,13 +38,9 @@ if (!parsed.success) {
 
 const validatedEnv = parsed.data;
 
-// Automatically isolate automated test runs into a dedicated test database
+// Automatically isolate automated test runs into a dedicated local test database
 if (process.env.NODE_ENV === 'test') {
-  if (process.env.TEST_MONGODB_URI) {
-    validatedEnv.MONGODB_URI = process.env.TEST_MONGODB_URI;
-  } else if (!validatedEnv.MONGODB_URI.includes('_test')) {
-    validatedEnv.MONGODB_URI = validatedEnv.MONGODB_URI.replace(/\/?$/, '') + '_test';
-  }
+  validatedEnv.MONGODB_URI = process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/jayramji_bill_test';
 }
 
 export const env = validatedEnv;

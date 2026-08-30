@@ -11,7 +11,7 @@ async function bootstrap() {
     await connectDatabase();
 
     // 2. Start Express listener
-    const server = app.listen(env.PORT, () => {
+    const server = app.listen(env.PORT, '0.0.0.0', () => {
       console.log(
         `🚀 Server is running on port ${env.PORT} in ${env.NODE_ENV} mode`
       );

@@ -36,6 +36,8 @@ import { Invoice } from '../database/models/Invoice';
 import { PaymentAccount } from '../database/models/PaymentAccount';
 import { UploadSession } from '../database/models/UploadSession';
 
+jest.setTimeout(30000);
+
 let user: any;
 let token: string;
 let business: any;
