@@ -1,8 +1,7 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { apiClient } from '../../../../lib/api/client';
 import { PaymentAccount, PaymentAccountType, Asset } from '../../../../lib/api/types';
+import { Building2, Smartphone, Banknote, CreditCard, Plus } from 'lucide-react';
 
 export default function PaymentAccountsManager() {
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
@@ -195,8 +194,8 @@ export default function PaymentAccountsManager() {
         </div>
       ) : accounts.length === 0 ? (
         <div className="p-8 text-center bg-surface-app border border-border-app rounded-2xl space-y-3">
-          <div className="w-12 h-12 rounded-full bg-surface-2-app flex items-center justify-center mx-auto text-xl">
-            💳
+          <div className="w-12 h-12 rounded-full bg-surface-2-app flex items-center justify-center mx-auto text-primary-700">
+            <CreditCard className="w-6 h-6" />
           </div>
           <h3 className="text-sm font-bold text-text-primary">No Payment Accounts Created</h3>
           <p className="text-xs text-text-secondary max-w-md mx-auto">
@@ -223,11 +222,11 @@ export default function PaymentAccountsManager() {
                 <div className="space-y-2">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
-                      <span className="text-lg">
-                        {acc.type === 'BANK' && '🏦'}
-                        {acc.type === 'UPI' && '📱'}
-                        {acc.type === 'CASH' && '💵'}
-                      </span>
+                      <div className="p-1.5 rounded-lg bg-surface-2-app border border-border-app text-primary-700">
+                        {acc.type === 'BANK' && <Building2 className="w-4 h-4" />}
+                        {acc.type === 'UPI' && <Smartphone className="w-4 h-4" />}
+                        {acc.type === 'CASH' && <Banknote className="w-4 h-4" />}
+                      </div>
                       <div>
                         <h3 className="text-sm font-bold text-text-primary">{acc.name}</h3>
                         <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{acc.type} ACCOUNT</p>
@@ -342,15 +341,20 @@ export default function PaymentAccountsManager() {
                       type="button"
                       disabled={!!editingAccount}
                       onClick={() => setFormType(t)}
-                      className={`py-2 px-3 rounded-xl font-bold border transition text-center cursor-pointer ${
+                      className={`py-2 px-3 rounded-xl font-bold border transition text-center cursor-pointer flex items-center justify-center gap-1.5 ${
                         formType === t
                           ? 'bg-primary-700 text-white border-primary-700'
                           : 'bg-surface-2-app text-text-secondary border-border-app hover:bg-surface-app'
                       } ${editingAccount ? 'opacity-70 cursor-not-allowed' : ''}`}
                     >
-                      {t === 'BANK' && '🏦 Bank Account'}
-                      {t === 'UPI' && '📱 UPI ID'}
-                      {t === 'CASH' && '💵 Cash Ledger'}
+                      {t === 'BANK' && <Building2 className="w-4 h-4" />}
+                      {t === 'UPI' && <Smartphone className="w-4 h-4" />}
+                      {t === 'CASH' && <Banknote className="w-4 h-4" />}
+                      <span>
+                        {t === 'BANK' && 'Bank Account'}
+                        {t === 'UPI' && 'UPI ID'}
+                        {t === 'CASH' && 'Cash Ledger'}
+                      </span>
                     </button>
                   ))}
                 </div>

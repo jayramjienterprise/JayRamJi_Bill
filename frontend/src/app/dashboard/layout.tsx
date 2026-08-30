@@ -1,9 +1,20 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { apiClient } from '../../lib/api/client';
+import {
+  LayoutDashboard,
+  BarChart3,
+  FileText,
+  Users,
+  Package,
+  Palette,
+  Settings,
+  CreditCard,
+  LogOut,
+} from 'lucide-react';
 
 interface BusinessItem {
   id: string;
@@ -38,6 +49,7 @@ export function useDashboard() {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [businesses, setBusinesses] = useState<BusinessItem[]>([]);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
@@ -75,9 +87,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Set header value for tenancy context
   useEffect(() => {
     if (activeBusinessId) {
-      // Set the x-business-id on subsequent fetch requests automatically
-      // Note: Since we are using standard headers inApiClient, we can pass it manually in page.tsx calls.
-      // But we can also cache it in localStorage.
       localStorage.setItem('x-business-id', activeBusinessId);
     }
   }, [activeBusinessId]);
@@ -95,6 +104,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const activeBusiness = businesses.find((b) => b.id === activeBusinessId);
 
+  const navItems = [
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+    { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
+    { href: '/dashboard/invoices', label: 'Invoices', icon: FileText },
+    { href: '/dashboard/customers', label: 'Customers', icon: Users },
+    { href: '/dashboard/services', label: 'Products / Services', icon: Package },
+    { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
+    { href: '/dashboard/branding', label: 'Branding', icon: Palette },
+    { href: '/dashboard/settings', label: 'Settings', icon: Settings, exact: true },
+  ];
+
   return (
     <DashboardContext.Provider
       value={{
@@ -110,74 +130,55 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Desktop Sidebar Layout */}
         <aside className="w-[240px] bg-primary-900 text-white flex flex-col justify-between shrink-0 shadow-md">
           <div>
-            <div className="p-6 border-b border-primary-800">
+            <div className="p-5 border-b border-primary-800">
               <div className="flex items-center space-x-3">
-                <div className="bg-primary-700 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg shadow-sm">
+                <div className="bg-primary-700 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm">
                   J
                 </div>
                 <div>
-                  <h1 className="font-semibold text-sm leading-tight tracking-wide">Jay Ramji Enterprise</h1>
-                  <p className="text-[10px] text-primary-500 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
+                  <h1 className="font-bold text-sm leading-tight tracking-wide">Jay Ramji Enterprise</h1>
+                  <p className="text-[10px] text-primary-400 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
                 </div>
               </div>
             </div>
 
             {/* Sidebar Navigation */}
-            <nav className="p-4 space-y-1">
-              <Link
-                href="/dashboard"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>▣ Dashboard</span>
-              </Link>
-              <Link
-                href="/dashboard/invoices"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>📄 Invoices</span>
-              </Link>
-              <Link
-                href="/dashboard/customers"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>👥 Customers</span>
-              </Link>
-              <Link
-                href="/dashboard/services"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>🛠 Services</span>
-              </Link>
-              <Link
-                href="/dashboard/branding"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>🖼 Branding</span>
-              </Link>
-              <Link
-                href="/dashboard/settings"
-                className="flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm text-primary-500 hover:text-white hover:bg-primary-800/40 transition font-medium"
-              >
-                <span>⚙ Settings</span>
-              </Link>
+            <nav className="p-3 space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+                      isActive
+                        ? 'bg-primary-800 text-white shadow-xs'
+                        : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-primary-400'}`} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </nav>
           </div>
 
           {/* User/Signout Area */}
-          <div className="p-4 border-t border-primary-800 bg-primary-900/40">
+          <div className="p-4 border-t border-primary-800 bg-primary-950/40">
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold truncate text-white">{user?.name}</p>
-                <p className="text-[10px] text-primary-500 truncate mt-0.5">{user?.email}</p>
+                <p className="text-xs font-bold truncate text-white">{user?.name}</p>
+                <p className="text-[10.5px] text-primary-400 truncate mt-0.5">{user?.email}</p>
               </div>
               <button
                 onClick={handleLogout}
                 title="Sign Out"
-                className="p-1.5 text-primary-500 hover:text-white hover:bg-primary-800 rounded-lg transition cursor-pointer"
+                className="p-1.5 text-primary-400 hover:text-white hover:bg-primary-800 rounded-lg transition cursor-pointer"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
-                </svg>
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -186,9 +187,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Main Application Container */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top Bar Navigation */}
-          <header className="h-16 bg-surface-app border-b border-border-app px-6 md:px-8 flex items-center justify-between shadow-sm shrink-0">
+          <header className="h-16 bg-surface-app border-b border-border-app px-6 md:px-8 flex items-center justify-between shadow-xs shrink-0">
             <div className="flex items-center space-x-3">
-              <span className="text-text-secondary text-sm font-medium">Workspace:</span>
+              <span className="text-text-muted text-xs font-bold uppercase tracking-wider">Workspace:</span>
               {businesses.length > 0 ? (
                 <div className="relative">
                   <select
@@ -202,30 +203,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </option>
                     ))}
                   </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none text-text-secondary">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-muted">
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                      <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
                     </svg>
                   </div>
                 </div>
               ) : (
-                <span className="text-text-muted text-xs">No active business</span>
+                <span className="text-xs font-semibold text-text-muted">No business workspace active</span>
               )}
             </div>
 
-            <div className="flex items-center space-x-2.5">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-success-soft text-success-app border border-success-app/10 uppercase">
-                Active Session
-              </span>
+            {/* Quick Action Navigation in Top Bar */}
+            <div className="flex items-center space-x-3">
+              <Link
+                href="/dashboard/invoices/create"
+                className="px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
+              >
+                <span>+ Create Invoice</span>
+              </Link>
             </div>
           </header>
 
-          {/* Page Routing Space */}
-          <main className="flex-1 overflow-y-auto p-6 md:p-8">
-            <div className="max-w-7xl mx-auto">
-              {children}
-            </div>
-          </main>
+          {/* Page Content Body */}
+          <main className="flex-1 p-6 md:p-8 overflow-y-auto bg-background-app">{children}</main>
         </div>
       </div>
     </DashboardContext.Provider>

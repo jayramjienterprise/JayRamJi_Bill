@@ -15,6 +15,7 @@ import paymentAccountRouter from './modules/payment-account/payment-account.rout
 import dashboardRouter from './modules/dashboard/dashboard.routes';
 import analyticsRouter from './modules/analytics/analytics.routes';
 import publicInvoiceRouter from './modules/invoice/public.routes';
+import uploadSessionRouter from './modules/upload-session/upload-session.routes';
 
 const app: Express = express();
 
@@ -85,6 +86,7 @@ apiRouter.use('/products', productRouter);
 apiRouter.use('/assets', assetRouter);
 apiRouter.use('/invoices', invoiceRouter);
 apiRouter.use('/payment-accounts', paymentAccountRouter);
+apiRouter.use('/upload-sessions', uploadSessionRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);

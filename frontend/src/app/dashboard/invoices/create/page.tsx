@@ -7,6 +7,7 @@ import { useDashboard } from '../../layout';
 import { apiClient } from '../../../../lib/api/client';
 import { Customer, Product, PaymentAccount, PaymentMethod, PaymentProof } from '../../../../lib/api/types';
 import InvoicePaper from '../components/InvoicePaper';
+import PaymentProofUploader from '../components/PaymentProofUploader';
 
 interface ItemInput {
   productId: string | null;
@@ -58,7 +59,7 @@ export default function CreateInvoicePage() {
   const [chequeNumber, setChequeNumber] = useState<string>('');
   const [chequeDate, setChequeDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [chequeBankName, setChequeBankName] = useState<string>('');
-  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentProof, setPaymentProof] = useState<PaymentProof | null>(null);
   const [paymentNotes, setPaymentNotes] = useState<string>('');
 
   // Finalize Confirmation Modal
@@ -438,6 +439,7 @@ export default function CreateInvoicePage() {
           chequeDate: chequeDate ? new Date(chequeDate).toISOString() : undefined,
           bankName: chequeBankName.trim() || undefined,
         } : undefined,
+        proof: paymentProof || undefined,
         notes: paymentNotes.trim() || undefined,
       };
     }
@@ -466,16 +468,6 @@ export default function CreateInvoicePage() {
     try {
       const createdInvoice = await apiClient.createInvoiceDraft(payload);
       const invoiceId = createdInvoice.id || (createdInvoice as any)._id;
-
-      // If proof file was attached, upload it
-      if (paymentProofFile && paymentPayload) {
-        try {
-          const proofRes = await apiClient.uploadPaymentProof(invoiceId, paymentProofFile);
-          paymentPayload.proof = proofRes.proof;
-        } catch (proofErr) {
-          console.warn('Payment proof upload note:', proofErr);
-        }
-      }
 
       if (shouldFinalize) {
         // Finalize invoice atomically with the initial payment payload!
@@ -865,9 +857,8 @@ export default function CreateInvoicePage() {
 
             {/* Section 5: PAYMENT DETAILS (New Extended Design) */}
             <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-5">
-              <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2 flex items-center space-x-2">
-                <span>💳</span>
-                <span>Payment Details</span>
+              <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
+                Payment Details
               </h3>
 
               {/* 1. Payment Status Selector (Unpaid / Paid / Partial) */}
@@ -957,11 +948,11 @@ export default function CreateInvoicePage() {
                         }}
                         className="w-full px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-sm font-bold text-text-primary focus:outline-none cursor-pointer"
                       >
-                        <option value="CASH">💵 CASH</option>
-                        <option value="UPI">📱 UPI</option>
-                        <option value="QR_CODE">🔳 QR_CODE</option>
-                        <option value="BANK_TRANSFER">🏦 BANK_TRANSFER</option>
-                        <option value="CHEQUE">📜 CHEQUE</option>
+                        <option value="CASH">CASH</option>
+                        <option value="UPI">UPI</option>
+                        <option value="QR_CODE">QR CODE</option>
+                        <option value="BANK_TRANSFER">BANK TRANSFER</option>
+                        <option value="CHEQUE">CHEQUE</option>
                       </select>
                     </div>
                   </div>
@@ -1090,27 +1081,17 @@ export default function CreateInvoicePage() {
                     )}
                   </div>
 
-                  {/* Optional Payment Proof Upload */}
-                  <div>
-                    <label className="block text-text-secondary font-bold mb-1">
-                      Payment Proof (Optional Screenshot / Cheque Photo / Receipt)
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          setPaymentProofFile(e.target.files[0]);
-                        }
-                      }}
-                      className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-secondary file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-primary-700 file:text-white cursor-pointer"
-                    />
-                    {paymentProofFile && (
-                      <p className="text-[10px] text-success-app mt-1 font-semibold">
-                        ✓ Attached: {paymentProofFile.name} ({(paymentProofFile.size / 1024).toFixed(1)} KB)
-                      </p>
-                    )}
-                  </div>
+                  {/* Payment Proof Uploader (Device Upload + Phone QR Upload) */}
+                  <PaymentProofUploader
+                    proof={paymentProof}
+                    onProofChange={setPaymentProof}
+                    metadata={{
+                      invoiceNumber: 'Draft Bill',
+                      amountMinor: Math.round(paymentNowRupees * 100),
+                      method: paymentMethod,
+                      customerName: selectedCustomer?.name,
+                    }}
+                  />
 
                   {/* Notes */}
                   <div>

@@ -125,8 +125,7 @@ export default function BrandingPage() {
       </div>
 
       {isReadOnly && (
-        <div className="p-3 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-secondary flex items-center space-x-2">
-          <span>🔒</span>
+        <div className="p-3 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-secondary">
           <span>Manage permissions are restricted to OWNER or ADMIN roles. STAFF accounts operate in view-only mode.</span>
         </div>
       )}

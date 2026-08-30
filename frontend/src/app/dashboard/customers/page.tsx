@@ -243,8 +243,8 @@ export default function CustomersPage() {
                   <tr key={c.id || (c as any)._id} className="hover:bg-surface-2-app/30">
                     <td className="py-4 px-6 font-medium text-text-primary">{c.name}</td>
                     <td className="py-4 px-6 text-text-secondary space-y-0.5">
-                      {c.contact?.phone && <p>📞 {c.contact.phone}</p>}
-                      {c.contact?.email && <p>✉ {c.contact.email}</p>}
+                      {c.contact?.phone && <p><span className="text-text-muted font-medium">Ph:</span> {c.contact.phone}</p>}
+                      {c.contact?.email && <p><span className="text-text-muted font-medium">Email:</span> {c.contact.email}</p>}
                       {!c.contact?.phone && !c.contact?.email && <span className="text-text-muted text-xs">No contact details</span>}
                     </td>
                     <td className="py-4 px-6 text-text-secondary">

@@ -365,25 +365,18 @@ class ApiClient {
   }
 
   // Dashboard & Analytics Module API calls
-  public async getDashboardOverview(params: { from?: string; to?: string }): Promise<{
-    revenueMinor: number;
-    invoiceCount: number;
-    paidMinor: number;
-    outstandingMinor: number;
-    averageInvoiceMinor: number;
-    currency: string;
-  }> {
+  public async getDashboardOverview(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+    groupBy?: string;
+  }): Promise<import('./types').DashboardOverview> {
     const query = new URLSearchParams();
-    if (params.from) query.append('from', params.from);
-    if (params.to) query.append('to', params.to);
-    return this.get<{
-      revenueMinor: number;
-      invoiceCount: number;
-      paidMinor: number;
-      outstandingMinor: number;
-      averageInvoiceMinor: number;
-      currency: string;
-    }>(`/dashboard/overview?${query.toString()}`);
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    if (params?.groupBy) query.append('groupBy', params.groupBy);
+    return this.get<import('./types').DashboardOverview>(`/dashboard/overview?${query.toString()}`);
   }
 
   public async getRecentInvoices(limit = 5): Promise<any[]> {
@@ -391,61 +384,99 @@ class ApiClient {
     return res.invoices;
   }
 
-  public async getRevenueAnalytics(params: { from?: string; to?: string; groupBy?: 'day' | 'month' }): Promise<{
-    currency: string;
-    series: Array<{ period: string; revenueMinor: number }>;
-  }> {
-    const query = new URLSearchParams();
-    if (params.from) query.append('from', params.from);
-    if (params.to) query.append('to', params.to);
-    if (params.groupBy) query.append('groupBy', params.groupBy);
-    return this.get<{
-      currency: string;
-      series: Array<{ period: string; revenueMinor: number }>;
-    }>(`/analytics/revenue?${query.toString()}`);
+  public async getRecentActivity(): Promise<import('./types').RecentActivityItem[]> {
+    const res = await this.get<{ activities: import('./types').RecentActivityItem[] }>('/dashboard/recent-activity');
+    return res.activities;
   }
 
-  public async getTopServices(params: { from?: string; to?: string; limit?: number }): Promise<Array<{
-    description: string;
-    quantity: number;
-    revenueMinor: number;
-  }>> {
+  public async getAnalyticsOverview(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+    groupBy?: string;
+  }): Promise<import('./types').AnalyticsOverview> {
     const query = new URLSearchParams();
-    if (params.from) query.append('from', params.from);
-    if (params.to) query.append('to', params.to);
-    if (params.limit) query.append('limit', params.limit.toString());
-    const res = await this.get<{
-      services: Array<{ description: string; quantity: number; revenueMinor: number }>;
-    }>(`/analytics/top-services?${query.toString()}`);
-    return res.services;
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    if (params?.groupBy) query.append('groupBy', params.groupBy);
+    return this.get<import('./types').AnalyticsOverview>(`/analytics/overview?${query.toString()}`);
   }
 
-  public async getOutstandingAnalytics(): Promise<{
-    totalOutstandingMinor: number;
-    invoiceCount: number;
-    currency: string;
-  }> {
-    return this.get<{
-      totalOutstandingMinor: number;
-      invoiceCount: number;
-      currency: string;
-    }>('/analytics/outstanding');
+  public async getSalesTrend(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+    groupBy?: string;
+  }): Promise<{ currency: string; groupBy: string; series: import('./types').TimeSeriesPoint[] }> {
+    const query = new URLSearchParams();
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    if (params?.groupBy) query.append('groupBy', params.groupBy);
+    return this.get<{ currency: string; groupBy: string; series: import('./types').TimeSeriesPoint[] }>(
+      `/analytics/sales-trend?${query.toString()}`
+    );
   }
 
-  public async getCustomerAnalytics(params: { from?: string; to?: string; limit?: number }): Promise<Array<{
-    customerId: string;
-    customerName: string;
-    invoiceCount: number;
-    revenueMinor: number;
-  }>> {
+  public async getPaymentMethodAnalytics(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+  }): Promise<import('./types').AnalyticsPaymentMethods> {
     const query = new URLSearchParams();
-    if (params.from) query.append('from', params.from);
-    if (params.to) query.append('to', params.to);
-    if (params.limit) query.append('limit', params.limit.toString());
-    const res = await this.get<{
-      customers: Array<{ customerId: string; customerName: string; invoiceCount: number; revenueMinor: number }>;
-    }>(`/analytics/customers?${query.toString()}`);
-    return res.customers;
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    return this.get<import('./types').AnalyticsPaymentMethods>(`/analytics/payment-methods?${query.toString()}`);
+  }
+
+  public async getReceivingAccountsAnalytics(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+  }): Promise<import('./types').AnalyticsReceivingAccounts> {
+    const query = new URLSearchParams();
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    return this.get<import('./types').AnalyticsReceivingAccounts>(`/analytics/receiving-accounts?${query.toString()}`);
+  }
+
+  public async getCustomerAnalytics(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+    sortBy?: 'sales' | 'orders' | 'outstanding';
+    limit?: number;
+  }): Promise<import('./types').AnalyticsCustomers> {
+    const query = new URLSearchParams();
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    if (params?.sortBy) query.append('sortBy', params.sortBy);
+    if (params?.limit) query.append('limit', params.limit.toString());
+    return this.get<import('./types').AnalyticsCustomers>(`/analytics/customers?${query.toString()}`);
+  }
+
+  public async getProductAnalytics(params?: {
+    preset?: string;
+    from?: string;
+    to?: string;
+    sortBy?: 'revenue' | 'quantity' | 'orders';
+    limit?: number;
+  }): Promise<import('./types').AnalyticsProducts> {
+    const query = new URLSearchParams();
+    if (params?.preset) query.append('preset', params.preset);
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    if (params?.sortBy) query.append('sortBy', params.sortBy);
+    if (params?.limit) query.append('limit', params.limit.toString());
+    return this.get<import('./types').AnalyticsProducts>(`/analytics/products?${query.toString()}`);
+  }
+
+  public async getOutstandingAnalytics(): Promise<import('./types').AnalyticsOutstanding> {
+    return this.get<import('./types').AnalyticsOutstanding>('/analytics/outstanding');
   }
 
   // Sharing Module API calls
@@ -461,7 +492,37 @@ class ApiClient {
   public async getPublicInvoice(token: string): Promise<{ invoice: any }> {
     return this.get<{ invoice: any }>(`/public/invoices/${token}`);
   }
+
+  // Upload Sessions API calls
+  public async createUploadSession(payload: { invoiceId?: string; metadata?: any }): Promise<any> {
+    return this.post<any>('/upload-sessions', payload);
+  }
+
+  public async getUploadSessionStatus(sessionId: string): Promise<any> {
+    return this.get<any>(`/upload-sessions/${sessionId}/status`);
+  }
+
+  public async cancelUploadSession(sessionId: string): Promise<any> {
+    return this.post<any>(`/upload-sessions/${sessionId}/cancel`, {});
+  }
+
+  public async directUploadProof(file: File): Promise<{ proof: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.post<{ proof: any }>('/upload-sessions/direct-upload', formData);
+  }
+
+  public async getPublicUploadSession(token: string): Promise<any> {
+    return this.get<any>(`/upload-sessions/public/${token}`);
+  }
+
+  public async uploadPublicProof(token: string, file: File): Promise<{ proof: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.post<{ proof: any }>(`/upload-sessions/public/${token}/upload`, formData);
+  }
 }
 
 export const apiClient = new ApiClient();
 export default apiClient;
+

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../../../lib/api/client';
 import { Invoice, Customer, PaymentRecord, PaymentAccount, PaymentProof, PaymentMethod } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
+import PaymentProofUploader from '../../components/PaymentProofUploader';
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -31,8 +32,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [chequeNumber, setChequeNumber] = useState('');
   const [chequeDate, setChequeDate] = useState('');
   const [chequeBankName, setChequeBankName] = useState('');
-  const [proofFile, setProofFile] = useState<File | null>(null);
-  const [proofUploading, setProofUploading] = useState(false);
+  const [recordPaymentProof, setRecordPaymentProof] = useState<PaymentProof | null>(null);
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -165,7 +165,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setChequeNumber('');
     setChequeDate(new Date().toISOString().split('T')[0]);
     setChequeBankName('');
-    setProofFile(null);
+    setRecordPaymentProof(null);
     setPaymentNotes('');
     setPaymentError(null);
 
@@ -223,19 +223,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setSuccessMsg(null);
 
     try {
-      let uploadedProof: PaymentProof | null = null;
-      if (proofFile) {
-        setProofUploading(true);
-        try {
-          const proofRes = await apiClient.uploadPaymentProof(invoice.id || (invoice as any)._id, proofFile);
-          uploadedProof = proofRes.proof;
-        } catch (proofErr: any) {
-          console.warn('Proof upload issue:', proofErr);
-        } finally {
-          setProofUploading(false);
-        }
-      }
-
       await apiClient.recordPayment(invoice.id || (invoice as any)._id, {
         amountMinor: Math.round(amountNum * 100),
         method: paymentMethod,
@@ -247,7 +234,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           bankName: chequeBankName.trim() || undefined,
           status: 'RECEIVED',
         } : undefined,
-        proof: uploadedProof,
+        proof: recordPaymentProof || undefined,
         paidAt: paymentDate ? new Date(paymentDate).toISOString() : undefined,
         notes: paymentNotes.trim() || undefined,
       });
@@ -579,7 +566,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               disabled={submitLoading}
               className="px-4 py-2 bg-success-soft hover:bg-success-soft/80 text-success-app border border-success-app/20 rounded-lg text-xs font-bold cursor-pointer transition flex items-center space-x-1.5"
             >
-              <span>💳</span>
               <span>Record Payment</span>
             </button>
           )}
@@ -671,7 +657,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b border-border-light pb-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary flex items-center space-x-2">
-              <span>💳</span>
               <span>Payment History & Receiving Accounts</span>
             </h3>
             <span className="text-xs font-bold text-text-secondary">
@@ -700,7 +685,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                     </td>
                     <td className="py-2.5 px-3 font-bold text-text-primary">
                       <span className="inline-flex items-center space-x-1">
-                        <span>{p.method === 'BANK_TRANSFER' ? '🏦 BANK' : p.method === 'UPI' ? '📱 UPI' : p.method === 'QR_CODE' ? '🔳 QR' : p.method === 'CHEQUE' ? '📜 CHEQUE' : '💵 CASH'}</span>
+                        <span>{p.method.replace('_', ' ')}</span>
                       </span>
                     </td>
                     <td className="py-2.5 px-3 font-medium text-text-primary">
@@ -720,7 +705,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                           onClick={() => setActiveProofView(p.proof!)}
                           className="px-2 py-0.5 bg-primary-50 text-primary-700 border border-primary-200 rounded text-[10px] font-bold hover:bg-primary-100 transition cursor-pointer"
                         >
-                          🖼️ View Proof
+                          View Proof
                         </button>
                       ) : (
                         <span className="text-text-muted">-</span>
@@ -760,9 +745,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border-light pb-2">
-              <h3 className="text-base font-bold text-text-primary flex items-center space-x-2">
-                <span>💳</span>
-                <span>Record Payment</span>
+              <h3 className="text-base font-bold text-text-primary">
+                Record Payment
               </h3>
               <button
                 type="button"
@@ -837,11 +821,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                           : 'bg-surface-2-app text-text-secondary border-border-app hover:bg-surface-app'
                       }`}
                     >
-                      {m === 'CASH' && '💵 Cash'}
-                      {m === 'UPI' && '📱 UPI'}
-                      {m === 'QR_CODE' && '🔳 QR'}
-                      {m === 'BANK_TRANSFER' && '🏦 Bank'}
-                      {m === 'CHEQUE' && '📜 Cheque'}
+                      {m === 'CASH' && 'Cash'}
+                      {m === 'UPI' && 'UPI'}
+                      {m === 'QR_CODE' && 'QR'}
+                      {m === 'BANK_TRANSFER' && 'Bank'}
+                      {m === 'CHEQUE' && 'Cheque'}
                     </button>
                   ))}
                 </div>
@@ -985,27 +969,18 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 </div>
               )}
 
-              {/* Optional Payment Proof Upload */}
-              <div>
-                <label className="block text-text-secondary font-semibold mb-1">
-                  Payment Proof (Optional Screenshot / Cheque Photo / Receipt)
-                </label>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setProofFile(e.target.files[0]);
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-secondary file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-primary-700 file:text-white cursor-pointer"
-                />
-                {proofFile && (
-                  <p className="text-[10px] text-success-app mt-1 font-semibold">
-                    ✓ Attached: {proofFile.name} ({(proofFile.size / 1024).toFixed(1)} KB)
-                  </p>
-                )}
-              </div>
+              {/* Payment Proof Uploader (Device Upload + Phone QR Upload) */}
+              <PaymentProofUploader
+                proof={recordPaymentProof}
+                onProofChange={setRecordPaymentProof}
+                invoiceId={invoice.id || (invoice as any)._id}
+                metadata={{
+                  invoiceNumber: invoice.invoiceNumber,
+                  amountMinor: Math.round((parseFloat(paymentAmount) || 0) * 100),
+                  method: paymentMethod,
+                  customerName: invoice.customerSnapshot?.name,
+                }}
+              />
 
               {/* Notes */}
               <div>
@@ -1029,10 +1004,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 </button>
                 <button
                   type="submit"
-                  disabled={submitLoading || proofUploading}
+                  disabled={submitLoading}
                   className="flex-1 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
                 >
-                  {proofUploading ? 'Uploading Proof...' : submitLoading ? 'Recording...' : 'Record Payment'}
+                  {submitLoading ? 'Recording...' : 'Record Payment'}
                 </button>
               </div>
             </form>

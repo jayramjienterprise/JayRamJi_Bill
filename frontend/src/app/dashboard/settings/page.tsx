@@ -190,7 +190,7 @@ export default function SettingsPage() {
                 : 'text-text-secondary hover:text-text-primary'
             }`}
           >
-            🏢 Business & Defaults
+            Business & Defaults
           </button>
           <button
             type="button"
@@ -201,7 +201,7 @@ export default function SettingsPage() {
                 : 'text-text-secondary hover:text-text-primary'
             }`}
           >
-            💳 Payment Accounts
+            Payment Accounts
           </button>
         </div>
       </div>

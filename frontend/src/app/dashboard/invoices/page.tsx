@@ -326,7 +326,7 @@ export default function InvoicesPage() {
                             {inv.invoiceNumber ? inv.invoiceNumber : `#${(inv.id || (inv as any)._id).slice(-6).toUpperCase()}`}
                           </Link>
                           <p className="text-xs text-text-secondary mt-0.5">
-                            📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </td>
                         <td className="py-4 px-6 text-text-primary font-medium">
@@ -393,7 +393,7 @@ export default function InvoicesPage() {
                           {inv.invoiceNumber ? inv.invoiceNumber : `#${(inv.id || (inv as any)._id).slice(-6).toUpperCase()}`}
                         </Link>
                         <p className="text-[10px] text-text-secondary mt-0.5">
-                          📅 {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {new Date(inv.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </p>
                       </div>
                       <div className="flex items-center space-x-1">

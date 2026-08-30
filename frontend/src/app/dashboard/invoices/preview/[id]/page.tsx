@@ -129,7 +129,7 @@ export default function InvoicePreviewPage({ params }: { params: Promise<{ id: s
         {invoice.status === 'DRAFT' && (
           <div className="bg-warning-soft border border-warning-app/20 p-4 rounded-xl text-warning-app text-sm font-semibold flex items-center justify-between flex-wrap gap-4">
             <div>
-              ⚠️ This is a DRAFT invoice. Review all entries carefully. You can edit before finalizing.
+              This is a DRAFT invoice. Review all entries carefully. You can edit before finalizing.
             </div>
             <button
               onClick={() => setConfirmFinalize(true)}
@@ -143,7 +143,7 @@ export default function InvoicePreviewPage({ params }: { params: Promise<{ id: s
         {invoice.status === 'FINALIZED' && (
           <div className="bg-success-soft border border-success-app/20 p-4 rounded-xl text-success-app text-sm font-semibold flex items-center justify-between gap-4 flex-wrap">
             <div>
-              ✓ This invoice is FINALIZED and assigned number: <strong>{invoice.invoiceNumber}</strong>. It is read-only.
+              This invoice is FINALIZED and assigned number: <strong>{invoice.invoiceNumber}</strong>. It is read-only.
             </div>
             <div className="flex space-x-2">
               <a
@@ -176,7 +176,7 @@ export default function InvoicePreviewPage({ params }: { params: Promise<{ id: s
 
         {invoice.status === 'CANCELLED' && (
           <div className="bg-danger-soft border border-danger-app/20 p-4 rounded-xl text-danger-app text-sm font-semibold">
-            🚫 This invoice was CANCELLED. Reason: <em>{invoice.cancellationReason}</em>.
+            This invoice was CANCELLED. Reason: <em>{invoice.cancellationReason}</em>.
           </div>
         )}
 
