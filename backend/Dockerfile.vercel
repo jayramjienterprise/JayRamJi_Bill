@@ -3,6 +3,9 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
+# Prevent Puppeteer from downloading Chromium during build/TypeScript compilation
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # Copy package definition and TypeScript configuration
 COPY package*.json ./
 COPY tsconfig.json ./
@@ -43,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies
+# Install only production dependencies without downloading browser
 RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy compiled JavaScript output from builder stage
