@@ -7,15 +7,17 @@ import { connectDatabase, disconnectDatabase } from './database/db';
  */
 async function bootstrap() {
   try {
-    // 1. Establish database connection
-    await connectDatabase();
-
-    // 2. Start Express listener
+    // 1. Start Express listener immediately so health checks succeed
     const server = app.listen(env.PORT, '0.0.0.0', () => {
       console.log(
         `🚀 Server is running on port ${env.PORT} in ${env.NODE_ENV} mode`
       );
       console.log(`🔗 Health check available at: http://localhost:${env.PORT}/api/health`);
+    });
+
+    // 2. Establish database connection in background
+    connectDatabase().catch((dbErr) => {
+      console.error('⚠️ Initial background database connection attempt failed:', dbErr.message);
     });
 
     // 3. Configure Graceful Shutdown Routine
