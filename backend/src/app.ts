@@ -4,7 +4,9 @@ import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import { env } from './config/env';
+import { connectDatabase } from './database/db';
 import { errorHandler } from './middleware/errorHandler';
+
 import authRouter from './modules/auth/auth.routes';
 import businessRouter from './modules/business/business.routes';
 import customerRouter from './modules/customer/customer.routes';
@@ -18,6 +20,16 @@ import publicInvoiceRouter from './modules/invoice/public.routes';
 import uploadSessionRouter from './modules/upload-session/upload-session.routes';
 
 const app: Express = express();
+
+// Auto-connect to database on incoming requests if disconnected
+app.use((_req, _res, next) => {
+  if (mongoose.connection.readyState === 0) {
+    connectDatabase().catch((err) => {
+      console.error('⚠️ On-demand MongoDB connection error:', err.message);
+    });
+  }
+  next();
+});
 
 // Security Middlewares & Headers Configuration
 app.use(
