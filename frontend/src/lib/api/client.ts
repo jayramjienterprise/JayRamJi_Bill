@@ -35,9 +35,16 @@ class ApiClient {
   ): Promise<T> {
     const url = `${BASE_URL}${endpoint}`;
     
-    const headers: Record<string, string> = { ...options.headers as Record<string, string> };
+    const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
     if (!(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
+    }
+
+    if (typeof window !== 'undefined' && !headers['x-business-id']) {
+      const storedBusinessId = localStorage.getItem('x-business-id');
+      if (storedBusinessId) {
+        headers['x-business-id'] = storedBusinessId;
+      }
     }
 
     try {

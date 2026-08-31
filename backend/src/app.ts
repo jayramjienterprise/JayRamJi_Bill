@@ -60,7 +60,17 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Idempotency-Key'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Idempotency-Key',
+      'x-business-id',
+      'X-Business-Id',
+      'x-request-id',
+      'X-Request-Id',
+    ],
     exposedHeaders: ['Content-Disposition'],
     maxAge: 86400,
   })
