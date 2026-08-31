@@ -250,10 +250,6 @@ export async function uploadPublicProof(req: Request, res: Response, next: NextF
       return next(new AppError('This upload session was cancelled', 400, 'SESSION_CANCELLED'));
     }
 
-    if (session.status === 'COMPLETED') {
-      return next(new AppError('Payment proof has already been uploaded for this session', 400, 'SESSION_ALREADY_COMPLETED'));
-    }
-
     // File format & size validations
     const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf'];
     const allowedExtensions = ['png', 'jpg', 'jpeg', 'webp', 'pdf'];

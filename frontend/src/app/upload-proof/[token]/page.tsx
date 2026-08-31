@@ -3,7 +3,70 @@
 import { useEffect, useState, useRef, use } from 'react';
 import { apiClient } from '../../../lib/api/client';
 import { PublicUploadSessionInfo } from '../../../lib/api/types';
-import { Camera, Image as ImageIcon, FileText, CheckCircle, AlertCircle, Lock, Upload } from 'lucide-react';
+import { Camera, Image as ImageIcon, FileText, CheckCircle, AlertCircle, Lock, Upload, RefreshCw } from 'lucide-react';
+
+/**
+ * Compresses large mobile camera photos before upload to prevent browser memory exhaustion.
+ */
+async function compressImageIfNeeded(file: File): Promise<File> {
+  if (file.type === 'application/pdf') return file;
+  // If file is already small (< 1MB), no compression needed
+  if (file.size < 1024 * 1024) return file;
+
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const maxDimension = 1920;
+      let { width, height } = img;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          const compressed = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(compressed);
+        },
+        'image/jpeg',
+        0.85
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+
+    img.src = objectUrl;
+  });
+}
 
 export default function MobileProofUploadPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -16,6 +79,7 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPdf, setIsPdf] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
 
   // Uploading state
   const [uploading, setUploading] = useState(false);
@@ -33,6 +97,9 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
       try {
         const data = await apiClient.getPublicUploadSession(token);
         setSessionInfo(data);
+        if (data.status === 'COMPLETED') {
+          setUploadSuccess(true);
+        }
       } catch (err: any) {
         setErrorMsg(err.message || 'This upload session has expired or is invalid.');
       } finally {
@@ -42,26 +109,40 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
     loadSession();
   }, [token]);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg('File is too large. Please select a photo or document under 10MB.');
-      return;
-    }
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawFile = e.target.files?.[0];
+    if (!rawFile) return;
 
     setErrorMsg(null);
-    setSelectedFile(file);
+    setProcessingImage(true);
 
-    if (file.type === 'application/pdf') {
-      setIsPdf(true);
-      setPreviewUrl(null);
-    } else {
-      setIsPdf(false);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+    try {
+      // Memory-safe compression for phone camera images
+      const file = await compressImageIfNeeded(rawFile);
+
+      // Validate size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setErrorMsg('File is too large. Please select a photo or document under 10MB.');
+        setProcessingImage(false);
+        return;
+      }
+
+      setSelectedFile(file);
+
+      if (file.type === 'application/pdf') {
+        setIsPdf(true);
+        setPreviewUrl(null);
+      } else {
+        setIsPdf(false);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        const url = URL.createObjectURL(file);
+        setPreviewUrl(url);
+      }
+    } catch (err) {
+      console.warn('Image process note:', err);
+      setSelectedFile(rawFile);
+    } finally {
+      setProcessingImage(false);
     }
   }
 
@@ -74,6 +155,11 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
     setIsPdf(false);
     if (cameraInputRef.current) cameraInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
+  }
+
+  function handleReUploadNewProof() {
+    setUploadSuccess(false);
+    handleClearSelection();
   }
 
   async function handleUpload() {
@@ -119,12 +205,11 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between py-6 px-4 max-w-md mx-auto">
-      {/* Hidden File Inputs */}
+      {/* Hidden File Inputs (WITHOUT capture='environment' to avoid Android camera RAM crashes) */}
       <input
         ref={cameraInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -166,8 +251,21 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
                 Your payment screenshot / document has been securely attached to the billing record on the computer.
               </p>
             </div>
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400">
-              You can safely close this browser window.
+            
+            {/* Action buttons on success */}
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={handleReUploadNewProof}
+                className="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 border border-slate-700 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4 text-amber-400" />
+                <span>Upload Another / Replace Receipt</span>
+              </button>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400">
+                You can now safely close this browser window.
+              </div>
             </div>
           </div>
         ) : (
@@ -217,21 +315,30 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
 
                 <button
                   type="button"
+                  disabled={processingImage}
                   onClick={() => cameraInputRef.current?.click()}
-                  className="w-full py-4 px-4 bg-amber-500 hover:bg-amber-600 active:scale-98 text-slate-950 rounded-2xl font-black text-sm flex items-center justify-center space-x-3 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+                  className="w-full py-4 px-4 bg-amber-500 hover:bg-amber-600 active:scale-98 text-slate-950 rounded-2xl font-black text-sm flex items-center justify-center space-x-3 shadow-lg shadow-amber-500/20 transition cursor-pointer disabled:opacity-50"
                 >
                   <Camera className="w-5 h-5" />
-                  <span>Take Photo</span>
+                  <span>Take Photo / Camera</span>
                 </button>
 
                 <button
                   type="button"
+                  disabled={processingImage}
                   onClick={() => galleryInputRef.current?.click()}
-                  className="w-full py-4 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700 active:scale-98 text-slate-100 rounded-2xl font-bold text-sm flex items-center justify-center space-x-3 shadow-md transition cursor-pointer"
+                  className="w-full py-4 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700 active:scale-98 text-slate-100 rounded-2xl font-bold text-sm flex items-center justify-center space-x-3 shadow-md transition cursor-pointer disabled:opacity-50"
                 >
                   <ImageIcon className="w-5 h-5" />
                   <span>Choose from Gallery / Files</span>
                 </button>
+
+                {processingImage && (
+                  <div className="text-center py-2 text-xs text-amber-400 flex items-center justify-center space-x-2">
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-amber-400"></div>
+                    <span>Optimizing photo memory...</span>
+                  </div>
+                )}
               </div>
             )}
 
