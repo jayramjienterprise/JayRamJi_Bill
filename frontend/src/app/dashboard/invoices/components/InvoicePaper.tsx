@@ -235,7 +235,7 @@ export default function InvoicePaper({
         </div>
 
         {/* 2. Document Title */}
-        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mt-3 mb-3 leading-none">
+        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mt-6 mb-6 leading-none">
           {business.invoiceTitle || 'TAX INVOICE'}
         </div>
 
@@ -403,32 +403,44 @@ export default function InvoicePaper({
 
       {/* 6. Signatory and Supervision Footer Block */}
       <div>
-        <div className="flex justify-between items-center text-[10px] select-none">
+        <div className="flex justify-between items-end text-[10px] select-none">
           {/* Left Signatory */}
-          <div className="flex flex-col justify-end h-[85px] w-1/2">
+          <div className="flex flex-col justify-end w-1/2">
+            <div className="h-[120px]"></div>
             <div className="border-b border-black w-48"></div>
             <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase">
               SERVICE SUPERVISED BY
             </span>
           </div>
 
-          {/* Right Signatory & Stamp Overlay */}
-          <div className="flex flex-col items-end justify-end h-[110px] w-1/2 text-right relative">
-            {/* Absolute positioning container for stamp and signature overlay - positioned cleanly ABOVE the line */}
-            <div className="absolute right-0 bottom-7 flex items-center justify-center pointer-events-none z-10 w-48">
+          {/* Right Signatory & Stamp Stack */}
+          <div className="flex flex-col items-end justify-end w-1/2 text-right">
+            {/* Stamp & Signature container - strictly ABOVE the line */}
+            <div className="w-48 h-[120px] flex items-end justify-center relative mb-2 pointer-events-none">
               {assets?.stamp?.secureUrl && (
                 <img
                   src={assets.stamp.secureUrl}
                   alt="Business Stamp"
-                  className="max-w-[180px] max-h-[140px] w-auto h-auto object-contain opacity-95 select-none"
-                  style={{ transform: 'rotate(-2deg)' }}
+                  style={{
+                    width: '318px',
+                    maxWidth: '318px',
+                    maxHeight: '120px',
+                    objectFit: 'contain',
+                    transform: 'rotate(-2deg)',
+                  }}
+                  className="opacity-95 select-none"
                 />
               )}
               {assets?.signature?.secureUrl && (
                 <img
                   src={assets.signature.secureUrl}
                   alt="Authorized Signature"
-                  className="absolute max-w-[150px] max-h-[60px] w-auto h-auto object-contain opacity-95 z-20"
+                  style={{
+                    width: '180px',
+                    maxHeight: '55px',
+                    objectFit: 'contain',
+                  }}
+                  className="absolute bottom-1 opacity-95 z-20"
                 />
               )}
             </div>

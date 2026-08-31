@@ -276,8 +276,8 @@ export class InvoiceRenderService {
             text-transform: uppercase;
             letter-spacing: 1px;
             text-align: center;
-            margin-top: 14px;
-            margin-bottom: 12px;
+            margin-top: 24px;
+            margin-bottom: 30px;
             line-height: 1.2;
           }
           .sold-to-block {
@@ -357,12 +357,10 @@ export class InvoiceRenderService {
             display: flex;
             flex-direction: column;
             justify-content: flex-end;
-            height: 110px;
             width: 50%;
           }
           .sign-box.right {
             align-items: flex-end;
-            position: relative;
             text-align: right;
           }
           .sign-title {
@@ -374,7 +372,7 @@ export class InvoiceRenderService {
           .line {
             border-bottom: 1px solid black;
             width: 180px;
-            margin-top: auto;
+            margin-top: 0;
           }
           .sign-subtitle {
             margin-top: 6px;
@@ -386,28 +384,29 @@ export class InvoiceRenderService {
             text-align: center;
           }
           .overlay-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: absolute;
-            right: 0px;
             width: 180px;
-            bottom: 28px;
+            height: 120px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 6px;
             pointer-events: none;
           }
           .overlay-signature {
-            max-height: 60px;
-            max-width: 150px;
+            max-height: 55px;
+            max-width: 180px;
             width: auto;
             height: auto;
             object-fit: contain;
             opacity: 0.95;
             position: absolute;
+            bottom: 2px;
             z-index: 2;
           }
           .overlay-stamp {
-            max-height: 140px;
-            max-width: 180px;
+            max-width: 318px;
+            max-height: 120px;
             width: auto;
             height: auto;
             object-fit: contain;
@@ -500,14 +499,15 @@ export class InvoiceRenderService {
           <!-- Footer Signatures -->
           <div class="footer-container" style="align-items: flex-end;">
             <div class="sign-box" style="justify-content: flex-end;">
+              <div style="height: 120px; margin-bottom: 6px;"></div>
               <div class="line"></div>
               <span class="sign-subtitle">SERVICE SUPERVISED BY</span>
             </div>
 
             <div class="sign-box right" style="justify-content: flex-end;">
-              <div class="overlay-container" style="bottom: 12px;">
-                ${signatureHtml}
+              <div class="overlay-container">
                 ${stampHtml}
+                ${signatureHtml}
               </div>
               <div class="line"></div>
               <span class="sign-subtitle">Authorized Signatory</span>
