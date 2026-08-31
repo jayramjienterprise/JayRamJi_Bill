@@ -355,8 +355,8 @@ export class InvoiceRenderService {
           .sign-box {
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            height: 85px;
+            justify-content: flex-end;
+            height: 110px;
             width: 50%;
           }
           .sign-box.right {
@@ -381,19 +381,22 @@ export class InvoiceRenderService {
             font-weight: bold;
             color: #666;
             text-transform: uppercase;
+            width: 180px;
+            text-align: center;
           }
           .overlay-container {
             display: flex;
             align-items: center;
             justify-content: center;
             position: absolute;
-            right: 24px;
-            bottom: 12px;
+            right: 0px;
+            width: 180px;
+            bottom: 28px;
             pointer-events: none;
           }
           .overlay-signature {
-            max-height: 55px;
-            max-width: 140px;
+            max-height: 60px;
+            max-width: 150px;
             width: auto;
             height: auto;
             object-fit: contain;
@@ -402,14 +405,14 @@ export class InvoiceRenderService {
             z-index: 2;
           }
           .overlay-stamp {
-            max-height: 120px;
-            max-width: 160px;
+            max-height: 140px;
+            max-width: 180px;
             width: auto;
             height: auto;
             object-fit: contain;
-            opacity: 0.9;
+            opacity: 0.95;
             z-index: 1;
-            transform: rotate(-3deg);
+            transform: rotate(-2deg);
           }
         </style>
       </head>

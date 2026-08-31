@@ -413,28 +413,28 @@ export default function InvoicePaper({
           </div>
 
           {/* Right Signatory & Stamp Overlay */}
-          <div className="flex flex-col items-end justify-end h-[95px] w-1/2 text-right relative">
-            {/* Absolute positioning container for stamp and signature overlay */}
-            <div className="absolute right-6 bottom-4 flex items-center justify-center pointer-events-none z-10">
+          <div className="flex flex-col items-end justify-end h-[110px] w-1/2 text-right relative">
+            {/* Absolute positioning container for stamp and signature overlay - positioned cleanly ABOVE the line */}
+            <div className="absolute right-0 bottom-7 flex items-center justify-center pointer-events-none z-10 w-48">
               {assets?.stamp?.secureUrl && (
                 <img
                   src={assets.stamp.secureUrl}
                   alt="Business Stamp"
-                  className="max-w-[160px] max-h-[120px] w-auto h-auto object-contain opacity-90 select-none"
-                  style={{ transform: 'rotate(-3deg)' }}
+                  className="max-w-[180px] max-h-[140px] w-auto h-auto object-contain opacity-95 select-none"
+                  style={{ transform: 'rotate(-2deg)' }}
                 />
               )}
               {assets?.signature?.secureUrl && (
                 <img
                   src={assets.signature.secureUrl}
                   alt="Authorized Signature"
-                  className="absolute max-w-[140px] max-h-[55px] w-auto h-auto object-contain opacity-95 z-20"
+                  className="absolute max-w-[150px] max-h-[60px] w-auto h-auto object-contain opacity-95 z-20"
                 />
               )}
             </div>
             
             <div className="border-b border-black w-48"></div>
-            <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase">
+            <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase w-48 text-center">
               Authorized Signatory
             </span>
           </div>
