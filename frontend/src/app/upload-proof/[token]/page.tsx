@@ -117,32 +117,28 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
     setProcessingImage(true);
 
     try {
-      // Memory-safe compression for phone camera images
-      const file = await compressImageIfNeeded(rawFile);
-
-      // Validate size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        setErrorMsg('File is too large. Please select a photo or document under 10MB.');
-        setProcessingImage(false);
-        return;
-      }
-
-      setSelectedFile(file);
-
-      if (file.type === 'application/pdf') {
+      // Immediate instant preview from original file
+      if (rawFile.type === 'application/pdf') {
         setIsPdf(true);
         setPreviewUrl(null);
+        setSelectedFile(rawFile);
       } else {
         setIsPdf(false);
         if (previewUrl) URL.revokeObjectURL(previewUrl);
-        const url = URL.createObjectURL(file);
-        setPreviewUrl(url);
+        const instantUrl = URL.createObjectURL(rawFile);
+        setPreviewUrl(instantUrl);
+
+        // Memory-safe compression in background
+        const compressedFile = await compressImageIfNeeded(rawFile);
+        setSelectedFile(compressedFile);
       }
     } catch (err) {
       console.warn('Image process note:', err);
       setSelectedFile(rawFile);
     } finally {
       setProcessingImage(false);
+      // Reset input element value to allow picking or snapping the same or new photo immediately
+      if (e.target) e.target.value = '';
     }
   }
 
@@ -205,11 +201,12 @@ export default function MobileProofUploadPage({ params }: { params: Promise<{ to
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between py-6 px-4 max-w-md mx-auto">
-      {/* Hidden File Inputs (WITHOUT capture='environment' to avoid Android camera RAM crashes) */}
+      {/* Hidden File Inputs: Camera input uses capture="environment" to directly open phone camera */}
       <input
         ref={cameraInputRef}
         type="file"
         accept="image/*"
+        capture="environment"
         onChange={handleFileChange}
         className="hidden"
       />
