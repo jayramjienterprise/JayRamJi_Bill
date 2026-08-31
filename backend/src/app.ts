@@ -37,20 +37,32 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, or server-to-server)
       if (!origin) return callback(null, true);
-      
-      const allowedOrigins = [env.FRONTEND_URL];
-      // Permit local addresses for dev
-      allowedOrigins.push('http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://localhost:5000');
 
-      // Check if origin matches allowed origins or is a vercel deployment domain
-      const isVercelDomain = origin.endsWith('.vercel.app') || origin.includes('localhost');
-      if (allowedOrigins.includes(origin) || isVercelDomain) {
+      const cleanOrigin = origin.trim().replace(/\/+$/, '');
+      const cleanFrontend = (env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+
+      const isExplicitMatch = Boolean(cleanFrontend && cleanOrigin === cleanFrontend);
+      const isProductionDomain =
+        cleanOrigin === 'https://invoice.jayramjienterprise.in' ||
+        cleanOrigin === 'http://invoice.jayramjienterprise.in' ||
+        cleanOrigin.endsWith('.jayramjienterprise.in');
+      const isVercelDomain = cleanOrigin.endsWith('.vercel.app');
+      const isLocalhost =
+        cleanOrigin.startsWith('http://localhost:') ||
+        cleanOrigin.startsWith('http://127.0.0.1:');
+
+      if (isExplicitMatch || isProductionDomain || isVercelDomain || isLocalhost) {
         callback(null, true);
       } else {
-        callback(new Error('Blocked by CORS policy'));
+        console.warn(`⚠️ CORS blocked request from origin: ${origin}`);
+        callback(null, false);
       }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Idempotency-Key'],
+    exposedHeaders: ['Content-Disposition'],
+    maxAge: 86400,
   })
 );
 
