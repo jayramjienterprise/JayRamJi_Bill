@@ -216,7 +216,7 @@ export default function InvoicePaper({
                 YOUR SATISFACTION, OUR SUCCESS.
               </p>
             )}
-            <p className="text-[9pt] font-bold text-black uppercase leading-tight">
+            <p className="text-[8.5pt] font-bold text-black uppercase leading-tight truncate">
               {business.address?.line1
                 ? [
                     business.address.line1,
@@ -228,14 +228,14 @@ export default function InvoicePaper({
                     .join(', ')
                 : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
             </p>
-            <p className="text-[9pt] font-bold text-black leading-tight">
+            <p className="text-[8.5pt] font-bold text-black leading-tight">
               {businessPhoneStr} {businessEmailStr} {businessGstinStr && `| ${businessGstinStr}`}
             </p>
           </div>
         </div>
 
         {/* 2. Document Title */}
-        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mb-2 leading-none">
+        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mt-3 mb-3 leading-none">
           {business.invoiceTitle || 'TAX INVOICE'}
         </div>
 
@@ -302,14 +302,14 @@ export default function InvoicePaper({
             <tbody>
               {/* Actual line items */}
               {displayItems.map((it) => (
-                <tr key={it.serialNumber} className="border-b border-black font-medium text-black h-[14.15pt]">
-                  <td className="py-1 px-2 border-r border-black text-center">{it.serialNumber}</td>
-                  <td className="py-1 px-2 border-r border-black uppercase whitespace-pre-wrap">{it.description}</td>
-                  <td className="py-1 px-2 border-r border-black text-center font-bold">{it.quantity}</td>
-                  <td className="py-1 px-2 border-r border-black text-right font-semibold">
+                <tr key={it.serialNumber} className="border-b border-black font-medium text-black h-[17.5pt]">
+                  <td className="py-1.5 px-2 border-r border-black text-center">{it.serialNumber}</td>
+                  <td className="py-1.5 px-2 border-r border-black uppercase whitespace-pre-wrap">{it.description}</td>
+                  <td className="py-1.5 px-2 border-r border-black text-center font-bold">{it.quantity}</td>
+                  <td className="py-1.5 px-2 border-r border-black text-right font-semibold">
                     {it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="py-1 px-2 text-right font-bold">
+                  <td className="py-1.5 px-2 text-right font-bold">
                     {it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
@@ -318,7 +318,7 @@ export default function InvoicePaper({
               {/* Padding rows to maintain exact A4 height layout */}
               {paddingRowsCount > 0 &&
                 Array.from({ length: paddingRowsCount }).map((_, i) => (
-                  <tr key={`pad-${i}`} className="border-b border-black h-[14.15pt]">
+                  <tr key={`pad-${i}`} className="border-b border-black h-[17.5pt]">
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
@@ -328,13 +328,13 @@ export default function InvoicePaper({
                 ))}
 
               {/* Subtotal Row */}
-              <tr className="border-b border-black font-bold h-[14.15pt]">
-                <td colSpan={2} className="py-1 px-2 border-r border-black text-left font-bold">
+              <tr className="border-b border-black font-bold h-[17.5pt]">
+                <td colSpan={2} className="py-1.5 px-2 border-r border-black text-left font-bold">
                   Total
                 </td>
                 <td className="border-r border-black"></td>
                 <td className="border-r border-black"></td>
-                <td className="py-1 px-2 text-right font-bold">
+                <td className="py-1.5 px-2 text-right font-bold">
                   ₹{subtotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
               </tr>

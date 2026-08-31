@@ -276,7 +276,8 @@ export class InvoiceRenderService {
             text-transform: uppercase;
             letter-spacing: 1px;
             text-align: center;
-            margin-bottom: 8px;
+            margin-top: 14px;
+            margin-bottom: 12px;
             line-height: 1.2;
           }
           .sold-to-block {
@@ -337,13 +338,13 @@ export class InvoiceRenderService {
             background-color: #f6e0d0;
             border-bottom: 1px solid black;
             border-right: 1px solid black;
-            padding: 4px 8px;
+            padding: 5px 8px;
             font-weight: bold;
             text-align: left;
             text-transform: uppercase;
           }
           .items-table td {
-            padding: 4px 8px;
+            padding: 5.5px 8px;
           }
           .footer-container {
             display: flex;
@@ -428,7 +429,7 @@ export class InvoiceRenderService {
                 <td class="business-branding-cell">
                   <h1 class="business-title-centered">${business.name}</h1>
                   ${sloganHtml}
-                  <p style="font-size: 9pt; font-weight: bold; margin: 4px 0 0 0; text-transform: uppercase;">
+                  <p style="font-size: 8.5pt; font-weight: bold; margin: 3px 0 0 0; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     ${business.address?.line1
                       ? [
                           business.address.line1,
@@ -440,7 +441,7 @@ export class InvoiceRenderService {
                           .join(', ')
                       : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
                   </p>
-                  <p style="font-size: 9pt; font-weight: bold; margin: 2px 0 0 0;">${businessPhoneStr} ${businessEmailStr} ${businessGstinStr && `| ${businessGstinStr}`}</p>
+                  <p style="font-size: 8.5pt; font-weight: bold; margin: 2px 0 0 0;">${businessPhoneStr} ${businessEmailStr} ${businessGstinStr && `| ${businessGstinStr}`}</p>
                 </td>
               </tr>
             </table>
