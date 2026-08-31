@@ -53,8 +53,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Copy compiled JavaScript output from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy smoke server for isolation test
-COPY vercel-smoke-server.js ./
+# Vercel provides dynamic PORT at runtime
+EXPOSE 5000
 
-# Start the minimal diagnostic smoke server directly with Node
-CMD ["node", "vercel-smoke-server.js"]
+# Start the Express server directly with Node
+CMD ["node", "dist/server.js"]

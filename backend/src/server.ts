@@ -1,62 +1,43 @@
-console.log('BOOT: server.js loaded');
+import express from 'express';
 
-// Register global diagnostic exception handlers
+const port = Number(process.env.PORT || 80);
+
+console.log('REAL-BOOT: server.ts started');
+console.log(`REAL-BOOT: PORT=${port}`);
+console.log(`REAL-BOOT: NODE_ENV=${process.env.NODE_ENV}`);
+
+const app = express();
+
+app.get('/api/backend/api/health', (_req, res) => {
+  res.status(200).json({
+    success: true,
+    realBackend: true,
+    stage: 'minimal-express',
+    port,
+  });
+});
+
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({
+    success: true,
+    realBackend: true,
+    stage: 'minimal-express',
+    port,
+  });
+});
+
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`REAL-BOOT: HTTP server listening on ${port}`);
+});
+
+server.on('error', (error) => {
+  console.error('REAL-BOOT: HTTP SERVER ERROR', error);
+});
+
 process.on('uncaughtException', (error) => {
-  console.error('FATAL_UNCAUGHT_EXCEPTION', error);
+  console.error('REAL-BOOT: UNCAUGHT EXCEPTION', error);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('FATAL_UNHANDLED_REJECTION', reason);
+  console.error('REAL-BOOT: UNHANDLED REJECTION', reason);
 });
-
-import app from './app';
-import { env } from './config/env';
-import { connectDatabase, disconnectDatabase } from './database/db';
-
-console.log(`BOOT: SERVER_STARTING | PORT=${env.PORT} | NODE_ENV=${env.NODE_ENV}`);
-console.log('BOOT: starting HTTP server');
-
-// 1. Start Express listener immediately on 0.0.0.0
-const server = app.listen(env.PORT, '0.0.0.0', () => {
-  console.log(`BOOT: HTTP server listening on PORT ${env.PORT}`);
-  console.log(`🔗 Health check available at: http://localhost:${env.PORT}/api/health`);
-});
-
-// 2. Start MongoDB connection in background without blocking or terminating the HTTP process
-console.log('BOOT: starting MongoDB connection');
-connectDatabase()
-  .then(() => {
-    console.log('BOOT: MongoDB connection established successfully');
-  })
-  .catch((dbErr) => {
-    console.error('BOOT: MongoDB connection failed:', dbErr.message);
-  });
-
-// 3. Configure Graceful Shutdown Routine
-const handleExit = async (signal: string) => {
-  console.log(`\n⚠️ Process received ${signal}. Starting graceful shutdown...`);
-
-  if (server) {
-    server.close(async () => {
-      console.log('🛑 Express HTTP server stopped receiving requests.');
-      
-      try {
-        await disconnectDatabase();
-        console.log('⚡ Application terminated cleanly.');
-        process.exit(0);
-      } catch (dbErr) {
-        console.error('❌ Failed during database disconnect:', dbErr);
-        process.exit(1);
-      }
-    });
-
-    // If shutdown takes too long, force terminate after 10s
-    setTimeout(() => {
-      console.error('💥 Graceful shutdown timed out, force terminating.');
-      process.exit(1);
-    }, 10000);
-  }
-};
-
-process.on('SIGINT', () => handleExit('SIGINT'));
-process.on('SIGTERM', () => handleExit('SIGTERM'));
