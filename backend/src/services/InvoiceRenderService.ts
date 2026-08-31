@@ -293,8 +293,8 @@ export class InvoiceRenderService {
             text-transform: uppercase;
             letter-spacing: 1px;
             text-align: center;
-            margin-top: 24px;
-            margin-bottom: 30px;
+            margin-top: 10px;
+            margin-bottom: 10px;
             line-height: 1.2;
           }
           .sold-to-block {
@@ -361,7 +361,7 @@ export class InvoiceRenderService {
             text-transform: uppercase;
           }
           .items-table td {
-            padding: 5.5px 8px;
+            padding: 4px 8px;
           }
           .footer-container {
             display: flex;

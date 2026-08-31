@@ -252,7 +252,7 @@ export default function InvoicePaper({
         </div>
 
         {/* 2. Document Title */}
-        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mt-6 mb-6 leading-none">
+        <div className="text-center font-bold text-[14pt] text-black uppercase tracking-wider mt-2.5 mb-2.5 leading-none">
           {business.invoiceTitle || 'TAX INVOICE'}
         </div>
 
@@ -319,14 +319,14 @@ export default function InvoicePaper({
             <tbody>
               {/* Actual line items */}
               {displayItems.map((it) => (
-                <tr key={it.serialNumber} className="border-b border-black font-medium text-black h-[17.5pt]">
-                  <td className="py-1.5 px-2 border-r border-black text-center">{it.serialNumber}</td>
-                  <td className="py-1.5 px-2 border-r border-black uppercase whitespace-pre-wrap">{it.description}</td>
-                  <td className="py-1.5 px-2 border-r border-black text-center font-bold">{it.quantity}</td>
-                  <td className="py-1.5 px-2 border-r border-black text-right font-semibold">
+                <tr key={it.serialNumber} className="border-b border-black font-medium text-black min-h-[15pt]">
+                  <td className="py-1 px-2 border-r border-black text-center">{it.serialNumber}</td>
+                  <td className="py-1 px-2 border-r border-black uppercase whitespace-pre-wrap">{it.description}</td>
+                  <td className="py-1 px-2 border-r border-black text-center font-bold">{it.quantity}</td>
+                  <td className="py-1 px-2 border-r border-black text-right font-semibold">
                     {it.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="py-1.5 px-2 text-right font-bold">
+                  <td className="py-1 px-2 text-right font-bold">
                     {it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
@@ -335,7 +335,7 @@ export default function InvoicePaper({
               {/* Padding rows to maintain exact A4 height layout */}
               {paddingRowsCount > 0 &&
                 Array.from({ length: paddingRowsCount }).map((_, i) => (
-                  <tr key={`pad-${i}`} className="border-b border-black h-[17.5pt]">
+                  <tr key={`pad-${i}`} className="border-b border-black h-[15.5pt]">
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
