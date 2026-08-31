@@ -10,6 +10,8 @@ export interface ApiResponse<T = any> {
 
 export interface HealthCheckResponse {
   status: string;
+  database?: string;
+  timestamp?: string;
 }
 
 export interface Customer {
