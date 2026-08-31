@@ -32,6 +32,7 @@ export interface InvoicePaperProps {
     address: {
       line1: string;
       line2?: string | null;
+      displayAddress?: string | null;
       city?: string | null;
       state?: string | null;
       postalCode?: string | null;
@@ -206,7 +207,6 @@ export default function InvoicePaper({
             )}
           </div>
           
-          {/* Column 2: Centered Business branding */}
           <div className="col-span-9 text-center space-y-0.5">
             <h1 className="text-[26pt] font-black uppercase text-black leading-none tracking-wide">
               {business.name}
@@ -216,18 +216,35 @@ export default function InvoicePaper({
                 YOUR SATISFACTION, OUR SUCCESS.
               </p>
             )}
-            <p className="text-[8.5pt] font-bold text-black uppercase leading-tight truncate">
-              {business.address?.line1
-                ? [
-                    business.address.line1,
-                    business.address.line2,
-                    [business.address.city, business.address.state].filter(Boolean).join('-'),
-                    business.address.postalCode,
-                  ]
-                    .filter(Boolean)
-                    .join(', ')
-                : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
-            </p>
+            {(() => {
+              const rawBusinessAddress = business.address?.displayAddress || (
+                business.address?.line1
+                  ? [
+                      business.address.line1,
+                      business.address.line2,
+                      [business.address.city, business.address.state].filter(Boolean).join('-'),
+                      business.address.postalCode,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')
+                  : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'
+              );
+              const addressLen = rawBusinessAddress.length;
+              const addressFontSize = addressLen > 115 ? '6.0pt' : addressLen > 95 ? '6.6pt' : addressLen > 75 ? '7.5pt' : '8.5pt';
+              const addressLetterSpacing = addressLen > 90 ? '-0.25px' : 'normal';
+
+              return (
+                <p 
+                  className="font-bold text-black uppercase leading-tight whitespace-nowrap"
+                  style={{
+                    fontSize: addressFontSize,
+                    letterSpacing: addressLetterSpacing,
+                  }}
+                >
+                  {rawBusinessAddress}
+                </p>
+              );
+            })()}
             <p className="text-[8.5pt] font-bold text-black leading-tight">
               {businessPhoneStr} {businessEmailStr} {businessGstinStr && `| ${businessGstinStr}`}
             </p>

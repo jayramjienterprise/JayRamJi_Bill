@@ -20,6 +20,7 @@ const updateBusinessSchema = z.object({
     .object({
       line1: z.string().min(1, 'Address Line 1 is required'),
       line2: z.string().nullable().optional(),
+      displayAddress: z.string().nullable().optional(),
       city: z.string().nullable().optional(),
       state: z.string().nullable().optional(),
       postalCode: z.string().nullable().optional(),

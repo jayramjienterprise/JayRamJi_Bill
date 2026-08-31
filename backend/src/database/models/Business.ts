@@ -7,6 +7,7 @@ export interface IBusiness extends Document {
   address: {
     line1: string;
     line2: string | null;
+    displayAddress?: string | null;
     city: string | null;
     state: string | null;
     postalCode: string | null;
@@ -55,6 +56,7 @@ const BusinessSchema = new Schema<IBusiness>(
     address: {
       line1: { type: String, required: true, trim: true },
       line2: { type: String, default: null, trim: true },
+      displayAddress: { type: String, default: null, trim: true },
       city: { type: String, default: null, trim: true },
       state: { type: String, default: null, trim: true },
       postalCode: { type: String, default: null, trim: true },

@@ -215,6 +215,23 @@ export class InvoiceRenderService {
     const businessEmailStr = business.contact?.email ? `Email: ${business.contact.email}` : '';
     const businessGstinStr = business.taxProfile?.gstin ? `GSTIN: ${business.taxProfile.gstin}` : '';
 
+    const rawBusinessAddress = (business.address as any)?.displayAddress || (
+      business.address?.line1
+        ? [
+            business.address.line1,
+            business.address.line2,
+            [business.address.city, business.address.state].filter(Boolean).join('-'),
+            business.address.postalCode,
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'
+    );
+
+    const addressLen = rawBusinessAddress.length;
+    const addressFontSize = addressLen > 115 ? '6.0pt' : addressLen > 95 ? '6.6pt' : addressLen > 75 ? '7.5pt' : '8.5pt';
+    const addressLetterSpacing = addressLen > 90 ? '-0.25px' : 'normal';
+
     // Render HTML template
     return `
       <!DOCTYPE html>
@@ -428,17 +445,8 @@ export class InvoiceRenderService {
                 <td class="business-branding-cell">
                   <h1 class="business-title-centered">${business.name}</h1>
                   ${sloganHtml}
-                  <p style="font-size: 8.5pt; font-weight: bold; margin: 3px 0 0 0; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${business.address?.line1
-                      ? [
-                          business.address.line1,
-                          business.address.line2,
-                          [business.address.city, business.address.state].filter(Boolean).join('-'),
-                          business.address.postalCode,
-                        ]
-                          .filter(Boolean)
-                          .join(', ')
-                      : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
+                  <p style="font-size: ${addressFontSize}; letter-spacing: ${addressLetterSpacing}; font-weight: bold; margin: 3px 0 0 0; text-transform: uppercase; white-space: nowrap;">
+                    ${rawBusinessAddress}
                   </p>
                   <p style="font-size: 8.5pt; font-weight: bold; margin: 2px 0 0 0;">${businessPhoneStr} ${businessEmailStr} ${businessGstinStr && `| ${businessGstinStr}`}</p>
                 </td>

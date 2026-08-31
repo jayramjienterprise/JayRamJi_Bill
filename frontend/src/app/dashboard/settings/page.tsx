@@ -18,7 +18,15 @@ export default function SettingsPage() {
     name: '',
     legalName: '',
     displayName: '',
-    address: { line1: '', line2: '', city: '', state: '', postalCode: '', country: 'India' },
+    address: {
+      line1: '',
+      line2: '',
+      displayAddress: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: 'India',
+    },
     contact: { phone: '', email: '', website: '' },
     timezone: 'Asia/Kolkata',
     taxProfile: { gstin: '', pan: '', taxRegistrationType: '' },
@@ -54,6 +62,7 @@ export default function SettingsPage() {
         address: {
           line1: b.address?.line1 || '',
           line2: b.address?.line2 || '',
+          displayAddress: b.address?.displayAddress || '',
           city: b.address?.city || '',
           state: b.address?.state || '',
           postalCode: b.address?.postalCode || '',
@@ -325,6 +334,26 @@ export default function SettingsPage() {
                     }
                     className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-text-primary mb-1">
+                    Display Address in Bill (Custom Single Line)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. NEAR GIDC GATE, MUNDRA HIGHWAY ROAD, PLOT NO. 12, INDUSTRIAL AREA, MUNDRA-GUJARAT, 370421"
+                    value={profile.address.displayAddress}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        address: { ...profile.address, displayAddress: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus font-medium"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">
+                    If provided, this exact text will be displayed in the bill header instead of joining individual address fields.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs text-text-secondary mb-1">City</label>
