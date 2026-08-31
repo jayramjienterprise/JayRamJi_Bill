@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { Types } from 'mongoose';
 import { z } from 'zod';
 import { Asset } from '../../database/models/Asset';
 import { AppError } from '../../middleware/errorHandler';
@@ -175,6 +176,10 @@ export async function activateAsset(req: Request, res: Response, next: NextFunct
   try {
     const { assetId } = req.params;
 
+    if (!assetId || assetId === 'undefined' || !Types.ObjectId.isValid(assetId)) {
+      return next(new AppError('Invalid asset ID format', 400, 'BAD_REQUEST'));
+    }
+
     const asset = await Asset.findOne({ _id: assetId, businessId: req.businessId });
     if (!asset) {
       return next(new AppError('Asset record not found', 404, 'NOT_FOUND'));
@@ -208,6 +213,10 @@ export async function activateAsset(req: Request, res: Response, next: NextFunct
 export async function deactivateAsset(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { assetId } = req.params;
+
+    if (!assetId || assetId === 'undefined' || !Types.ObjectId.isValid(assetId)) {
+      return next(new AppError('Invalid asset ID format', 400, 'BAD_REQUEST'));
+    }
 
     const asset = await Asset.findOneAndUpdate(
       { _id: assetId, businessId: req.businessId },

@@ -425,7 +425,18 @@ export class InvoiceRenderService {
                 <td class="business-branding-cell">
                   <h1 class="business-title-centered">${business.name}</h1>
                   ${sloganHtml}
-                  <p style="font-size: 9pt; font-weight: bold; margin: 4px 0 0 0; text-transform: uppercase;">Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421</p>
+                  <p style="font-size: 9pt; font-weight: bold; margin: 4px 0 0 0; text-transform: uppercase;">
+                    ${business.address?.line1
+                      ? [
+                          business.address.line1,
+                          business.address.line2,
+                          [business.address.city, business.address.state].filter(Boolean).join('-'),
+                          business.address.postalCode,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')
+                      : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
+                  </p>
                   <p style="font-size: 9pt; font-weight: bold; margin: 2px 0 0 0;">${businessPhoneStr} ${businessEmailStr} ${businessGstinStr && `| ${businessGstinStr}`}</p>
                 </td>
               </tr>
@@ -460,7 +471,7 @@ export class InvoiceRenderService {
                 <tr>
                   <td>${invoice.invoiceNumber || 'DRAFT'}</td>
                   <td>${formattedDate}</td>
-                  <td>${invoice.paymentTerms || 'IMMEDIATE BILLING'}</td>
+                  <td>${invoice.paymentTerms || (business as any).invoiceSettings?.defaultPaymentTerms || '100% ADVANCE / DUE ON RECEIPT'}</td>
                 </tr>
               </tbody>
             </table>
@@ -469,11 +480,11 @@ export class InvoiceRenderService {
             <table class="items-table">
               <thead>
                 <tr>
-                  <th style="width: 7.3%; text-align: center;">SR NO.</th>
-                  <th style="width: 43.8%;">DESCRIPTION OF GOODS</th>
-                  <th style="width: 8.9%; text-align: center;">QTY</th>
-                  <th style="width: 20.0%; text-align: right;">PRICE</th>
-                  <th style="width: 20.0%; text-align: right; border-right: none;">AMOUNT</th>
+                  <th style="width: 8.5%; text-align: center;">SR NO.</th>
+                  <th style="width: 55.4%;">DESCRIPTION OF GOODS / SERVICES</th>
+                  <th style="width: 8.6%; text-align: center;">QTY</th>
+                  <th style="width: 13.7%; text-align: right;">RATE (₹)</th>
+                  <th style="width: 13.8%; text-align: right;">AMOUNT (₹)</th>
                 </tr>
               </thead>
               <tbody>
@@ -486,7 +497,7 @@ export class InvoiceRenderService {
           <div class="footer-container" style="align-items: flex-end;">
             <div class="sign-box" style="justify-content: flex-end;">
               <div class="line"></div>
-              <span class="sign-subtitle">Supervisor Name / Designation</span>
+              <span class="sign-subtitle">SERVICE SUPERVISED BY</span>
             </div>
 
             <div class="sign-box right" style="justify-content: flex-end;">

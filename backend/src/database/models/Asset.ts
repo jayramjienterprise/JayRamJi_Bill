@@ -61,6 +61,16 @@ const AssetSchema = new Schema<IAsset>(
   {
     timestamps: true,
     collection: 'assets',
+    toJSON: {
+      virtuals: true,
+      transform: (_, ret) => {
+        ret.id = ret._id?.toString();
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+    },
   }
 );
 

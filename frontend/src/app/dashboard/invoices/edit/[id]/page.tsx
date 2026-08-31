@@ -251,20 +251,39 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   }, [loading]);
 
   function handleAddItemFromProduct(product: Product, section: 'ITEM' | 'LABOUR' | 'PART' = 'ITEM') {
-    const priceFloat = (product.defaultPriceMinor / 100).toFixed(2);
-    setItems((prev) => [
-      ...prev,
-      {
-        productId: product.id || (product as any)._id,
-        type: product.type || 'PRODUCT',
-        description: product.name,
-        uom: product.uom || 'JOB',
-        quantity: 1,
-        unitPriceMinor: product.defaultPriceMinor,
-        priceFloat,
-        section,
-      },
-    ]);
+    const prodId = product.id || (product as any)._id;
+    setItems((prev) => {
+      const existingIdx = prev.findIndex(
+        (it) =>
+          (it.productId && prodId && it.productId === prodId && it.section === section) ||
+          (it.description === product.name && it.section === section)
+      );
+
+      if (existingIdx !== -1) {
+        const next = [...prev];
+        const currentQty = Number(next[existingIdx].quantity) || 1;
+        next[existingIdx] = {
+          ...next[existingIdx],
+          quantity: currentQty + 1,
+        };
+        return next;
+      }
+
+      const priceFloat = (product.defaultPriceMinor / 100).toFixed(2);
+      return [
+        ...prev,
+        {
+          productId: prodId,
+          type: product.type || (section === 'LABOUR' ? 'SERVICE' : 'PRODUCT'),
+          description: product.name,
+          uom: product.uom || 'JOB',
+          quantity: 1,
+          unitPriceMinor: product.defaultPriceMinor,
+          priceFloat,
+          section,
+        },
+      ];
+    });
   }
 
   function handleAddCustomItem(section: 'ITEM' | 'LABOUR' | 'PART' = 'ITEM') {

@@ -181,7 +181,7 @@ export default function BrandingPage() {
             )}
             {activeLogo && !isReadOnly && (
               <button
-                onClick={() => handleDeactivate(activeLogo.id, 'LOGO')}
+                onClick={() => handleDeactivate(activeLogo.id || (activeLogo as any)._id, 'LOGO')}
                 className="mt-2 w-full text-center py-1.5 border border-border-app hover:bg-surface-2-app text-text-secondary rounded-lg text-xs font-medium cursor-pointer"
               >
                 Deactivate Logo
@@ -198,7 +198,7 @@ export default function BrandingPage() {
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hl.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button
-                          onClick={() => handleActivate(hl.id, 'LOGO')}
+                          onClick={() => handleActivate(hl.id || (hl as any)._id, 'LOGO')}
                           className="text-primary-700 font-semibold cursor-pointer"
                         >
                           Activate
@@ -249,7 +249,7 @@ export default function BrandingPage() {
             )}
             {activeStamp && !isReadOnly && (
               <button
-                onClick={() => handleDeactivate(activeStamp.id, 'STAMP')}
+                onClick={() => handleDeactivate(activeStamp.id || (activeStamp as any)._id, 'STAMP')}
                 className="mt-2 w-full text-center py-1.5 border border-border-app hover:bg-surface-2-app text-text-secondary rounded-lg text-xs font-medium cursor-pointer"
               >
                 Deactivate Stamp
@@ -266,7 +266,7 @@ export default function BrandingPage() {
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hs.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button
-                          onClick={() => handleActivate(hs.id, 'STAMP')}
+                          onClick={() => handleActivate(hs.id || (hs as any)._id, 'STAMP')}
                           className="text-primary-700 font-semibold cursor-pointer"
                         >
                           Activate
@@ -317,7 +317,7 @@ export default function BrandingPage() {
             )}
             {activeSignature && !isReadOnly && (
               <button
-                onClick={() => handleDeactivate(activeSignature.id, 'SIGNATURE')}
+                onClick={() => handleDeactivate(activeSignature.id || (activeSignature as any)._id, 'SIGNATURE')}
                 className="mt-2 w-full text-center py-1.5 border border-border-app hover:bg-surface-2-app text-text-secondary rounded-lg text-xs font-medium cursor-pointer"
               >
                 Deactivate Signature
@@ -334,7 +334,7 @@ export default function BrandingPage() {
                       <span className="truncate flex-1 pr-2 text-text-secondary">{hsi.cloudinaryPublicId.split('/').pop()}</span>
                       {!isReadOnly && (
                         <button
-                          onClick={() => handleActivate(hsi.id, 'SIGNATURE')}
+                          onClick={() => handleActivate(hsi.id || (hsi as any)._id, 'SIGNATURE')}
                           className="text-primary-700 font-semibold cursor-pointer"
                         >
                           Activate

@@ -3,6 +3,7 @@
 import { useEffect, useState, use, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { FileText, Printer, ExternalLink, Share2, Mail } from 'lucide-react';
 import { apiClient } from '../../../../../lib/api/client';
 import { Invoice, Customer, PaymentRecord, PaymentAccount, PaymentProof, PaymentMethod } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
@@ -40,6 +41,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [activeProofView, setActiveProofView] = useState<PaymentProof | null>(null);
 
   // Sharing states
+  const [shareFormat, setShareFormat] = useState<'PDF' | 'PNG' | 'LINK'>('PDF');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareExpiry, setShareExpiry] = useState<string>('');
   const [isSharingEnabled, setIsSharingEnabled] = useState(false);
@@ -339,25 +341,73 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // Web Share API native handler
-  async function handleNativeShare() {
+  function getSelectedShareTarget(): { label: string; url: string } {
+    if (!invoice) return { label: 'Link', url: shareUrl || '' };
+
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const directPdfUrl = invoice.document?.pdf?.secureUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`;
+    const directPngUrl = invoice.document?.snapshot?.secureUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`;
+    const webShareUrl = shareUrl || `${baseUrl}/dashboard/invoices/detail/${invoice.id || (invoice as any)._id}`;
+
+    if (shareFormat === 'PDF') {
+      return { label: 'PDF Document', url: directPdfUrl };
+    }
+    if (shareFormat === 'PNG') {
+      return { label: 'PNG Image', url: directPngUrl };
+    }
+    return { label: 'Interactive Link', url: webShareUrl };
+  }
+
+  function handleShareWhatsApp() {
     if (!invoice) return;
-    const shareTarget = shareUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`;
-    if (!shareTarget) return;
+    const target = getSelectedShareTarget();
+    const customerName = invoice.customerSnapshot?.name || 'Customer';
+    const invoiceNum = invoice.invoiceNumber || 'Invoice';
+    const amount = `₹${((invoice.totals.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    const status = invoice.paymentSummary?.status || 'UNPAID';
+
+    const text = `*JAY RAMJI ENTERPRISE*\n\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*\nPayment Status: *${status}*\n\nAccess ${target.label}:\n${target.url}`;
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
+  }
+
+  function handleShareEmail() {
+    if (!invoice) return;
+    const target = getSelectedShareTarget();
+    const customerName = invoice.customerSnapshot?.name || 'Customer';
+    const invoiceNum = invoice.invoiceNumber || 'Invoice';
+    const amount = `₹${((invoice.totals.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+    const subject = `Invoice #${invoiceNum} from Jay Ramji Enterprise`;
+    const body = `Dear ${customerName},\n\nPlease find the details for Invoice #${invoiceNum}.\n\nTotal Amount: ${amount}\n\nYou can view and download your ${target.label} directly at:\n${target.url}\n\nThank you,\nJay Ramji Enterprise`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  async function handleShareApp() {
+    if (!invoice) return;
+    const target = getSelectedShareTarget();
+    const invoiceNum = invoice.invoiceNumber || 'Invoice';
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Invoice ${invoice.invoiceNumber || 'Document'}`,
-          text: `Invoice #${invoice.invoiceNumber || 'Document'} from Jay Ramji Enterprise`,
-          url: shareTarget,
+          title: `Invoice #${invoiceNum} - Jay Ramji Enterprise`,
+          text: `Invoice #${invoiceNum} (${target.label}) from Jay Ramji Enterprise`,
+          url: target.url,
         });
       } catch (err) {
-        setShareModalOpen(true);
+        // User cancelled share
       }
     } else {
-      setShareModalOpen(true);
+      navigator.clipboard.writeText(target.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     }
+  }
+
+  // Web Share API native handler
+  async function handleNativeShare() {
+    setShareModalOpen(true);
   }
 
   if (loading) {
@@ -1063,12 +1113,15 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {/* Share Configuration Drawer Modal */}
+      {/* Share Configuration Modal */}
       {shareModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border-light pb-2">
-              <h3 className="text-base font-bold text-text-primary">Share Configuration</h3>
+          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-lg w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-border-light pb-3">
+              <div>
+                <h3 className="text-base font-bold text-text-primary">Share Invoice</h3>
+                <p className="text-xs text-text-muted">Send directly via WhatsApp, Email, or copy document links.</p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShareModalOpen(false)}
@@ -1078,63 +1131,132 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               </button>
             </div>
 
-            <div className="space-y-4 text-xs font-semibold">
-              <div className="space-y-2">
-                <label className="block text-text-secondary uppercase text-[10px]">
-                  Public Access Sharing
-                </label>
-                <div className="flex items-center justify-between">
-                  <span className="text-text-primary font-bold">
-                    {isSharingEnabled ? 'Sharing Enabled' : 'Sharing Disabled'}
-                  </span>
-                  <button
-                    onClick={isSharingEnabled ? handleRevokeShareLink : handleGenerateShareLink}
-                    className={`px-3 py-1.5 rounded-lg font-bold text-white transition ${
-                      isSharingEnabled ? 'bg-danger-app hover:bg-danger-app/80' : 'bg-primary-700 hover:bg-primary-800'
-                    }`}
-                  >
-                    {isSharingEnabled ? 'Revoke Access' : 'Enable Sharing'}
-                  </button>
-                </div>
+            {/* 1. Format Selection */}
+            <div>
+              <label className="block text-text-secondary uppercase text-[10px] font-bold tracking-wider mb-2">
+                Select Format to Share
+              </label>
+              <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setShareFormat('PDF')}
+                  className={`py-2 px-3 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                    shareFormat === 'PDF'
+                      ? 'bg-primary-700 text-white border-primary-700 shadow-sm'
+                      : 'bg-surface-2-app text-text-secondary border-border-app hover:bg-surface-app'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>PDF Document</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShareFormat('PNG')}
+                  className={`py-2 px-3 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                    shareFormat === 'PNG'
+                      ? 'bg-primary-700 text-white border-primary-700 shadow-sm'
+                      : 'bg-surface-2-app text-text-secondary border-border-app hover:bg-surface-app'
+                  }`}
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>PNG Image</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShareFormat('LINK')}
+                  className={`py-2 px-3 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                    shareFormat === 'LINK'
+                      ? 'bg-primary-700 text-white border-primary-700 shadow-sm'
+                      : 'bg-surface-2-app text-text-secondary border-border-app hover:bg-surface-app'
+                  }`}
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Web Link</span>
+                </button>
               </div>
+            </div>
 
-              {isSharingEnabled && (
-                <div className="space-y-2 pt-2 border-t border-border-light">
-                  <label className="block text-text-secondary uppercase text-[10px]">Expiry Time</label>
-                  <input
-                    type="datetime-local"
-                    value={shareExpiry}
-                    onChange={(e) => setShareExpiry(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-text-primary focus:outline-none"
-                  />
-                  <button
-                    onClick={handleGenerateShareLink}
-                    className="px-3 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-text-secondary cursor-pointer"
-                  >
-                    Update Expiry Link
-                  </button>
-                </div>
-              )}
+            {/* 2. Direct Share Actions */}
+            <div className="space-y-2">
+              <label className="block text-text-secondary uppercase text-[10px] font-bold tracking-wider">
+                Direct Share to Platforms
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={handleShareWhatsApp}
+                  className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareEmail}
+                  className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Email</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareApp}
+                  className="py-2.5 px-3 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Share App</span>
+                </button>
+              </div>
+            </div>
 
-              {shareUrl && (
-                <div className="space-y-2 pt-2 border-t border-border-light">
-                  <label className="block text-text-secondary uppercase text-[10px]">Public Sharing Link</label>
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={shareUrl}
-                      className="flex-1 px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary select-all text-xs font-mono"
-                    />
-                    <button
-                      onClick={handleCopyLink}
-                      className="px-3 py-1.5 bg-primary-700 text-white hover:bg-primary-800 rounded-lg transition cursor-pointer"
-                    >
-                      {copied ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
+            {/* 3. Direct Link Copy */}
+            <div className="space-y-1.5 pt-2 border-t border-border-light">
+              <div className="flex items-center justify-between">
+                <label className="block text-text-secondary uppercase text-[10px] font-bold">
+                  {getSelectedShareTarget().label} Direct URL
+                </label>
+                {copied && <span className="text-[10px] text-emerald-600 font-bold">Link Copied!</span>}
+              </div>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={getSelectedShareTarget().url}
+                  className="flex-1 px-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-text-primary select-all text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getSelectedShareTarget().url);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2500);
+                  }}
+                  className="px-4 py-1.5 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary font-bold text-xs rounded-lg transition cursor-pointer"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Public Web Link Toggle */}
+            <div className="space-y-2 pt-2 border-t border-border-light text-xs font-semibold">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-text-primary font-bold block">Public Interactive Access</span>
+                  <span className="text-[10px] text-text-muted block">
+                    {isSharingEnabled ? 'Anyone with link can view bill' : 'Public web link is currently disabled'}
+                  </span>
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={isSharingEnabled ? handleRevokeShareLink : handleGenerateShareLink}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-white transition text-xs cursor-pointer ${
+                    isSharingEnabled ? 'bg-danger-app hover:bg-danger-app/80' : 'bg-primary-700 hover:bg-primary-800'
+                  }`}
+                >
+                  {isSharingEnabled ? 'Revoke Web Link' : 'Enable Web Link'}
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-end pt-2 border-t border-border-app">
@@ -1143,7 +1265,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 onClick={() => setShareModalOpen(false)}
                 className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer"
               >
-                Close
+                Done
               </button>
             </div>
           </div>

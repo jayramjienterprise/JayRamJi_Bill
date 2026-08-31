@@ -297,7 +297,7 @@ export default function SettingsPage() {
               <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wide">Workspace Address</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label className="block text-xs text-text-secondary mb-1">Address Line 1</label>
+                  <label className="block text-xs text-text-secondary mb-1">Address Line 1 (Shop / Plot / Street)</label>
                   <input
                     type="text"
                     required
@@ -306,6 +306,21 @@ export default function SettingsPage() {
                       setProfile({
                         ...profile,
                         address: { ...profile.address, line1: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-text-secondary mb-1">Address Line 2 (Branch / Area / Landmark)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Mundra Branch, Baroi Road"
+                    value={profile.address.line2}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        address: { ...profile.address, line2: e.target.value },
                       })
                     }
                     className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
@@ -396,7 +411,22 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setProfile({
                         ...profile,
-                        bankDetails: { ...profile.bankDetails, ifsc: e.target.value },
+                        bankDetails: { ...profile.bankDetails, ifsc: e.target.value.toUpperCase() },
+                      })
+                    }
+                    className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus font-mono uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">Bank Branch Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Mundra Branch"
+                    value={profile.bankDetails.branch}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        bankDetails: { ...profile.bankDetails, branch: e.target.value },
                       })
                     }
                     className="w-full px-3 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"

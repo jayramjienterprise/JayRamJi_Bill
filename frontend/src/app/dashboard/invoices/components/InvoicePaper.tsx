@@ -217,7 +217,16 @@ export default function InvoicePaper({
               </p>
             )}
             <p className="text-[9pt] font-bold text-black uppercase leading-tight">
-              Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421
+              {business.address?.line1
+                ? [
+                    business.address.line1,
+                    business.address.line2,
+                    [business.address.city, business.address.state].filter(Boolean).join('-'),
+                    business.address.postalCode,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')
+                : 'Shop no. 4, Plot no. 45, Baroi Road, Rushab Nagar, Mundra-Kutch, 370421'}
             </p>
             <p className="text-[9pt] font-bold text-black leading-tight">
               {businessPhoneStr} {businessEmailStr} {businessGstinStr && `| ${businessGstinStr}`}
@@ -399,7 +408,7 @@ export default function InvoicePaper({
           <div className="flex flex-col justify-end h-[85px] w-1/2">
             <div className="border-b border-black w-48"></div>
             <span className="text-[8pt] mt-1.5 font-bold text-gray-500 uppercase">
-              Supervisor Name / Designation
+              SERVICE SUPERVISED BY
             </span>
           </div>
 
