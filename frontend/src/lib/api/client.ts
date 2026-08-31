@@ -2,7 +2,7 @@ import { ApiResponse, Customer, CustomerListResponse, Product, ProductListRespon
 
 // Fallback to same-domain proxy in production and local express in dev
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.BACKEND_URL ||
   (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
     ? '/api/backend/api'
     : 'http://localhost:5000/api');
