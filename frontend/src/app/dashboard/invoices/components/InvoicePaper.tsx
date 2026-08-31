@@ -422,11 +422,11 @@ export default function InvoicePaper({
                   src={assets.stamp.secureUrl}
                   alt="Business Stamp"
                   style={{
-                    width: '318px',
-                    maxWidth: '318px',
-                    maxHeight: '120px',
+                    width: '128px',
+                    maxWidth: '128px',
+                    maxHeight: '100px',
                     objectFit: 'contain',
-                    transform: 'rotate(-2deg)',
+                    // transform: 'rotate(-2deg)',
                   }}
                   className="opacity-95 select-none"
                 />
@@ -437,7 +437,7 @@ export default function InvoicePaper({
                   alt="Authorized Signature"
                   style={{
                     width: '180px',
-                    maxHeight: '55px',
+                    maxHeight: '100px',
                     objectFit: 'contain',
                   }}
                   className="absolute bottom-1 opacity-95 z-20"
