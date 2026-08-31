@@ -489,6 +489,24 @@ export default function SettingsPage() {
 
             <div>
               <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                Terms of Payment / Conditions
+              </label>
+              <textarea
+                rows={3}
+                value={invoiceDefaults.defaultPaymentTerms}
+                onChange={(e) =>
+                  setInvoiceDefaults({ ...invoiceDefaults, defaultPaymentTerms: e.target.value })
+                }
+                placeholder="e.g. 100% payment on delivery. Subject to local jurisdiction. Goods once sold will not be taken back."
+                className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none focus:border-border-focus"
+              />
+              <span className="text-[10px] text-text-secondary mt-1 block">
+                Default terms printed at the bottom of every generated invoice and bill preview.
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
                 Tax Mode
               </label>
               <select
