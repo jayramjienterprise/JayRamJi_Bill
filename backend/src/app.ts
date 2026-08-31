@@ -136,5 +136,3 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 export default app;
-module.exports = app;
-(module.exports as any).default = app;

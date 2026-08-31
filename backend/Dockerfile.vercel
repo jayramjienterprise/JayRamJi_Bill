@@ -40,7 +40,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-kacst \
     fonts-freefont-ttf \
     ca-certificates \
-    dumb-init \
     && rm -rf /var/lib/apt/lists/* \
     && which chromium \
     && chromium --version
@@ -57,8 +56,5 @@ COPY --from=builder /app/dist ./dist
 # Vercel provides dynamic PORT at runtime
 EXPOSE 5000
 
-# Use dumb-init to properly handle signal forwarding and prevent zombie processes
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-
-# Start the Express server
+# Start the Express server directly with Node
 CMD ["node", "dist/server.js"]
