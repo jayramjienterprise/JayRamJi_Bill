@@ -14,6 +14,12 @@ import {
   Settings,
   CreditCard,
   LogOut,
+  Menu,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 
 interface BusinessItem {
@@ -35,6 +41,8 @@ interface DashboardContextType {
   setActiveBusinessId: (id: string | null) => void;
   refreshSession: () => Promise<void>;
   loading: boolean;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -54,6 +62,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [businesses, setBusinesses] = useState<BusinessItem[]>([]);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Restore sidebar preference
+  useEffect(() => {
+    const saved = localStorage.getItem('jre_sidebar_collapsed');
+    if (saved !== null) {
+      setSidebarCollapsed(saved === 'true');
+    }
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('jre_sidebar_collapsed', String(next));
+      return next;
+    });
+  }
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   async function fetchSession() {
     try {
@@ -102,8 +133,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const activeBusiness = businesses.find((b) => b.id === activeBusinessId);
-
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
@@ -124,26 +153,63 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setActiveBusinessId,
         refreshSession: fetchSession,
         loading,
+        sidebarCollapsed,
+        setSidebarCollapsed,
       }}
     >
-      <div className="flex min-h-screen bg-background-app">
-        {/* Desktop Sidebar Layout */}
-        <aside className="w-[240px] bg-primary-900 text-white flex flex-col justify-between shrink-0 shadow-md">
-          <div>
-            <div className="p-5 border-b border-primary-800">
-              <div className="flex items-center space-x-3">
-                <div className="bg-primary-700 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm">
+      <div className="flex h-screen w-screen overflow-hidden bg-background-app">
+        {/* Mobile Backdrop */}
+        {mobileMenuOpen && (
+          <div
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-xs transition-opacity"
+          />
+        )}
+
+        {/* Fixed Viewport Sidebar */}
+        <aside
+          className={`fixed md:static inset-y-0 left-0 z-50 bg-primary-900 text-white flex flex-col justify-between shrink-0 shadow-lg transition-all duration-200 ease-in-out ${
+            sidebarCollapsed ? 'md:w-[72px]' : 'md:w-[240px]'
+          } ${mobileMenuOpen ? 'w-[260px] translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        >
+          {/* Top Brand Section */}
+          <div className="flex flex-col min-h-0 flex-1">
+            <div className="p-4 border-b border-primary-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="bg-primary-700 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm shrink-0">
                   J
                 </div>
-                <div>
-                  <h1 className="font-bold text-sm leading-tight tracking-wide">Jay Ramji Enterprise</h1>
-                  <p className="text-[10px] text-primary-400 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
-                </div>
+                {!sidebarCollapsed && (
+                  <div className="min-w-0 transition-opacity">
+                    <h1 className="font-bold text-sm leading-tight tracking-wide truncate">Jay Ramji Enterprise</h1>
+                    <p className="text-[10px] text-primary-400 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Close button for mobile / collapse toggle */}
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 text-primary-400 hover:text-white hover:bg-primary-800 rounded-lg md:hidden cursor-pointer"
+                  title="Close Menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  className="hidden md:flex p-1.5 text-primary-400 hover:text-white hover:bg-primary-800 rounded-lg cursor-pointer transition"
+                  title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+                >
+                  {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
-            {/* Sidebar Navigation */}
-            <nav className="p-3 space-y-1">
+            {/* Nav Menu Scrollable Area */}
+            <nav className="p-2 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
@@ -152,44 +218,82 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`flex items-center rounded-xl text-xs font-semibold transition ${
+                      sidebarCollapsed
+                        ? 'justify-center p-2.5'
+                        : 'space-x-3 px-3.5 py-2.5'
+                    } ${
                       isActive
                         ? 'bg-primary-800 text-white shadow-xs'
                         : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-primary-400'}`} />
-                    <span>{item.label}</span>
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary-400'}`} />
+                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
               })}
             </nav>
           </div>
 
-          {/* User/Signout Area */}
-          <div className="p-4 border-t border-primary-800 bg-primary-950/40">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-bold truncate text-white">{user?.name}</p>
-                <p className="text-[10.5px] text-primary-400 truncate mt-0.5">{user?.email}</p>
-              </div>
+          {/* User / Logout Area — Always pinned at bottom */}
+          <div className="p-3 border-t border-primary-800 bg-primary-950/50 shrink-0">
+            <div className={`flex items-center ${sidebarCollapsed ? 'flex-col space-y-2 justify-center' : 'justify-between'}`}>
+              {!sidebarCollapsed ? (
+                <div className="min-w-0 pr-2">
+                  <p className="text-xs font-bold truncate text-white">{user?.name}</p>
+                  <p className="text-[10.5px] text-primary-400 truncate mt-0.5">{user?.email}</p>
+                </div>
+              ) : (
+                <div
+                  title={`${user?.name} (${user?.email})`}
+                  className="w-7 h-7 rounded-full bg-primary-800 text-primary-200 flex items-center justify-center text-xs font-bold shrink-0 uppercase"
+                >
+                  {user?.name ? user.name.charAt(0) : 'U'}
+                </div>
+              )}
               <button
+                type="button"
                 onClick={handleLogout}
                 title="Sign Out"
-                className="p-1.5 text-primary-400 hover:text-white hover:bg-primary-800 rounded-lg transition cursor-pointer"
+                className={`p-2 text-primary-400 hover:text-danger-app hover:bg-primary-800/80 rounded-lg transition cursor-pointer flex items-center justify-center ${
+                  sidebarCollapsed ? 'w-full' : ''
+                }`}
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 shrink-0" />
+                {!sidebarCollapsed && <span className="sr-only">Sign Out</span>}
               </button>
             </div>
           </div>
         </aside>
 
-        {/* Main Application Container */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Top Bar Navigation */}
-          <header className="h-16 bg-surface-app border-b border-border-app px-6 md:px-8 flex items-center justify-between shadow-xs shrink-0">
-            <div className="flex items-center space-x-3">
-              <span className="text-text-muted text-xs font-bold uppercase tracking-wider">Workspace:</span>
+        {/* Main Viewport Container */}
+        <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+          {/* Top Bar Header */}
+          <header className="h-16 bg-surface-app border-b border-border-app px-4 md:px-8 flex items-center justify-between shadow-xs shrink-0 z-10">
+            <div className="flex items-center space-x-3 min-w-0">
+              {/* Mobile Hamburger Button */}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="p-2 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg md:hidden cursor-pointer mr-1"
+                title="Open Navigation"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+
+              {/* Desktop Toggle Button */}
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="hidden md:flex p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg cursor-pointer transition mr-1"
+                title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
+
+              <span className="text-text-muted text-xs font-bold uppercase tracking-wider hidden sm:inline">Workspace:</span>
               {businesses.length > 0 ? (
                 <div className="relative">
                   <select
@@ -214,19 +318,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
             </div>
 
-            {/* Quick Action Navigation in Top Bar */}
+            {/* Quick Actions in Top Bar */}
             <div className="flex items-center space-x-3">
               <Link
                 href="/dashboard/invoices/create"
-                className="px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
+                className="px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
               >
                 <span>+ Create Invoice</span>
               </Link>
             </div>
           </header>
 
-          {/* Page Content Body */}
-          <main className="flex-1 p-6 md:p-8 overflow-y-auto bg-background-app">{children}</main>
+          {/* Page Content with Independent Vertical Scroll */}
+          <main className="flex-1 p-4 md:p-8 overflow-y-auto bg-background-app">{children}</main>
         </div>
       </div>
     </DashboardContext.Provider>
