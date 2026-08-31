@@ -1,10 +1,10 @@
 import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse, PaymentAccount, PaymentProof, PaymentRecord, PaymentMethod } from './types';
 
-// Fallback to same-domain proxy in production and local express in dev
+// Direct Render backend in production and local express in dev
 const BASE_URL =
-  process.env.BACKEND_URL ||
-  (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
-    ? '/api/backend/api'
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' && (window.location.hostname.includes('jayramjienterprise.in') || window.location.hostname.includes('vercel.app'))
+    ? 'https://backend.invoice.jayramjienterprise.in/api'
     : 'http://localhost:5000/api');
 
 export class ApiError extends Error {
