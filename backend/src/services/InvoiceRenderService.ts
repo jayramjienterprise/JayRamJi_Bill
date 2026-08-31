@@ -387,28 +387,29 @@ export class InvoiceRenderService {
             align-items: center;
             justify-content: center;
             position: absolute;
-            right: 32px;
-            bottom: 16px;
+            right: 24px;
+            bottom: 12px;
             pointer-events: none;
-            width: 112px;
-            height: 112px;
           }
           .overlay-signature {
-            height: 48px;
-            width: 96px;
+            max-height: 55px;
+            max-width: 140px;
+            width: auto;
+            height: auto;
             object-fit: contain;
-            opacity: 0.85;
+            opacity: 0.95;
             position: absolute;
             z-index: 2;
           }
           .overlay-stamp {
-            height: 96px;
-            width: 96px;
+            max-height: 120px;
+            max-width: 160px;
+            width: auto;
+            height: auto;
             object-fit: contain;
-            opacity: 0.7;
-            position: absolute;
+            opacity: 0.9;
             z-index: 1;
-            transform: rotate(-5deg);
+            transform: rotate(-3deg);
           }
         </style>
       </head>

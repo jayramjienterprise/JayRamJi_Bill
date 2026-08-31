@@ -404,22 +404,22 @@ export default function InvoicePaper({
           </div>
 
           {/* Right Signatory & Stamp Overlay */}
-          <div className="flex flex-col items-end justify-end h-[85px] w-1/2 text-right relative">
+          <div className="flex flex-col items-end justify-end h-[95px] w-1/2 text-right relative">
             {/* Absolute positioning container for stamp and signature overlay */}
-            <div className="absolute right-10 bottom-6 w-28 h-28 flex items-center justify-center pointer-events-none">
+            <div className="absolute right-6 bottom-4 flex items-center justify-center pointer-events-none z-10">
               {assets?.stamp?.secureUrl && (
                 <img
                   src={assets.stamp.secureUrl}
                   alt="Business Stamp"
-                  className="absolute w-24 h-24 object-contain opacity-70"
-                  style={{ transform: 'rotate(-5deg)' }}
+                  className="max-w-[160px] max-h-[120px] w-auto h-auto object-contain opacity-90 select-none"
+                  style={{ transform: 'rotate(-3deg)' }}
                 />
               )}
               {assets?.signature?.secureUrl && (
                 <img
                   src={assets.signature.secureUrl}
                   alt="Authorized Signature"
-                  className="absolute w-24 h-12 object-contain opacity-85 z-10"
+                  className="absolute max-w-[140px] max-h-[55px] w-auto h-auto object-contain opacity-95 z-20"
                 />
               )}
             </div>
