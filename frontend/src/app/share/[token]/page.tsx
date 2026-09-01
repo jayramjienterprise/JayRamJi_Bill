@@ -55,7 +55,7 @@ export default function PublicInvoiceSharePage({ params }: { params: Promise<{ t
     );
   }
 
-  const { business, customer, items, totals, snapshotUrl, pdfUrl } = invoice;
+  const { business, customer, items, totals, assets, snapshotUrl, pdfUrl } = invoice;
 
   const partsTotal = items.filter((it: any) => it.type === 'PRODUCT').reduce((sum: number, it: any) => sum + it.lineTotalMinor / 100, 0);
   const laborTotal = items.filter((it: any) => it.type === 'SERVICE').reduce((sum: number, it: any) => sum + it.lineTotalMinor / 100, 0);
@@ -121,11 +121,7 @@ export default function PublicInvoiceSharePage({ params }: { params: Promise<{ t
               grandTotal: totals.grandTotalMinor / 100,
               subtotal: (totals.subtotalMinor || (totals.grandTotalMinor - (totals.taxTotalMinor || 0) + (totals.discountMinor || 0))) / 100,
             }}
-            assets={{
-              logo: business.logo,
-              stamp: business.stamp,
-              signature: business.signature,
-            }}
+            assets={assets || invoice.assets || invoice.assetSnapshot}
             isDraft={invoice.status === 'DRAFT'}
           />
         </div>

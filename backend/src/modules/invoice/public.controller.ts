@@ -1,10 +1,28 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { Invoice } from '../../database/models/Invoice';
+import { Asset } from '../../database/models/Asset';
 import { AppError } from '../../middleware/errorHandler';
 import { DocumentGenerationService } from '../../services/DocumentGenerationService';
 
-function buildPublicRenderData(invoice: any) {
+async function resolveInvoiceAssets(invoice: any) {
+  let assetData = invoice.assetSnapshot;
+  if (!assetData || (!assetData.logo && !assetData.stamp && !assetData.signature)) {
+    const activeAssets = await Asset.find({ businessId: invoice.businessId, active: true });
+    const logo = activeAssets.find((a) => a.type === 'LOGO');
+    const stamp = activeAssets.find((a) => a.type === 'STAMP');
+    const signature = activeAssets.find((a) => a.type === 'SIGNATURE');
+
+    assetData = {
+      logo: logo ? { assetId: logo._id, cloudinaryPublicId: logo.cloudinaryPublicId, secureUrl: logo.secureUrl } : null,
+      stamp: stamp ? { assetId: stamp._id, cloudinaryPublicId: stamp.cloudinaryPublicId, secureUrl: stamp.secureUrl } : null,
+      signature: signature ? { assetId: signature._id, cloudinaryPublicId: signature.cloudinaryPublicId, secureUrl: signature.secureUrl } : null,
+    };
+  }
+  return assetData;
+}
+
+function buildPublicRenderData(invoice: any, assetData: any) {
   const formattedItems = invoice.items.map((item: any, index: number) => ({
     serialNumber: index + 1,
     description: item.description,
@@ -46,7 +64,7 @@ function buildPublicRenderData(invoice: any) {
     customer: invoice.customerSnapshot || {},
     items: formattedItems,
     totals: formattedTotals,
-    assets: invoice.assetSnapshot || { logo: null, stamp: null, signature: null },
+    assets: assetData || invoice.assetSnapshot || { logo: null, stamp: null, signature: null },
   };
 }
 
@@ -72,10 +90,13 @@ export async function getPublicInvoice(req: Request, res: Response, next: NextFu
       return next(new AppError('This bill link has expired', 400, 'PUBLIC_LINK_EXPIRED'));
     }
 
+    const assetData = await resolveInvoiceAssets(invoice);
+
     res.status(200).json({
       success: true,
       data: {
         invoice: {
+          id: invoice._id.toString(),
           invoiceNumber: invoice.invoiceNumber,
           invoiceDate: invoice.invoiceDate,
           business: invoice.businessSnapshot,
@@ -85,6 +106,8 @@ export async function getPublicInvoice(req: Request, res: Response, next: NextFu
           amountInWords: invoice.amountInWords,
           paymentTerms: invoice.paymentTerms,
           notes: invoice.notes,
+          assets: assetData,
+          status: invoice.status,
           snapshotUrl: `/api/public/invoices/${token}/png`,
           pdfUrl: `/api/public/invoices/${token}/pdf`,
           currency: invoice.currency,
@@ -118,7 +141,8 @@ export async function downloadPublicInvoicePdf(req: Request, res: Response, next
       return next(new AppError('This bill link has expired', 400, 'PUBLIC_LINK_EXPIRED'));
     }
 
-    const renderData = buildPublicRenderData(invoice);
+    const assetData = await resolveInvoiceAssets(invoice);
+    const renderData = buildPublicRenderData(invoice, assetData);
     const { pdfBuffer } = await DocumentGenerationService.generateBuffers(renderData as any);
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -151,7 +175,8 @@ export async function downloadPublicInvoicePng(req: Request, res: Response, next
       return next(new AppError('This bill link has expired', 400, 'PUBLIC_LINK_EXPIRED'));
     }
 
-    const renderData = buildPublicRenderData(invoice);
+    const assetData = await resolveInvoiceAssets(invoice);
+    const renderData = buildPublicRenderData(invoice, assetData);
     const { pngBuffer } = await DocumentGenerationService.generateBuffers(renderData as any);
 
     res.setHeader('Content-Type', 'image/png');
