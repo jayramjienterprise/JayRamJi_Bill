@@ -759,7 +759,7 @@ export default function CreateInvoicePage() {
                     if (it.section !== 'LABOUR') return null;
                     return (
                       <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="w-full sm:col-span-8">
+                        <div className="w-full sm:col-span-6">
                           <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Labour Description</label>
                           <input
                             type="text"
@@ -771,11 +771,22 @@ export default function CreateInvoicePage() {
                           />
                         </div>
                         <div className="w-full flex items-center gap-2 sm:contents">
-                          <div className="flex-1 sm:col-span-3">
-                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Amount (₹)</label>
+                          <div className="flex-1 sm:col-span-2">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
                             <input
                               type="number"
-                              placeholder="Amount"
+                              placeholder="Qty"
+                              value={it.quantity || ''}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
+                              required
+                            />
+                          </div>
+                          <div className="flex-1 sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Price (₹)</label>
+                            <input
+                              type="number"
+                              placeholder="Price"
                               value={it.priceFloat || ''}
                               onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
                               className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-right font-semibold"
