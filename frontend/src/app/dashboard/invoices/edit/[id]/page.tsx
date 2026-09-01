@@ -771,51 +771,57 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   {items.map((it, idx) => {
                     if (it.section !== 'ITEM') return null;
                     return (
-                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="col-span-6">
+                      <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="w-full sm:col-span-6">
+                          <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Item Description</label>
                           <input
                             type="text"
                             placeholder="Description"
                             value={it.description}
                             disabled={!editable}
                             onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm font-semibold disabled:opacity-50"
                             required
                           />
                         </div>
-                        <div className="col-span-2">
-                          <input
-                            type="number"
-                            placeholder="Qty"
-                            value={it.quantity || ''}
-                            disabled={!editable}
-                            onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold disabled:opacity-50"
-                            required
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <input
-                            type="number"
-                            placeholder="Price"
-                            value={it.priceFloat || ''}
-                            disabled={!editable}
-                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
-                            required
-                          />
-                        </div>
-                        {editable && (
-                          <div className="col-span-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(idx)}
-                              className="text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
-                            >
-                              &times;
-                            </button>
+                        <div className="w-full flex items-center gap-2 sm:contents">
+                          <div className="flex-1 sm:col-span-2">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
+                            <input
+                              type="number"
+                              placeholder="Qty"
+                              value={it.quantity || ''}
+                              disabled={!editable}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold disabled:opacity-50"
+                              required
+                            />
                           </div>
-                        )}
+                          <div className="flex-1 sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Price (₹)</label>
+                            <input
+                              type="number"
+                              placeholder="Price"
+                              value={it.priceFloat || ''}
+                              disabled={!editable}
+                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-right font-semibold disabled:opacity-50"
+                              required
+                            />
+                          </div>
+                          {editable && (
+                            <div className="sm:col-span-1 text-center shrink-0 pt-3 sm:pt-0">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1 text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
+                                title="Remove item"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -845,40 +851,45 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   {items.map((it, idx) => {
                     if (it.section !== 'LABOUR') return null;
                     return (
-                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="col-span-8">
+                      <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="w-full sm:col-span-8">
+                          <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Labour Description</label>
                           <input
                             type="text"
                             placeholder="Labour description"
                             value={it.description}
                             disabled={!editable}
                             onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm font-semibold disabled:opacity-50"
                             required
                           />
                         </div>
-                        <div className="col-span-3">
-                          <input
-                            type="number"
-                            placeholder="Amount"
-                            value={it.priceFloat || ''}
-                            disabled={!editable}
-                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
-                            required
-                          />
-                        </div>
-                        {editable && (
-                          <div className="col-span-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(idx)}
-                              className="text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
-                            >
-                              &times;
-                            </button>
+                        <div className="w-full flex items-center gap-2 sm:contents">
+                          <div className="flex-1 sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Amount (₹)</label>
+                            <input
+                              type="number"
+                              placeholder="Amount"
+                              value={it.priceFloat || ''}
+                              disabled={!editable}
+                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-right font-semibold disabled:opacity-50"
+                              required
+                            />
                           </div>
-                        )}
+                          {editable && (
+                            <div className="sm:col-span-1 text-center shrink-0 pt-3 sm:pt-0">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1 text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
+                                title="Remove labour"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -908,51 +919,57 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   {items.map((it, idx) => {
                     if (it.section !== 'PART') return null;
                     return (
-                      <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="col-span-6">
+                      <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
+                        <div className="w-full sm:col-span-6">
+                          <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Part Description</label>
                           <input
                             type="text"
                             placeholder="Part description"
                             value={it.description}
                             disabled={!editable}
                             onChange={(e) => handleUpdateItem(idx, { description: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm font-semibold disabled:opacity-50"
+                            className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm font-semibold disabled:opacity-50"
                             required
                           />
                         </div>
-                        <div className="col-span-2">
-                          <input
-                            type="number"
-                            placeholder="Qty"
-                            value={it.quantity || ''}
-                            disabled={!editable}
-                            onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-center font-semibold disabled:opacity-50"
-                            required
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <input
-                            type="number"
-                            placeholder="Price"
-                            value={it.priceFloat || ''}
-                            disabled={!editable}
-                            onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
-                            className="w-full px-2 py-1 bg-surface-app border border-border-app rounded text-sm text-right font-semibold disabled:opacity-50"
-                            required
-                          />
-                        </div>
-                        {editable && (
-                          <div className="col-span-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(idx)}
-                              className="text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
-                            >
-                              &times;
-                            </button>
+                        <div className="w-full flex items-center gap-2 sm:contents">
+                          <div className="flex-1 sm:col-span-2">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
+                            <input
+                              type="number"
+                              placeholder="Qty"
+                              value={it.quantity || ''}
+                              disabled={!editable}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold disabled:opacity-50"
+                              required
+                            />
                           </div>
-                        )}
+                          <div className="flex-1 sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Price (₹)</label>
+                            <input
+                              type="number"
+                              placeholder="Price"
+                              value={it.priceFloat || ''}
+                              disabled={!editable}
+                              onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-right font-semibold disabled:opacity-50"
+                              required
+                            />
+                          </div>
+                          {editable && (
+                            <div className="sm:col-span-1 text-center shrink-0 pt-3 sm:pt-0">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1 text-danger-app hover:text-danger-app/80 font-bold text-base cursor-pointer"
+                                title="Remove part"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

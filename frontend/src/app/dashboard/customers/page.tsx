@@ -227,57 +227,103 @@ export default function CustomersPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-surface-2-app border-b border-border-app text-xs font-semibold text-text-muted uppercase tracking-wider">
-                  <th className="py-3 px-6">Customer Name</th>
-                  <th className="py-3 px-6">Contact Info</th>
-                  <th className="py-3 px-6">Location</th>
-                  <th className="py-3 px-6">Tax Identifiers</th>
-                  <th className="py-3 px-6 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-app text-sm">
-                {customers.map((c) => (
-                  <tr key={c.id || (c as any)._id} className="hover:bg-surface-2-app/30">
-                    <td className="py-4 px-6 font-medium text-text-primary">{c.name}</td>
-                    <td className="py-4 px-6 text-text-secondary space-y-0.5">
-                      {c.contact?.phone && <p><span className="text-text-muted font-medium">Ph:</span> {c.contact.phone}</p>}
-                      {c.contact?.email && <p><span className="text-text-muted font-medium">Email:</span> {c.contact.email}</p>}
-                      {!c.contact?.phone && !c.contact?.email && <span className="text-text-muted text-xs">No contact details</span>}
-                    </td>
-                    <td className="py-4 px-6 text-text-secondary">
-                      {c.address?.city || c.address?.state ? (
-                        <p>{[c.address.city, c.address.state].filter(Boolean).join(', ')}</p>
-                      ) : (
-                        <span className="text-text-muted text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="py-4 px-6 text-text-secondary space-y-0.5 text-xs">
-                      {c.taxProfile?.gstin && <p><span className="font-semibold text-text-muted">GST:</span> {c.taxProfile.gstin}</p>}
-                      {c.taxProfile?.pan && <p><span className="font-semibold text-text-muted">PAN:</span> {c.taxProfile.pan}</p>}
-                      {!c.taxProfile?.gstin && !c.taxProfile?.pan && <span className="text-text-muted">-</span>}
-                    </td>
-                    <td className="py-4 px-6 text-right space-x-3">
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-surface-2-app border-b border-border-app text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    <th className="py-3 px-6">Customer Name</th>
+                    <th className="py-3 px-6">Contact Info</th>
+                    <th className="py-3 px-6">Location</th>
+                    <th className="py-3 px-6">Tax Identifiers</th>
+                    <th className="py-3 px-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-app text-sm">
+                  {customers.map((c) => (
+                    <tr key={c.id || (c as any)._id} className="hover:bg-surface-2-app/30">
+                      <td className="py-4 px-6 font-medium text-text-primary">{c.name}</td>
+                      <td className="py-4 px-6 text-text-secondary space-y-0.5">
+                        {c.contact?.phone && <p><span className="text-text-muted font-medium">Ph:</span> {c.contact.phone}</p>}
+                        {c.contact?.email && <p><span className="text-text-muted font-medium">Email:</span> {c.contact.email}</p>}
+                        {!c.contact?.phone && !c.contact?.email && <span className="text-text-muted text-xs">No contact details</span>}
+                      </td>
+                      <td className="py-4 px-6 text-text-secondary">
+                        {c.address?.city || c.address?.state ? (
+                          <p>{[c.address.city, c.address.state].filter(Boolean).join(', ')}</p>
+                        ) : (
+                          <span className="text-text-muted text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 text-text-secondary space-y-0.5 text-xs">
+                        {c.taxProfile?.gstin && <p><span className="font-semibold text-text-muted">GST:</span> {c.taxProfile.gstin}</p>}
+                        {c.taxProfile?.pan && <p><span className="font-semibold text-text-muted">PAN:</span> {c.taxProfile.pan}</p>}
+                        {!c.taxProfile?.gstin && !c.taxProfile?.pan && <span className="text-text-muted">-</span>}
+                      </td>
+                      <td className="py-4 px-6 text-right space-x-3">
+                        <button
+                          onClick={() => openEditModal(c)}
+                          className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeactivate(c.id)}
+                          className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                        >
+                          Deactivate
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Responsive Cards View */}
+            <div className="md:hidden divide-y divide-border-app">
+              {customers.map((c) => (
+                <div key={c.id || (c as any)._id} className="p-4 space-y-2 hover:bg-surface-2-app/10">
+                  <div className="flex justify-between items-start">
+                    <h3 className="font-bold text-sm text-text-primary">{c.name}</h3>
+                    <div className="flex space-x-2">
                       <button
                         onClick={() => openEditModal(c)}
-                        className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                        className="px-2.5 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded text-xs font-bold text-primary-700 cursor-pointer"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => handleDeactivate(c.id)}
-                        className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                        className="px-2.5 py-1 bg-danger-soft text-danger-app border border-danger-app/20 rounded text-xs font-bold cursor-pointer"
                       >
                         Deactivate
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                    <div>
+                      <p className="text-[10px] text-text-muted uppercase font-bold">Contact</p>
+                      <p className="text-text-primary font-medium">{c.contact?.phone || c.contact?.email || 'No contact'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-text-muted uppercase font-bold">Location</p>
+                      <p className="text-text-secondary">{[c.address?.city, c.address?.state].filter(Boolean).join(', ') || '-'}</p>
+                    </div>
+                  </div>
+
+                  {(c.taxProfile?.gstin || c.taxProfile?.pan) && (
+                    <div className="text-[11px] text-text-secondary pt-1 border-t border-border-light flex gap-3">
+                      {c.taxProfile?.gstin && <span><strong className="text-text-muted">GST:</strong> {c.taxProfile.gstin}</span>}
+                      {c.taxProfile?.pan && <span><strong className="text-text-muted">PAN:</strong> {c.taxProfile.pan}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {/* Pagination Footer */}

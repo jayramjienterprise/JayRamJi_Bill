@@ -178,16 +178,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <aside
           className={`fixed md:static inset-y-0 left-0 z-50 bg-primary-900 text-white flex flex-col justify-between shrink-0 shadow-lg transition-all duration-200 ease-in-out ${
             sidebarCollapsed ? 'md:w-[72px]' : 'md:w-[240px]'
-          } ${mobileMenuOpen ? 'w-[260px] translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+          } ${mobileMenuOpen ? 'w-[280px] translate-x-0' : '-translate-x-full md:translate-x-0'}`}
         >
           {/* Top Brand Section */}
           <div className="flex flex-col min-h-0 flex-1">
             <div className="p-4 border-b border-primary-800 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3 min-w-0">
-                <div className="bg-primary-700 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm shrink-0">
+                <div className="bg-primary-700 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm shrink-0">
                   J
                 </div>
-                {!sidebarCollapsed && (
+                {(!sidebarCollapsed || mobileMenuOpen) && (
                   <div className="min-w-0 transition-opacity">
                     <h1 className="font-bold text-sm leading-tight tracking-wide truncate">Jay Ramji Enterprise</h1>
                     <p className="text-[10px] text-primary-400 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
@@ -221,14 +221,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
+                const isExpanded = !sidebarCollapsed || mobileMenuOpen;
 
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    title={sidebarCollapsed ? item.label : undefined}
+                    onClick={() => setMobileMenuOpen(false)}
+                    title={!isExpanded ? item.label : undefined}
                     className={`flex items-center rounded-xl text-xs font-semibold transition ${
-                      sidebarCollapsed
+                      !isExpanded
                         ? 'justify-center p-2.5'
                         : 'space-x-3 px-3.5 py-2.5'
                     } ${
@@ -238,7 +240,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     }`}
                   >
                     <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary-400'}`} />
-                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                    {isExpanded && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
               })}
@@ -247,8 +249,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {/* User / Logout Area — Always pinned at bottom */}
           <div className="p-3 border-t border-primary-800 bg-primary-950/50 shrink-0">
-            <div className={`flex items-center ${sidebarCollapsed ? 'flex-col space-y-2 justify-center' : 'justify-between'}`}>
-              {!sidebarCollapsed ? (
+            <div className={`flex items-center ${sidebarCollapsed && !mobileMenuOpen ? 'flex-col space-y-2 justify-center' : 'justify-between'}`}>
+              {!sidebarCollapsed || mobileMenuOpen ? (
                 <div className="min-w-0 pr-2">
                   <p className="text-xs font-bold truncate text-white">{user?.name}</p>
                   <p className="text-[10.5px] text-primary-400 truncate mt-0.5">{user?.email}</p>
@@ -265,12 +267,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 type="button"
                 onClick={handleLogout}
                 title="Sign Out"
-                className={`p-2 text-primary-400 hover:text-danger-app hover:bg-primary-800/80 rounded-lg transition cursor-pointer flex items-center justify-center ${
-                  sidebarCollapsed ? 'w-full' : ''
-                }`}
+                className="p-2 text-primary-400 hover:text-danger-app hover:bg-primary-800/80 rounded-lg transition cursor-pointer flex items-center gap-2"
               >
                 <LogOut className="w-4 h-4 shrink-0" />
-                {!sidebarCollapsed && <span className="sr-only">Sign Out</span>}
+                {(!sidebarCollapsed || mobileMenuOpen) && <span className="text-xs font-semibold">Logout</span>}
               </button>
             </div>
           </div>

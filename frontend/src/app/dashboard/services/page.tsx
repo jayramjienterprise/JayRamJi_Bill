@@ -228,59 +228,113 @@ export default function ServicesPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-surface-2-app border-b border-border-app text-xs font-semibold text-text-muted uppercase tracking-wider">
-                  <th className="py-3 px-6">Name / Description</th>
-                  <th className="py-3 px-6">Type</th>
-                  <th className="py-3 px-6">UOM</th>
-                  <th className="py-3 px-6">Default Price (INR)</th>
-                  <th className="py-3 px-6">Default Tax Rate</th>
-                  <th className="py-3 px-6 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-app text-sm">
-                {products.map((p) => {
-                  const pId = p.id || (p as any)._id;
-                  return (
-                    <tr key={pId} className="hover:bg-surface-2-app/30">
-                      <td className="py-4 px-6">
-                        <p className="font-medium text-text-primary">{p.name}</p>
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-surface-2-app border-b border-border-app text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    <th className="py-3 px-6">Name / Description</th>
+                    <th className="py-3 px-6">Type</th>
+                    <th className="py-3 px-6">UOM</th>
+                    <th className="py-3 px-6">Default Price (INR)</th>
+                    <th className="py-3 px-6">Default Tax Rate</th>
+                    <th className="py-3 px-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-app text-sm">
+                  {products.map((p) => {
+                    const pId = p.id || (p as any)._id;
+                    return (
+                      <tr key={pId} className="hover:bg-surface-2-app/30">
+                        <td className="py-4 px-6">
+                          <p className="font-medium text-text-primary">{p.name}</p>
+                          {p.description && <p className="text-xs text-text-secondary mt-0.5">{p.description}</p>}
+                        </td>
+                        <td className="py-4 px-6 text-text-secondary">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === 'SERVICE' ? 'bg-primary-900/10 text-primary-700' : 'bg-success-soft text-success-app'}`}>
+                            {p.type}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-text-secondary font-medium">{p.uom}</td>
+                        <td className="py-4 px-6 text-text-primary font-bold">
+                          ₹{(p.defaultPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-4 px-6 text-text-secondary">
+                          {p.defaultTaxRateBps > 0 ? `${(p.defaultTaxRateBps / 100).toFixed(1)}%` : '0% (Exempt)'}
+                        </td>
+                        <td className="py-4 px-6 text-right space-x-3">
+                          <button
+                            onClick={() => openEditModal(p)}
+                            className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeactivate(pId)}
+                            className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                          >
+                            Deactivate
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Responsive Cards View */}
+            <div className="md:hidden divide-y divide-border-app">
+              {products.map((p) => {
+                const pId = p.id || (p as any)._id;
+                return (
+                  <div key={pId} className="p-4 space-y-2 hover:bg-surface-2-app/10">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-bold text-sm text-text-primary">{p.name}</h3>
                         {p.description && <p className="text-xs text-text-secondary mt-0.5">{p.description}</p>}
-                      </td>
-                      <td className="py-4 px-6 text-text-secondary">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === 'SERVICE' ? 'bg-primary-900/10 text-primary-700' : 'bg-success-soft text-success-app'}`}>
-                          {p.type}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-text-secondary font-medium">{p.uom}</td>
-                      <td className="py-4 px-6 text-text-primary font-bold">
-                        ₹{(p.defaultPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-4 px-6 text-text-secondary">
-                        {p.defaultTaxRateBps > 0 ? `${(p.defaultTaxRateBps / 100).toFixed(1)}%` : '0% (Exempt)'}
-                      </td>
-                      <td className="py-4 px-6 text-right space-x-3">
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${p.type === 'SERVICE' ? 'bg-primary-900/10 text-primary-700' : 'bg-success-soft text-success-app'}`}>
+                        {p.type}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs pt-1">
+                      <div>
+                        <span className="text-[10px] text-text-muted uppercase font-bold mr-1">UOM:</span>
+                        <span className="font-semibold text-text-secondary">{p.uom}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-text-muted uppercase font-bold mr-1">Price:</span>
+                        <span className="font-bold text-text-primary">₹{(p.defaultPriceMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-2 border-t border-border-light text-xs">
+                      <span className="text-text-muted text-[11px]">
+                        Tax: {p.defaultTaxRateBps > 0 ? `${(p.defaultTaxRateBps / 100).toFixed(1)}%` : '0%'}
+                      </span>
+                      <div className="flex space-x-2">
                         <button
                           onClick={() => openEditModal(p)}
-                          className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                          className="px-2.5 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded text-xs font-bold text-primary-700 cursor-pointer"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDeactivate(pId)}
-                          className="text-danger-app hover:text-danger-app/80 text-xs font-bold cursor-pointer"
+                          className="px-2.5 py-1 bg-danger-soft text-danger-app border border-danger-app/20 rounded text-xs font-bold cursor-pointer"
                         >
                           Deactivate
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
         {/* Pagination Footer */}

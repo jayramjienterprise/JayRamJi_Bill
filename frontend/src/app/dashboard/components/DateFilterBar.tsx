@@ -61,8 +61,35 @@ export default function DateFilterBar({
   return (
     <div className="bg-surface-app border border-border-app rounded-xl p-3.5 shadow-xs space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Preset Badges */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Mobile Dropdown (xs to sm) */}
+        <div className="sm:hidden w-full flex items-center justify-between gap-2">
+          <span className="text-text-muted text-xs font-semibold uppercase tracking-wider flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5" />
+            <span>Period:</span>
+          </span>
+          <div className="relative flex-1 max-w-[200px]">
+            <select
+              value={showCustomInputs ? 'CUSTOM' : activePreset}
+              onChange={(e) => handlePresetClick(e.target.value as DatePresetOption)}
+              disabled={isLoading}
+              className="w-full pl-3 pr-8 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs font-semibold text-text-primary focus:outline-none appearance-none cursor-pointer"
+            >
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-muted">
+              <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20">
+                <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* Preset Badges (Desktop / Tablet sm+) */}
+        <div className="hidden sm:flex flex-wrap items-center gap-1.5">
           <span className="text-text-muted text-xs font-semibold uppercase tracking-wider flex items-center gap-1 mr-1">
             <Filter className="w-3.5 h-3.5" />
             <span>Period:</span>
