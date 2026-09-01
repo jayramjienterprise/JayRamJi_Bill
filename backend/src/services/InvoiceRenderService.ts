@@ -9,6 +9,7 @@ export interface InvoiceRenderData {
   };
   business: {
     name: string;
+    displayName?: string | null;
     legalName: string | null;
     address: {
       line1: string;
@@ -443,7 +444,7 @@ export class InvoiceRenderService {
                   ${logoHtml}
                 </td>
                 <td class="business-branding-cell">
-                  <h1 class="business-title-centered">${business.name}</h1>
+                  <h1 class="business-title-centered">${business.displayName || business.name}</h1>
                   ${sloganHtml}
                   <p style="font-size: ${addressFontSize}; letter-spacing: ${addressLetterSpacing}; font-weight: bold; margin: 3px 0 0 0; text-transform: uppercase; white-space: nowrap;">
                     ${rawBusinessAddress}
@@ -482,7 +483,7 @@ export class InvoiceRenderService {
                 <tr>
                   <td>${invoice.invoiceNumber || 'DRAFT'}</td>
                   <td>${formattedDate}</td>
-                  <td>${invoice.paymentTerms || (business as any).invoiceSettings?.defaultPaymentTerms || '100% ADVANCE / DUE ON RECEIPT'}</td>
+                  <td>${invoice.paymentTerms || (business as any).invoiceSettings?.defaultPaymentTerms || (business as any).paymentTerms || 'Within 15 days clear payment'}</td>
                 </tr>
               </tbody>
             </table>

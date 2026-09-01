@@ -28,6 +28,7 @@ export interface InvoicePaperProps {
   };
   business: {
     name: string;
+    displayName?: string | null;
     legalName?: string | null;
     address: {
       line1: string;
@@ -177,7 +178,8 @@ export default function InvoicePaper({
 
   breakdownRows.push({ label: 'TOTAL', amount: grandTotalValue, isTotal: true });
 
-  const isJayRamJi = business.name.toUpperCase().includes('JAY RAMJI') || 
+  const effectiveBusinessName = business.displayName || business.name || 'JAY RAMJI ENTERPRISE';
+  const isJayRamJi = effectiveBusinessName.toUpperCase().includes('JAY RAMJI') || 
                      (business.legalName && business.legalName.toUpperCase().includes('JAY RAMJI'));
 
   return (
@@ -209,7 +211,7 @@ export default function InvoicePaper({
           
           <div className="col-span-9 text-center space-y-0.5">
             <h1 className="text-[26pt] font-black uppercase text-black leading-none tracking-wide">
-              {business.name}
+              {effectiveBusinessName}
             </h1>
             {isJayRamJi && (
               <p className="text-[10.5pt] font-bold text-black leading-tight">
@@ -297,7 +299,7 @@ export default function InvoicePaper({
                   {formattedDate}
                 </td>
                 <td className="py-1 px-2 uppercase">
-                  {invoice.paymentTerms || 'IMMEDIATE BILLING'}
+                  {invoice.paymentTerms || (business as any)?.invoiceSettings?.defaultPaymentTerms || (business as any)?.paymentTerms || 'Within 15 days clear payment'}
                 </td>
               </tr>
             </tbody>

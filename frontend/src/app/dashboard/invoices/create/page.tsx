@@ -522,7 +522,7 @@ export default function CreateInvoicePage() {
         invoice={{
           invoiceNumber: 'DRAFT',
           invoiceDate: invoiceDate || new Date(),
-          paymentTerms: 'IMMEDIATE BILLING',
+          paymentTerms: business?.invoiceSettings?.defaultPaymentTerms || 'Within 15 days clear payment',
           amountInWords: amountInWords || 'Zero Rupees Only',
         }}
         business={business as any}
