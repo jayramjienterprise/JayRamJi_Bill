@@ -200,10 +200,10 @@ export default function InvoicePaper({
               <img
                 src={assets.logo.secureUrl}
                 alt="Business Logo"
-                className="max-h-20 max-w-full object-contain"
+                className="max-h-32 max-w-full object-contain"
               />
             ) : (
-              <div className="w-24 h-16 border-2 border-dashed border-gray-300 flex items-center justify-center text-[10px] text-gray-400 font-bold">
+              <div className="w-32 h-20 border-2 border-dashed border-gray-300 flex items-center justify-center text-[11px] text-gray-400 font-bold">
                 LOGO
               </div>
             )}

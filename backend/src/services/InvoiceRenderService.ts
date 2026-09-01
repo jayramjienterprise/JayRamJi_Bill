@@ -202,8 +202,8 @@ export class InvoiceRenderService {
     const sloganHtml = isJayRamJi ? `<p style="font-size: 10.5pt; font-weight: bold; margin: 0; margin-top: 2px;">YOUR SATISFACTION, OUR SUCCESS.</p>` : '';
 
     const logoHtml = assets.logo?.secureUrl
-      ? `<img src="${assets.logo.secureUrl}" style="max-height: 20mm; max-width: 100%; object-fit: contain;" />`
-      : `<div style="width: 24mm; height: 16mm; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #999; font-weight: bold;">LOGO</div>`;
+      ? `<img src="${assets.logo.secureUrl}" style="max-height: 32mm; max-width: 100%; object-fit: contain;" />`
+      : `<div style="width: 32mm; height: 20mm; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #999; font-weight: bold;">LOGO</div>`;
 
     const signatureHtml = assets.signature?.secureUrl
       ? `<img src="${assets.signature.secureUrl}" class="overlay-signature" />`
