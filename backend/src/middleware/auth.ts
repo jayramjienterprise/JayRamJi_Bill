@@ -58,28 +58,28 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
 
     // Resolve current business tenant context
     const requestedBusinessId = req.headers['x-business-id'] as string;
+    let membership: IBusinessMember | null = null;
 
     if (requestedBusinessId) {
-      const membership = await BusinessMember.findOne({
+      membership = await BusinessMember.findOne({
         businessId: requestedBusinessId,
         userId: user._id,
         status: 'ACTIVE',
       });
-      if (!membership) {
-        return next(new AppError('You do not belong to this business workspace', 403, 'FORBIDDEN'));
-      }
-      req.businessId = membership.businessId.toString();
-      req.membership = membership;
-    } else {
-      // Automatic fallback: resolve first active business membership
-      const membership = await BusinessMember.findOne({
+    }
+
+    // If requested business is not specified or does not belong to this user,
+    // fallback gracefully to the user's first active business membership
+    if (!membership) {
+      membership = await BusinessMember.findOne({
         userId: user._id,
         status: 'ACTIVE',
       });
-      if (membership) {
-        req.businessId = membership.businessId.toString();
-        req.membership = membership;
-      }
+    }
+
+    if (membership) {
+      req.businessId = membership.businessId.toString();
+      req.membership = membership;
     }
 
     next();

@@ -92,9 +92,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setUser(data.user);
       setBusinesses(data.businesses);
 
-      // Default to first business context if none set
-      if (data.businesses.length > 0 && !activeBusinessId) {
-        setActiveBusinessId(data.businesses[0].id);
+      // Validate or default active business context
+      if (data.businesses && data.businesses.length > 0) {
+        const storedBusinessId = typeof window !== 'undefined' ? localStorage.getItem('x-business-id') : null;
+        const exists = data.businesses.some((b: any) => b.id === storedBusinessId);
+        if (storedBusinessId && exists) {
+          setActiveBusinessId(storedBusinessId);
+        } else {
+          setActiveBusinessId(data.businesses[0].id);
+          localStorage.setItem('x-business-id', data.businesses[0].id);
+        }
       }
       setLoading(false);
     } catch (err) {
@@ -108,6 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   async function handleLogout() {
     try {
+      localStorage.removeItem('x-business-id');
       await apiClient.post('/auth/logout', {});
       router.push('/login');
     } catch (err) {

@@ -17,6 +17,7 @@ export default function RegisterPage() {
     setErrorMsg(null);
 
     try {
+      localStorage.removeItem('x-business-id');
       await apiClient.post('/auth/register', formData);
       router.push('/dashboard');
     } catch (err: any) {

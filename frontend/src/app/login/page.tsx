@@ -17,6 +17,7 @@ export default function LoginPage() {
     setErrorMsg(null);
 
     try {
+      localStorage.removeItem('x-business-id');
       await apiClient.post('/auth/login', formData);
       router.push('/dashboard');
     } catch (err: any) {
