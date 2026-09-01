@@ -14,6 +14,8 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   FRONTEND_URL: z.string().default('http://localhost:3000'),
   JWT_SECRET: z.string().default('development_jwt_signing_secret_key_1234567890'),
+  EMAIL_USER: z.string().optional().default(''),
+  EMAIL_PASS: z.string().optional().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -32,6 +34,8 @@ if (!parsed.success) {
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || undefined,
     FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
     JWT_SECRET: process.env.JWT_SECRET || 'development_jwt_signing_secret_key_1234567890',
+    EMAIL_USER: process.env.EMAIL_USER || '',
+    EMAIL_PASS: process.env.EMAIL_PASS || '',
   };
 } else {
   validatedEnv = parsed.data;

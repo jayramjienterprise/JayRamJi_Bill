@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -7,6 +8,8 @@ import { env } from '../../config/env';
 import { User } from '../../database/models/User';
 import { Business } from '../../database/models/Business';
 import { BusinessMember } from '../../database/models/BusinessMember';
+import { PasswordResetToken } from '../../database/models/PasswordResetToken';
+import { emailService } from '../../services/EmailService';
 import { AppError } from '../../middleware/errorHandler';
 
 // Zod schemas for input validation
@@ -19,6 +22,19 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters long'),
+  confirmPassword: z.string().optional(),
+}).refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
 });
 
 const COOKIE_OPTIONS = {
@@ -335,6 +351,114 @@ export async function logout(_req: Request, res: Response, next: NextFunction): 
     res.status(200).json({
       success: true,
       data: null,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Initiates password reset flow by sending a secure one-time link via Gmail SMTP
+ * POST /api/auth/forgot-password
+ */
+export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const validated = forgotPasswordSchema.parse(req.body);
+    const emailNormalized = validated.email.toLowerCase().trim();
+
+    const user = await User.findOne({ email: emailNormalized });
+
+    if (user && user.status === 'ACTIVE') {
+      // Generate cryptographically secure random token
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes expiration
+
+      // Invalidate any existing unused reset tokens for this user
+      await PasswordResetToken.updateMany(
+        { userId: user._id, usedAt: null },
+        { usedAt: new Date() }
+      );
+
+      // Save hashed reset token record
+      await PasswordResetToken.create({
+        userId: user._id,
+        tokenHash,
+        expiresAt,
+      });
+
+      // Construct HTTPS reset URL
+      const frontendUrl = env.FRONTEND_URL.replace(/\/$/, '');
+      const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+      // Deliver password reset email via Gmail SMTP
+      await emailService.sendPasswordResetEmail(user.email, resetUrl, user.name);
+    }
+
+    // Always return generic response to prevent email enumeration
+    res.status(200).json({
+      success: true,
+      data: {
+        message: "If an account exists for this email, you'll receive a password reset link.",
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Validates reset token and updates user password
+ * POST /api/auth/reset-password
+ */
+export async function resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const validated = resetPasswordSchema.parse(req.body);
+
+    const tokenHash = crypto.createHash('sha256').update(validated.token).digest('hex');
+    const resetRecord = await PasswordResetToken.findOne({ tokenHash });
+
+    if (!resetRecord) {
+      return next(new AppError('This password reset link is invalid or has expired', 400, 'INVALID_OR_EXPIRED_TOKEN'));
+    }
+
+    if (resetRecord.usedAt !== null) {
+      return next(new AppError('This password reset link has already been used', 400, 'TOKEN_ALREADY_USED'));
+    }
+
+    if (new Date() > resetRecord.expiresAt) {
+      return next(new AppError('This password reset link has expired', 400, 'TOKEN_EXPIRED'));
+    }
+
+    const user = await User.findById(resetRecord.userId);
+    if (!user) {
+      return next(new AppError('User account associated with this token not found', 404, 'USER_NOT_FOUND'));
+    }
+
+    // Hash new password using bcrypt (standard 10 rounds)
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(validated.password, saltRounds);
+
+    user.passwordHash = passwordHash;
+    await user.save();
+
+    // Mark reset token as used
+    resetRecord.usedAt = new Date();
+    await resetRecord.save();
+
+    // Invalidate existing sessions
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Password updated successfully. You can now sign in with your new password.',
+      },
     });
   } catch (error) {
     next(error);

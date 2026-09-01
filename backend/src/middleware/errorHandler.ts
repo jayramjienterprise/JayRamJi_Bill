@@ -42,6 +42,14 @@ export function errorHandler(
     errorCode = err.errorCode;
     message = err.message;
     details = err.details;
+  } else if (err.name === 'ZodError' || err.constructor?.name === 'ZodError') {
+    // Handle Zod schema validation errors
+    statusCode = 400;
+    errorCode = 'VALIDATION_ERROR';
+    message = err.issues && Array.isArray(err.issues)
+      ? err.issues.map((i: any) => i.message).join(', ')
+      : 'Validation failed';
+    details = { validationErrors: err.issues || [] };
   } else if (err.name === 'ValidationError') {
     // Handle Mongoose validation errors
     statusCode = 400;
