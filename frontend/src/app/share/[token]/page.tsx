@@ -82,8 +82,8 @@ export default function PublicInvoiceSharePage({ params }: { params: Promise<{ t
         </div>
         {pdfUrl && (
           <a
-            href={pdfUrl}
-            download={`${invoice.invoiceNumber || 'bill'}.pdf`}
+            href={pdfUrl.startsWith('http') ? pdfUrl : `${apiClient.getBaseUrl()}${pdfUrl.replace('/api', '')}`}
+            download={`Invoice-${invoice.invoiceNumber || 'bill'}.pdf`}
             target="_blank"
             rel="noreferrer"
             className="px-5 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold shadow-sm transition text-center cursor-pointer"

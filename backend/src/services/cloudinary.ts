@@ -57,6 +57,9 @@ export function uploadBufferToCloudinary(
         folder: options.folder,
         public_id: options.public_id,
         resource_type: options.resource_type || 'image',
+        type: 'upload',
+        access_mode: 'public',
+        overwrite: true,
       },
       (error, result) => {
         if (error || !result) {

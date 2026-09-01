@@ -341,13 +341,36 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const [sharingLoading, setSharingLoading] = useState(false);
+
+  async function fetchInvoiceBlob(format: 'pdf' | 'png'): Promise<Blob> {
+    const invoiceId = invoice?.id || (invoice as any)?._id;
+    const res = await fetch(`${apiClient.getBaseUrl()}/invoices/${invoiceId}/download?format=${format}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch ${format.toUpperCase()} document`);
+    }
+    return res.blob();
+  }
+
+  async function ensureShareLink(): Promise<string> {
+    if (shareUrl) return shareUrl;
+    const invoiceId = invoice?.id || (invoice as any)?._id;
+    const result = await apiClient.createShareLink(invoiceId, shareExpiry || undefined);
+    setShareUrl(result.shareUrl);
+    setIsSharingEnabled(true);
+    return result.shareUrl;
+  }
+
   function getSelectedShareTarget(): { label: string; url: string } {
     if (!invoice) return { label: 'Link', url: shareUrl || '' };
 
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-    const directPdfUrl = invoice.document?.pdf?.secureUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`;
-    const directPngUrl = invoice.document?.snapshot?.secureUrl || `${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`;
-    const webShareUrl = shareUrl || `${baseUrl}/dashboard/invoices/detail/${invoice.id || (invoice as any)._id}`;
+    const invoiceId = invoice.id || (invoice as any)._id;
+    const directPdfUrl = `${apiClient.getBaseUrl()}/invoices/${invoiceId}/download?format=pdf`;
+    const directPngUrl = `${apiClient.getBaseUrl()}/invoices/${invoiceId}/download?format=png`;
+    const webShareUrl = shareUrl || `${baseUrl}/dashboard/invoices/detail/${invoiceId}`;
 
     if (shareFormat === 'PDF') {
       return { label: 'PDF Document', url: directPdfUrl };
@@ -358,55 +381,152 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     return { label: 'Interactive Link', url: webShareUrl };
   }
 
-  function handleShareWhatsApp() {
+  async function handleShareWhatsApp() {
     if (!invoice) return;
-    const target = getSelectedShareTarget();
+    const invoiceNum = invoice.invoiceNumber || 'Bill';
     const customerName = invoice.customerSnapshot?.name || 'Customer';
-    const invoiceNum = invoice.invoiceNumber || 'Invoice';
-    const amount = `₹${((invoice.totals.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-    const status = invoice.paymentSummary?.status || 'UNPAID';
+    const amount = `₹${((invoice.totals?.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-    const text = `*JAY RAMJI ENTERPRISE*\n\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*\nPayment Status: *${status}*\n\nAccess ${target.label}:\n${target.url}`;
-    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(whatsappUrl, '_blank');
+    setSharingLoading(true);
+    try {
+      if (shareFormat === 'PDF') {
+        const blob = await fetchInvoiceBlob('pdf');
+        const file = new File([blob], `Invoice-${invoiceNum}.pdf`, { type: 'application/pdf' });
+
+        if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          // Native file share directly into WhatsApp without extra links
+          await navigator.share({
+            files: [file],
+            title: `Invoice #${invoiceNum}`,
+          });
+        } else {
+          // Desktop Fallback: Download file directly and open WhatsApp Web
+          const fileUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = fileUrl;
+          link.download = `Invoice-${invoiceNum}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(fileUrl);
+
+          const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
+          const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+          window.open(whatsappUrl, '_blank');
+        }
+      } else if (shareFormat === 'PNG') {
+        const blob = await fetchInvoiceBlob('png');
+        const file = new File([blob], `Invoice-${invoiceNum}.png`, { type: 'image/png' });
+
+        if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          // Native file share directly sends PNG photo
+          await navigator.share({
+            files: [file],
+            title: `Invoice #${invoiceNum}`,
+          });
+        } else {
+          // Desktop Fallback: Download image and open WhatsApp Web
+          const fileUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = fileUrl;
+          link.download = `Invoice-${invoiceNum}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(fileUrl);
+
+          const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
+          const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+          window.open(whatsappUrl, '_blank');
+        }
+      } else {
+        // Share Interactive Web Link
+        const activeShareUrl = await ensureShareLink();
+        const text = `*JAY RAMJI ENTERPRISE*\n\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*\n\nView Bill Online:\n${activeShareUrl}`;
+        const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        window.open(whatsappUrl, '_blank');
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setErrorMsg(err.message || 'Failed to share document');
+      }
+    } finally {
+      setSharingLoading(false);
+    }
   }
 
-  function handleShareEmail() {
+  async function handleShareEmail() {
     if (!invoice) return;
-    const target = getSelectedShareTarget();
     const customerName = invoice.customerSnapshot?.name || 'Customer';
     const invoiceNum = invoice.invoiceNumber || 'Invoice';
-    const amount = `₹${((invoice.totals.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    const amount = `₹${((invoice.totals?.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+    let targetUrl = '';
+    if (shareFormat === 'LINK') {
+      targetUrl = await ensureShareLink();
+    } else {
+      const invoiceId = invoice.id || (invoice as any)._id;
+      targetUrl = `${apiClient.getBaseUrl()}/invoices/${invoiceId}/download?format=${shareFormat.toLowerCase()}`;
+    }
 
     const subject = `Invoice #${invoiceNum} from Jay Ramji Enterprise`;
-    const body = `Dear ${customerName},\n\nPlease find the details for Invoice #${invoiceNum}.\n\nTotal Amount: ${amount}\n\nYou can view and download your ${target.label} directly at:\n${target.url}\n\nThank you,\nJay Ramji Enterprise`;
+    const body = `Dear ${customerName},\n\nPlease find the details for Invoice #${invoiceNum}.\n\nTotal Amount: ${amount}\n\nYou can access your ${shareFormat} document here:\n${targetUrl}\n\nThank you,\nJay Ramji Enterprise`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   async function handleShareApp() {
     if (!invoice) return;
-    const target = getSelectedShareTarget();
     const invoiceNum = invoice.invoiceNumber || 'Invoice';
 
-    if (navigator.share) {
-      try {
+    setSharingLoading(true);
+    try {
+      if (shareFormat === 'PDF') {
+        const blob = await fetchInvoiceBlob('pdf');
+        const file = new File([blob], `Invoice-${invoiceNum}.pdf`, { type: 'application/pdf' });
+        if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `Invoice #${invoiceNum}`,
+          });
+          return;
+        }
+      } else if (shareFormat === 'PNG') {
+        const blob = await fetchInvoiceBlob('png');
+        const file = new File([blob], `Invoice-${invoiceNum}.png`, { type: 'image/png' });
+        if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `Invoice #${invoiceNum}`,
+          });
+          return;
+        }
+      }
+
+      // Fallback or Web Link
+      const activeShareUrl = await ensureShareLink();
+      if (typeof navigator !== 'undefined' && navigator.share) {
         await navigator.share({
           title: `Invoice #${invoiceNum} - Jay Ramji Enterprise`,
-          text: `Invoice #${invoiceNum} (${target.label}) from Jay Ramji Enterprise`,
-          url: target.url,
+          text: `Invoice #${invoiceNum} from Jay Ramji Enterprise`,
+          url: activeShareUrl,
         });
-      } catch (err) {
-        // User cancelled share
+      } else {
+        navigator.clipboard.writeText(activeShareUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
       }
-    } else {
-      navigator.clipboard.writeText(target.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setErrorMsg(err.message || 'Failed to share');
+      }
+    } finally {
+      setSharingLoading(false);
     }
   }
 
   // Web Share API native handler
   async function handleNativeShare() {
+    ensureShareLink().catch(() => {});
     setShareModalOpen(true);
   }
 
@@ -1184,24 +1304,31 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
+                  disabled={sharingLoading}
                   onClick={handleShareWhatsApp}
-                  className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                  className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                 >
-                  <Share2 className="w-4 h-4" />
+                  {sharingLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <Share2 className="w-4 h-4" />
+                  )}
                   <span>WhatsApp</span>
                 </button>
                 <button
                   type="button"
+                  disabled={sharingLoading}
                   onClick={handleShareEmail}
-                  className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                  className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Mail className="w-4 h-4" />
                   <span>Email</span>
                 </button>
                 <button
                   type="button"
+                  disabled={sharingLoading}
                   onClick={handleShareApp}
-                  className="py-2.5 px-3 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                  className="py-2.5 px-3 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Share2 className="w-4 h-4" />
                   <span>Share App</span>
