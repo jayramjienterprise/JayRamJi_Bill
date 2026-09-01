@@ -38,20 +38,10 @@ const InvoiceItemInputSchema = z.object({
   section: z.enum(['ITEM', 'LABOUR', 'PART']).optional(),
 });
 
-export function normalizeInvoiceNumber(input: string, defaultPrefix: string): string {
+export function normalizeInvoiceNumber(input: string, _defaultPrefix?: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
-
-  if (/^\d+$/.test(trimmed)) {
-    return `${defaultPrefix}-${trimmed}`;
-  }
-
-  if (trimmed.toLowerCase().startsWith(defaultPrefix.toLowerCase())) {
-    const rest = trimmed.slice(defaultPrefix.length).replace(/^[\s-]+/, '');
-    return `${defaultPrefix.toUpperCase()}-${rest}`;
-  }
-
-  return trimmed.toUpperCase();
+  return trimmed;
 }
 
 const CreateInvoiceSchema = z.object({
@@ -943,48 +933,88 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
         signature: signature ? { assetId: signature._id, cloudinaryPublicId: signature.cloudinaryPublicId, secureUrl: signature.secureUrl } : null,
       };
 
-      // 7. Atomic Invoice Numbering
-      const prefix = business.invoiceSettings?.prefix || 'INV';
-      let seq = await InvoiceSequence.findOneAndUpdate(
-        { businessId: req.businessId, key: 'INVOICE' },
-        { $inc: { nextNumber: 1 } },
-        { new: true, session }
-      );
+      // 7. Atomic Invoice Numbering & Custom Invoice Number Preservation
+      const prefix = business.invoiceSettings?.prefix || 'JRE';
+      let finalInvoiceNumber: string = '';
 
-      if (!seq) {
-        try {
-          const [newSeq] = await InvoiceSequence.create(
-            [
-              {
-                businessId: req.businessId,
-                key: 'INVOICE',
-                prefix,
-                nextNumber: 2,
-              },
-            ],
-            { session }
+      const rawInvNum = req.body.customInvoiceNumber || req.body.invoiceNumber || invoice.invoiceNumber;
+
+      if (rawInvNum && String(rawInvNum).trim()) {
+        const normalized = normalizeInvoiceNumber(String(rawInvNum), prefix);
+        const exists = await Invoice.findOne({
+          businessId: req.businessId,
+          invoiceNumber: normalized,
+          _id: { $ne: invoice._id },
+        }).session(session);
+
+        if (exists) {
+          throw new AppError(
+            `Invoice number ${normalized} is already in use. Please choose another number.`,
+            409,
+            'INVOICE_NUMBER_ALREADY_EXISTS'
           );
-          seq = newSeq;
-        } catch (err: any) {
-          if (err.code === 11000) {
-            seq = await InvoiceSequence.findOneAndUpdate(
-              { businessId: req.businessId, key: 'INVOICE' },
-              { $inc: { nextNumber: 1 } },
-              { new: true, session }
+        }
+        finalInvoiceNumber = normalized;
+      } else {
+        let seq = await InvoiceSequence.findOneAndUpdate(
+          { businessId: req.businessId, key: 'INVOICE' },
+          { $inc: { nextNumber: 1 } },
+          { new: true, session }
+        );
+
+        if (!seq) {
+          try {
+            const [newSeq] = await InvoiceSequence.create(
+              [
+                {
+                  businessId: req.businessId,
+                  key: 'INVOICE',
+                  prefix,
+                  nextNumber: 2,
+                },
+              ],
+              { session }
             );
-          } else {
-            throw err;
+            seq = newSeq;
+          } catch (err: any) {
+            if (err.code === 11000) {
+              seq = await InvoiceSequence.findOneAndUpdate(
+                { businessId: req.businessId, key: 'INVOICE' },
+                { $inc: { nextNumber: 1 } },
+                { new: true, session }
+              );
+            } else {
+              throw err;
+            }
           }
         }
-      }
 
-      const seqNum = seq.nextNumber - 1;
-      const paddedNum = String(seqNum).padStart(6, '0');
-      const invoiceNumber = `${prefix}-${paddedNum}`;
+        const existingInvoices = await Invoice.find({
+          businessId: req.businessId,
+          invoiceNumber: { $ne: null },
+        }).select('invoiceNumber').session(session);
+
+        let maxFound = 0;
+        for (const inv of existingInvoices) {
+          if (!inv.invoiceNumber) continue;
+          const match = inv.invoiceNumber.match(/(\d+)$/);
+          if (match) {
+            const val = parseInt(match[1], 10);
+            if (!isNaN(val) && val > maxFound) maxFound = val;
+          }
+        }
+
+        let candidateNum = seq ? seq.nextNumber - 1 : 1;
+        if (candidateNum <= maxFound) {
+          candidateNum = maxFound + 1;
+        }
+        const paddedNum = String(candidateNum).padStart(6, '0');
+        finalInvoiceNumber = `${prefix}-${paddedNum}`;
+      }
 
       // 8. Apply Updates & Save Invoice Status change
       invoice.status = 'FINALIZED';
-      invoice.invoiceNumber = invoiceNumber;
+      invoice.invoiceNumber = finalInvoiceNumber;
       invoice.customerSnapshot = customerSnapshot;
       invoice.businessSnapshot = businessSnapshot;
       invoice.assetSnapshot = assetSnapshot;
@@ -1152,7 +1182,7 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
 
       // 9. Apply Updates & Save Invoice Status change
       invoice.status = 'FINALIZED';
-      invoice.invoiceNumber = invoiceNumber;
+      invoice.invoiceNumber = finalInvoiceNumber;
       invoice.customerSnapshot = customerSnapshot;
       invoice.businessSnapshot = businessSnapshot;
       invoice.assetSnapshot = assetSnapshot;
@@ -1180,8 +1210,8 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
           entity: 'INVOICE',
           entityId: invoice._id,
           previousState: { status: 'DRAFT' },
-          newState: { status: 'FINALIZED', invoiceNumber, paymentSummary: invoice.paymentSummary },
-          metadata: { invoiceNumber },
+          newState: { status: 'FINALIZED', invoiceNumber: finalInvoiceNumber, paymentSummary: invoice.paymentSummary },
+          metadata: { invoiceNumber: finalInvoiceNumber },
           timestamp: new Date(),
         }
       ], { session });
@@ -1201,7 +1231,7 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
               method: initialPaymentRecord.method,
               accountSnapshot: initialPaymentRecord.paymentAccountSnapshot,
             },
-            metadata: { invoiceId: invoice._id, invoiceNumber, isInitialPayment: true },
+            metadata: { invoiceId: invoice._id, invoiceNumber: finalInvoiceNumber, isInitialPayment: true },
             timestamp: new Date(),
           }
         ], { session });
