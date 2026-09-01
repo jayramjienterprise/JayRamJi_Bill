@@ -463,7 +463,7 @@ export default function PaymentAccountsManager() {
                       <option value="">No QR Asset Linked</option>
                       {assets.map((ast) => (
                         <option key={ast.id || (ast as any)._id} value={ast.id || (ast as any)._id}>
-                          {ast.type} - {ast.format?.toUpperCase()} ({new Date(ast.createdAt).toLocaleDateString()})
+                          {ast.type} - {ast.format?.toUpperCase()} ({new Date(ast.createdAt).toLocaleDateString('en-IN')})
                         </option>
                       ))}
                     </select>
