@@ -38,6 +38,22 @@ const InvoiceItemInputSchema = z.object({
   section: z.enum(['ITEM', 'LABOUR', 'PART']).optional(),
 });
 
+export function normalizeInvoiceNumber(input: string, defaultPrefix: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  if (/^\d+$/.test(trimmed)) {
+    return `${defaultPrefix}-${trimmed}`;
+  }
+
+  if (trimmed.toLowerCase().startsWith(defaultPrefix.toLowerCase())) {
+    const rest = trimmed.slice(defaultPrefix.length).replace(/^[\s-]+/, '');
+    return `${defaultPrefix.toUpperCase()}-${rest}`;
+  }
+
+  return trimmed.toUpperCase();
+}
+
 const CreateInvoiceSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
   invoiceDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
@@ -52,7 +68,101 @@ const CreateInvoiceSchema = z.object({
   paymentStatus: z.enum(['PAID', 'UNPAID', 'PARTIAL']).optional(),
   payment: z.any().optional(),
   paymentDetails: z.any().optional(),
+  customInvoiceNumber: z.string().nullable().optional(),
+  invoiceNumber: z.string().nullable().optional(),
 });
+
+export async function getNextInvoiceNumber(req: Request, res: Response, next: NextFunction) {
+  try {
+    const business = await Business.findById(req.businessId);
+    if (!business) {
+      next(new AppError('Active business context not found', 404, 'NOT_FOUND'));
+      return;
+    }
+
+    const prefix = business.invoiceSettings?.prefix || 'JRE';
+
+    const seq = await InvoiceSequence.findOne({ businessId: req.businessId, key: 'INVOICE' });
+    const nextNum = seq ? seq.nextNumber : 1;
+
+    const existingInvoices = await Invoice.find({
+      businessId: req.businessId,
+      invoiceNumber: { $ne: null },
+    }).select('invoiceNumber');
+
+    let maxFound = 0;
+    for (const inv of existingInvoices) {
+      if (!inv.invoiceNumber) continue;
+      const match = inv.invoiceNumber.match(/(\d+)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > maxFound) {
+          maxFound = val;
+        }
+      }
+    }
+
+    const candidateNum = Math.max(nextNum, maxFound + 1);
+    const paddedNum = String(candidateNum).padStart(6, '0');
+    const proposedNumber = `${prefix}-${paddedNum}`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invoiceNumber: proposedNumber,
+        series: prefix,
+      },
+    });
+    return;
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function checkInvoiceNumberAvailability(req: Request, res: Response, next: NextFunction) {
+  try {
+    const rawNumber = String(req.query.invoiceNumber || '').trim();
+    const excludeId = req.query.excludeInvoiceId ? String(req.query.excludeInvoiceId) : null;
+
+    if (!rawNumber) {
+      res.status(200).json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'EMPTY',
+          invoiceNumber: '',
+        },
+      });
+      return;
+    }
+
+    const business = await Business.findById(req.businessId);
+    const prefix = business?.invoiceSettings?.prefix || 'JRE';
+    const normalized = normalizeInvoiceNumber(rawNumber, prefix);
+
+    const query: any = {
+      businessId: req.businessId,
+      invoiceNumber: normalized,
+    };
+    if (excludeId && mongoose.Types.ObjectId.isValid(excludeId)) {
+      query._id = { $ne: excludeId };
+    }
+
+    const existing = await Invoice.findOne(query).select('_id');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        available: !existing,
+        invoiceNumber: normalized,
+        series: prefix,
+      },
+    });
+    return;
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function createInvoiceDraft(req: Request, res: Response, next: NextFunction) {
   try {
@@ -73,9 +183,12 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       paymentStatus,
       payment,
       paymentDetails,
+      customInvoiceNumber,
+      invoiceNumber,
     } = bodyResult.data;
 
     const paymentInput = payment || paymentDetails;
+    const rawInvNum = customInvoiceNumber || invoiceNumber;
 
     // 1. Verify active customer belongs to business
     const customer = await Customer.findOne({
@@ -109,10 +222,31 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       discount: discount || { type: 'NONE', value: 0 },
     });
 
-    // 4. Fetch business defaults to freeze details (optional but good practice for drafts)
+    // 4. Fetch business defaults to freeze details
     const business = await Business.findById(req.businessId);
     if (!business) {
       return next(new AppError('Active business context not found', 404, 'NOT_FOUND'));
+    }
+
+    const prefix = business.invoiceSettings?.prefix || 'JRE';
+    let assignedInvoiceNumber: string | null = null;
+
+    if (rawInvNum && String(rawInvNum).trim()) {
+      const normalized = normalizeInvoiceNumber(String(rawInvNum), prefix);
+      const existing = await Invoice.findOne({
+        businessId: req.businessId,
+        invoiceNumber: normalized,
+      });
+      if (existing) {
+        return next(
+          new AppError(
+            `Invoice number ${normalized} is already in use. Please choose another number.`,
+            409,
+            'INVOICE_NUMBER_ALREADY_EXISTS'
+          )
+        );
+      }
+      assignedInvoiceNumber = normalized;
     }
 
     let initialPaidMinor = 0;
@@ -129,7 +263,7 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
     // Create draft document
     const newInvoice = new Invoice({
       businessId: req.businessId,
-      invoiceNumber: null,
+      invoiceNumber: assignedInvoiceNumber,
       invoiceDate: new Date(invoiceDate),
       status: 'DRAFT',
       currency: 'INR',
@@ -669,9 +803,9 @@ async function executeInTransaction(callback: (session: mongoose.ClientSession |
   } catch (err: any) {
     const errmsg = err.errmsg || err.message || '';
     if (
-      err.code === 20 || 
-      err.codeName === 'IllegalOperation' || 
-      errmsg.includes('replica set') || 
+      err.code === 20 ||
+      err.codeName === 'IllegalOperation' ||
+      errmsg.includes('replica set') ||
       errmsg.includes('Transaction numbers')
     ) {
       return await callback(null);
@@ -1277,7 +1411,7 @@ export async function downloadInvoiceFile(req: Request, res: Response, next: Nex
   try {
     const { id } = req.params;
     const { format } = req.query; // 'pdf' or 'png'
-    
+
     const invoice = await Invoice.findOne({
       _id: id,
       businessId: req.businessId,

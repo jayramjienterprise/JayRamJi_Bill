@@ -260,6 +260,17 @@ class ApiClient {
     return this.get<InvoiceListResponse>(`/invoices?${query.toString()}`);
   }
 
+  public async getNextInvoiceNumber(): Promise<{ invoiceNumber: string; series: string }> {
+    return this.get<{ invoiceNumber: string; series: string }>('/invoices/number/next');
+  }
+
+  public async checkInvoiceNumberAvailability(invoiceNumber: string, excludeInvoiceId?: string): Promise<{ available: boolean; invoiceNumber: string; series: string }> {
+    const params = new URLSearchParams();
+    params.append('invoiceNumber', invoiceNumber);
+    if (excludeInvoiceId) params.append('excludeInvoiceId', excludeInvoiceId);
+    return this.get<{ available: boolean; invoiceNumber: string; series: string }>(`/invoices/number/check?${params.toString()}`);
+  }
+
   public async getInvoice(invoiceId: string): Promise<Invoice> {
     const data = await this.get<{ invoice: Invoice }>(`/invoices/${invoiceId}`);
     return data.invoice;
@@ -287,7 +298,7 @@ class ApiClient {
     return this.get<any>(`/invoices/${invoiceId}/preview`);
   }
 
-  public async finalizeInvoice(invoiceId: string, payload: { payment?: any } = {}): Promise<any> {
+  public async finalizeInvoice(invoiceId: string, payload: { payment?: any; customInvoiceNumber?: string; invoiceNumber?: string } = {}): Promise<any> {
     const data = await this.post<{ invoice: any }>(`/invoices/${invoiceId}/finalize`, payload);
     return data.invoice;
   }

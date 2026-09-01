@@ -76,6 +76,13 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     signature: null,
   });
 
+  // Custom Invoice Number states
+  const [customInvoiceNumber, setCustomInvoiceNumber] = useState('');
+  const [invoiceSeries, setInvoiceSeries] = useState('JRE');
+  const [isCheckingNumber, setIsCheckingNumber] = useState(false);
+  const [numberAvailability, setNumberAvailability] = useState<boolean | null>(null);
+  const [numberError, setNumberError] = useState<string | null>(null);
+
   // Inline Customer Modal state
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [customerSubmitLoading, setCustomerSubmitLoading] = useState(false);
@@ -116,7 +123,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         }
       }
       setInvoiceDate(new Date(inv.invoiceDate).toISOString().split('T')[0]);
-      
+
       let initialTaxOption: 'NONE' | 'EXCLUSIVE_18' | 'INCLUSIVE_18' = 'NONE';
       if (inv.taxMode === 'EXCLUSIVE' && inv.defaultTaxRateBps === 1800) {
         initialTaxOption = 'EXCLUSIVE_18';
@@ -146,6 +153,16 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         }
       }
 
+      setCustomInvoiceNumber(inv.invoiceNumber || '');
+      if (!inv.invoiceNumber) {
+        try {
+          const nextData = await apiClient.getNextInvoiceNumber();
+          setCustomInvoiceNumber(nextData.invoiceNumber);
+          setInvoiceSeries(nextData.series);
+          setNumberAvailability(true);
+        } catch (err) {}
+      }
+
       // Load items mapping sections
       const loadedItems: ItemInput[] = inv.items.map((it) => ({
         productId: it.productId,
@@ -165,6 +182,36 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       setLoading(false);
     }
   }
+
+  // Debounced live availability check for draft invoice number edits
+  useEffect(() => {
+    if (!editable || !customInvoiceNumber.trim()) {
+      setNumberAvailability(null);
+      setNumberError(null);
+      return;
+    }
+
+    setIsCheckingNumber(true);
+    setNumberError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.checkInvoiceNumberAvailability(customInvoiceNumber, id as string);
+        setNumberAvailability(res.available);
+        if (!res.available) {
+          setNumberError(`Invoice number ${res.invoiceNumber} is already in use`);
+        } else {
+          setNumberError(null);
+        }
+      } catch (err) {
+        console.error('Error checking invoice number availability:', err);
+      } finally {
+        setIsCheckingNumber(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [customInvoiceNumber, editable, id]);
 
   // Load customer lists
   async function loadCustomers(search = '') {
@@ -450,8 +497,8 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   const paymentNowRupees = paymentStatus === 'PAID'
     ? invoiceTotalRupees
     : paymentStatus === 'PARTIAL'
-    ? (parseFloat(paymentAmount) || 0)
-    : 0;
+      ? (parseFloat(paymentAmount) || 0)
+      : 0;
   const outstandingRupees = Math.max(0, invoiceTotalRupees - paymentNowRupees);
 
   // Submit Draft Update or Finalize
@@ -490,6 +537,21 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       }
       if (paymentMethod === 'CHEQUE' && !chequeNumber.trim()) {
         setErrorMsg('Please enter the cheque number');
+        return;
+      }
+    }
+
+    if (editable) {
+      if (!customInvoiceNumber.trim()) {
+        setErrorMsg('Invoice number cannot be empty.');
+        setSubmitLoading(false);
+        setConfirmFinalizeOpen(false);
+        return;
+      }
+      if (numberAvailability === false) {
+        setErrorMsg(`Invoice number ${customInvoiceNumber} is already in use. Please choose another number.`);
+        setSubmitLoading(false);
+        setConfirmFinalizeOpen(false);
         return;
       }
     }
@@ -547,19 +609,21 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       notes: undefined,
       paymentStatus,
       payment: paymentPayload,
+      customInvoiceNumber: customInvoiceNumber.trim(),
     };
 
     try {
       await apiClient.updateInvoiceDraft(id, payload);
 
       if (shouldFinalize) {
-        await apiClient.finalizeInvoice(id, { payment: paymentPayload });
+        await apiClient.finalizeInvoice(id, { payment: paymentPayload, customInvoiceNumber: customInvoiceNumber.trim() });
         router.push(`/dashboard/invoices/detail/${id}`);
       } else {
         router.push(`/dashboard/invoices/preview/${id}`);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed updating invoice draft');
+      const serverMsg = err.details?.message || err.message || 'Failed updating invoice draft';
+      setErrorMsg(serverMsg);
       setSubmitLoading(false);
       setConfirmFinalizeOpen(false);
     }
@@ -583,7 +647,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     return (
       <InvoicePaper
         invoice={{
-          invoiceNumber: 'DRAFT',
+          invoiceNumber: customInvoiceNumber.trim() || 'DRAFT',
           invoiceDate: invoiceDate || new Date(),
           paymentTerms: business?.invoiceSettings?.defaultPaymentTerms || 'Within 15 days clear payment',
           amountInWords: amountInWords || 'Zero Rupees Only',
@@ -642,10 +706,10 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         {/* Left Column: Editor Controls */}
         <div className="xl:col-span-7 space-y-6">
           <div className="space-y-6">
-            
-            {/* Customer & Date */}
+
+            {/* Customer, Date & Custom Invoice Number */}
             <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-text-secondary uppercase">
@@ -655,7 +719,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                       type="button"
                       disabled={!editable}
                       onClick={openAddCustomerModal}
-                      className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer"
+                      className="text-primary-700 hover:text-primary-800 text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
                       + Add Customer
                     </button>
@@ -690,6 +754,42 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                     required
                     className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none font-semibold disabled:opacity-50"
                   />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-text-secondary uppercase">
+                      Invoice Number {!editable && <span className="text-text-muted text-[10px] font-normal lowercase ml-1">(🔒 Locked)</span>}
+                    </label>
+                    <span className="text-[10px] font-bold text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded border border-primary-200">
+                      Series: {invoiceSeries}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={customInvoiceNumber}
+                    onChange={(e) => setCustomInvoiceNumber(e.target.value)}
+                    disabled={!editable}
+                    required
+                    className={`w-full px-3 py-2 bg-surface-app border rounded-lg text-sm text-text-primary focus:outline-none font-bold tracking-wide disabled:opacity-75 disabled:bg-surface-2-app ${
+                      numberAvailability === false ? 'border-danger-app focus:ring-1 focus:ring-danger-app' : 'border-border-app'
+                    }`}
+                    placeholder="e.g. JRE-356"
+                  />
+                  <div className="mt-1 flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted">
+                      {editable ? 'Auto-generated. Editable.' : '🔒 Locked after finalization.'}
+                    </span>
+                    {editable && (
+                      isCheckingNumber ? (
+                        <span className="text-text-muted italic">Checking...</span>
+                      ) : numberAvailability === true ? (
+                        <span className="text-emerald-600 font-bold">✓ Available</span>
+                      ) : numberAvailability === false ? (
+                        <span className="text-danger-app font-bold">✕ Already used</span>
+                      ) : null
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -852,7 +952,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                     if (it.section !== 'LABOUR') return null;
                     return (
                       <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="w-full sm:col-span-6">
+                        <div className="w-full sm:col-span-8">
                           <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Labour Description</label>
                           <input
                             type="text"
@@ -865,23 +965,11 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                           />
                         </div>
                         <div className="w-full flex items-center gap-2 sm:contents">
-                          <div className="flex-1 sm:col-span-2">
-                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              value={it.quantity || ''}
-                              disabled={!editable}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold disabled:opacity-50"
-                              required
-                            />
-                          </div>
                           <div className="flex-1 sm:col-span-3">
-                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Price (₹)</label>
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Amount (₹)</label>
                             <input
                               type="number"
-                              placeholder="Price"
+                              placeholder="Amount"
                               value={it.priceFloat || ''}
                               disabled={!editable}
                               onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
@@ -1059,7 +1147,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
               {/* Conditional Rendering for Paid or Partial */}
               {(paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') && (
                 <div className="space-y-4 pt-3 border-t border-border-light text-xs">
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-text-secondary font-bold uppercase tracking-wider mb-1">

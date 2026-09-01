@@ -78,6 +78,13 @@ export default function CreateInvoicePage() {
     signature: null,
   });
 
+  // Custom Invoice Number states
+  const [customInvoiceNumber, setCustomInvoiceNumber] = useState('');
+  const [invoiceSeries, setInvoiceSeries] = useState('JRE');
+  const [isCheckingNumber, setIsCheckingNumber] = useState(false);
+  const [numberAvailability, setNumberAvailability] = useState<boolean | null>(null);
+  const [numberError, setNumberError] = useState<string | null>(null);
+
   // Inline Customer Modal state
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [customerSubmitLoading, setCustomerSubmitLoading] = useState(false);
@@ -150,12 +157,57 @@ export default function CreateInvoicePage() {
     }
   }
 
+  // Load default auto-generated invoice number
+  async function loadNextInvoiceNumber() {
+    if (!activeBusinessId) return;
+    try {
+      const data = await apiClient.getNextInvoiceNumber();
+      setCustomInvoiceNumber(data.invoiceNumber);
+      setInvoiceSeries(data.series);
+      setNumberAvailability(true);
+      setNumberError(null);
+    } catch (err) {
+      console.error('Failed to load next invoice number:', err);
+    }
+  }
+
   useEffect(() => {
     loadCustomers();
     loadProducts();
     loadPaymentAccounts();
     loadBusinessAndAssets();
+    loadNextInvoiceNumber();
   }, [activeBusinessId]);
+
+  // Live debounced availability check
+  useEffect(() => {
+    if (!customInvoiceNumber.trim()) {
+      setNumberAvailability(null);
+      setNumberError('Invoice number cannot be empty');
+      return;
+    }
+
+    setIsCheckingNumber(true);
+    setNumberError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.checkInvoiceNumberAvailability(customInvoiceNumber);
+        setNumberAvailability(res.available);
+        if (!res.available) {
+          setNumberError(`Invoice number ${res.invoiceNumber} is already in use`);
+        } else {
+          setNumberError(null);
+        }
+      } catch (err) {
+        console.error('Error checking invoice number availability:', err);
+      } finally {
+        setIsCheckingNumber(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [customInvoiceNumber]);
 
   // Sync grand total with payment amount when in PAID mode
   const currentGrandTotal = previewTotals ? (previewTotals.grandTotalMinor / 100) : 0;
@@ -383,8 +435,8 @@ export default function CreateInvoicePage() {
   const paymentNowRupees = paymentStatus === 'PAID'
     ? invoiceTotalRupees
     : paymentStatus === 'PARTIAL'
-    ? (parseFloat(paymentAmount) || 0)
-    : 0;
+      ? (parseFloat(paymentAmount) || 0)
+      : 0;
   const outstandingRupees = Math.max(0, invoiceTotalRupees - paymentNowRupees);
 
   // Validate and submit invoice (Draft or Finalize)
@@ -426,6 +478,20 @@ export default function CreateInvoicePage() {
         setErrorMsg('Please enter the cheque number');
         return;
       }
+    }
+
+    // Validate Custom Invoice Number before submission
+    if (!customInvoiceNumber.trim()) {
+      setErrorMsg('Invoice number cannot be empty.');
+      setSubmitLoading(false);
+      setConfirmFinalizeOpen(false);
+      return;
+    }
+    if (numberAvailability === false) {
+      setErrorMsg(`Invoice number ${customInvoiceNumber} is already in use. Please choose another number.`);
+      setSubmitLoading(false);
+      setConfirmFinalizeOpen(false);
+      return;
     }
 
     setSubmitLoading(true);
@@ -482,6 +548,7 @@ export default function CreateInvoicePage() {
       notes: undefined,
       paymentStatus,
       payment: paymentPayload,
+      customInvoiceNumber: customInvoiceNumber.trim(),
     };
 
     try {
@@ -489,14 +556,15 @@ export default function CreateInvoicePage() {
       const invoiceId = createdInvoice.id || (createdInvoice as any)._id;
 
       if (shouldFinalize) {
-        // Finalize invoice atomically with the initial payment payload!
-        await apiClient.finalizeInvoice(invoiceId, { payment: paymentPayload });
+        // Finalize invoice atomically with initial payment & custom invoice number!
+        await apiClient.finalizeInvoice(invoiceId, { payment: paymentPayload, customInvoiceNumber: customInvoiceNumber.trim() });
         router.push(`/dashboard/invoices/detail/${invoiceId}`);
       } else {
         router.push(`/dashboard/invoices/preview/${invoiceId}`);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to process invoice');
+      const serverMsg = err.details?.message || err.message || 'Failed to process invoice';
+      setErrorMsg(serverMsg);
       setSubmitLoading(false);
       setConfirmFinalizeOpen(false);
     }
@@ -520,7 +588,7 @@ export default function CreateInvoicePage() {
     return (
       <InvoicePaper
         invoice={{
-          invoiceNumber: 'DRAFT',
+          invoiceNumber: customInvoiceNumber.trim() || 'DRAFT',
           invoiceDate: invoiceDate || new Date(),
           paymentTerms: business?.invoiceSettings?.defaultPaymentTerms || 'Within 15 days clear payment',
           amountInWords: amountInWords || 'Zero Rupees Only',
@@ -563,10 +631,10 @@ export default function CreateInvoicePage() {
         {/* Left Column: Form Inputs */}
         <div className="xl:col-span-7 space-y-6">
           <div className="space-y-6">
-            
-            {/* Customer & Date */}
+
+            {/* Customer, Date & Custom Invoice Number */}
             <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-text-secondary uppercase">
@@ -608,6 +676,37 @@ export default function CreateInvoicePage() {
                     required
                     className="w-full px-3 py-2 bg-surface-app border border-border-app rounded-lg text-sm text-text-primary focus:outline-none font-semibold"
                   />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-text-secondary uppercase">
+                      Invoice Number *
+                    </label>
+                    <span className="text-[10px] font-bold text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded border border-primary-200">
+                      Series: {invoiceSeries}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={customInvoiceNumber}
+                    onChange={(e) => setCustomInvoiceNumber(e.target.value)}
+                    required
+                    className={`w-full px-3 py-2 bg-surface-app border rounded-lg text-sm text-text-primary focus:outline-none font-bold tracking-wide ${
+                      numberAvailability === false ? 'border-danger-app focus:ring-1 focus:ring-danger-app' : 'border-border-app'
+                    }`}
+                    placeholder="e.g. JRE-356"
+                  />
+                  <div className="mt-1 flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted">Auto-generated. Editable.</span>
+                    {isCheckingNumber ? (
+                      <span className="text-text-muted italic">Checking...</span>
+                    ) : numberAvailability === true ? (
+                      <span className="text-emerald-600 font-bold">✓ Available</span>
+                    ) : numberAvailability === false ? (
+                      <span className="text-danger-app font-bold">✕ Already used</span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
@@ -759,7 +858,7 @@ export default function CreateInvoicePage() {
                     if (it.section !== 'LABOUR') return null;
                     return (
                       <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="w-full sm:col-span-6">
+                        <div className="w-full sm:col-span-8">
                           <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Labour Description</label>
                           <input
                             type="text"
@@ -771,22 +870,11 @@ export default function CreateInvoicePage() {
                           />
                         </div>
                         <div className="w-full flex items-center gap-2 sm:contents">
-                          <div className="flex-1 sm:col-span-2">
-                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
-                              required
-                            />
-                          </div>
                           <div className="flex-1 sm:col-span-3">
-                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Price (₹)</label>
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Amount (₹)</label>
                             <input
                               type="number"
-                              placeholder="Price"
+                              placeholder="Amount"
                               value={it.priceFloat || ''}
                               onChange={(e) => handleUpdateItem(idx, { priceFloat: e.target.value })}
                               className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-right font-semibold"
@@ -950,7 +1038,7 @@ export default function CreateInvoicePage() {
               {/* Conditional Rendering: Only show payment fields if Paid or Partial */}
               {(paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') && (
                 <div className="space-y-4 pt-3 border-t border-border-light text-xs">
-                  
+
                   {/* Payment Amount & Method */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>

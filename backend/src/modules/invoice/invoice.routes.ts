@@ -21,6 +21,8 @@ import {
   recordPayment,
   reversePayment,
   uploadPaymentProof,
+  getNextInvoiceNumber,
+  checkInvoiceNumberAvailability,
 } from './invoice.controller';
 
 const router = Router();
@@ -30,6 +32,9 @@ const upload = multer({ storage });
 // Apply auth protection & tenancy context to all invoice endpoints
 router.use(authenticate);
 router.use(requireBusiness);
+
+router.get('/number/next', getNextInvoiceNumber);
+router.get('/number/check', checkInvoiceNumberAvailability);
 
 router.post('/', createInvoiceDraft);
 router.get('/', listInvoices);
