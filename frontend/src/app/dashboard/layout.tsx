@@ -20,6 +20,7 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeft,
+  Plus,
 } from 'lucide-react';
 
 interface BusinessItem {
@@ -279,13 +280,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Main Viewport Container */}
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           {/* Top Bar Header */}
-          <header className="h-16 bg-surface-app border-b border-border-app px-4 md:px-8 flex items-center justify-between shadow-xs shrink-0 z-10">
-            <div className="flex items-center space-x-3 min-w-0">
+          <header className="h-16 bg-surface-app border-b border-border-app px-3 sm:px-6 md:px-8 flex items-center justify-between shadow-xs shrink-0 z-10 gap-2">
+            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
               {/* Mobile Hamburger Button */}
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className="p-2 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg md:hidden cursor-pointer mr-1"
+                className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg md:hidden cursor-pointer shrink-0"
                 title="Open Navigation"
               >
                 <Menu className="w-5 h-5" />
@@ -295,19 +296,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <button
                 type="button"
                 onClick={toggleSidebar}
-                className="hidden md:flex p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg cursor-pointer transition mr-1"
+                className="hidden md:flex p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-2-app rounded-lg cursor-pointer transition shrink-0"
                 title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
               >
                 <PanelLeft className="w-4 h-4" />
               </button>
 
-              <span className="text-text-muted text-xs font-bold uppercase tracking-wider hidden sm:inline">Workspace:</span>
+              <span className="text-text-muted text-xs font-bold uppercase tracking-wider hidden md:inline shrink-0">Workspace:</span>
               {businesses.length > 0 ? (
-                <div className="relative">
+                <div className="relative min-w-0 max-w-[150px] xs:max-w-[180px] sm:max-w-xs">
                   <select
                     value={activeBusinessId || ''}
                     onChange={(e) => setActiveBusinessId(e.target.value)}
-                    className="appearance-none pr-8 pl-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs font-semibold text-text-primary focus:outline-none cursor-pointer"
+                    className="w-full appearance-none pr-7 pl-2.5 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs font-semibold text-text-primary focus:outline-none cursor-pointer truncate"
                   >
                     {businesses.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -315,24 +316,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </option>
                     ))}
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-muted">
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-text-muted">
                     <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
                       <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
                     </svg>
                   </div>
                 </div>
               ) : (
-                <span className="text-xs font-semibold text-text-muted">No business workspace active</span>
+                <span className="text-xs font-semibold text-text-muted truncate">No business active</span>
               )}
             </div>
 
             {/* Quick Actions in Top Bar */}
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center shrink-0">
               <Link
                 href="/dashboard/invoices/create"
-                className="px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
+                className="px-2.5 sm:px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer shrink-0"
+                title="Create Invoice"
               >
-                <span>+ Create Invoice</span>
+                <Plus className="w-4 h-4 shrink-0" />
+                <span className="hidden xs:inline sm:inline">Create Invoice</span>
               </Link>
             </div>
           </header>
