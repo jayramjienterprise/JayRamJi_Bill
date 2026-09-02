@@ -292,6 +292,11 @@ export default function CreateInvoicePage() {
       const next = [...prev];
       const current = { ...next[index], ...fields };
 
+      if (fields.quantity !== undefined) {
+        const val = typeof fields.quantity === 'number' ? fields.quantity : parseFloat(String(fields.quantity));
+        current.quantity = isNaN(val) || val < 1 ? 1 : val;
+      }
+
       if (fields.priceFloat !== undefined) {
         const parsed = parseFloat(fields.priceFloat);
         current.unitPriceMinor = isNaN(parsed) ? 0 : Math.round(parsed * 100);
@@ -801,9 +806,10 @@ export default function CreateInvoicePage() {
                             <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
                             <input
                               type="number"
+                              min="1"
                               placeholder="Qty"
                               value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: Math.max(1, parseFloat(e.target.value) || 1) })}
                               className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
                               required
                             />
@@ -874,9 +880,10 @@ export default function CreateInvoicePage() {
                             <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
                             <input
                               type="number"
+                              min="1"
                               placeholder="Qty"
                               value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: Math.max(1, parseFloat(e.target.value) || 1) })}
                               className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
                               required
                             />
@@ -947,9 +954,10 @@ export default function CreateInvoicePage() {
                             <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
                             <input
                               type="number"
+                              min="1"
                               placeholder="Qty"
                               value={it.quantity || ''}
-                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: Math.max(1, parseFloat(e.target.value) || 1) })}
                               className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
                               required
                             />
