@@ -44,6 +44,15 @@ export function normalizeInvoiceNumber(input: string, _defaultPrefix?: string): 
   return trimmed;
 }
 
+const CalculatePreviewSchema = z.object({
+  customerId: z.string().nullable().optional(),
+  invoiceDate: z.string().optional(),
+  items: z.array(InvoiceItemInputSchema).optional().default([]),
+  taxMode: z.enum(['NONE', 'EXCLUSIVE', 'INCLUSIVE']),
+  defaultTaxRateBps: z.number().nonnegative(),
+  discount: DiscountSchema.optional(),
+});
+
 const CreateInvoiceSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
   invoiceDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
@@ -558,12 +567,31 @@ export async function listInvoices(req: Request, res: Response, next: NextFuncti
 // Preview calculation handler without storing in database
 export async function calculatePreview(req: Request, res: Response, next: NextFunction) {
   try {
-    const bodyResult = CreateInvoiceSchema.safeParse(req.body);
+    const bodyResult = CalculatePreviewSchema.safeParse(req.body);
     if (!bodyResult.success) {
       return next(new AppError(bodyResult.error.errors[0].message, 400, 'VALIDATION_ERROR'));
     }
 
     const { items, taxMode, defaultTaxRateBps, discount } = bodyResult.data;
+
+    if (!items || items.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          totals: {
+            partsTotalMinor: 0,
+            laborTotalMinor: 0,
+            subtotalMinor: 0,
+            discountMinor: 0,
+            taxTotalMinor: 0,
+            roundingMinor: 0,
+            grandTotalMinor: 0,
+          },
+          items: [],
+          amountInWords: 'Zero Rupees Only',
+        },
+      });
+    }
 
     const calcResult = InvoiceCalculationService.calculate({
       items,

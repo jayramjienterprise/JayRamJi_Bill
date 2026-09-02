@@ -858,7 +858,7 @@ export default function CreateInvoicePage() {
                     if (it.section !== 'LABOUR') return null;
                     return (
                       <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-2.5 items-center bg-surface-2-app/20 p-3 rounded-lg border border-border-app">
-                        <div className="w-full sm:col-span-8">
+                        <div className="w-full sm:col-span-6">
                           <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Labour Description</label>
                           <input
                             type="text"
@@ -870,6 +870,17 @@ export default function CreateInvoicePage() {
                           />
                         </div>
                         <div className="w-full flex items-center gap-2 sm:contents">
+                          <div className="flex-1 sm:col-span-2">
+                            <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Qty</label>
+                            <input
+                              type="number"
+                              placeholder="Qty"
+                              value={it.quantity || ''}
+                              onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-2.5 py-1.5 bg-surface-app border border-border-app rounded-lg text-sm text-center font-semibold"
+                              required
+                            />
+                          </div>
                           <div className="flex-1 sm:col-span-3">
                             <label className="block text-[10px] font-bold text-text-muted uppercase sm:hidden mb-1">Amount (₹)</label>
                             <input
@@ -1010,7 +1021,7 @@ export default function CreateInvoicePage() {
                       onChange={() => setPaymentStatus('UNPAID')}
                       className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
                     />
-                    <span className="text-sm font-bold text-text-primary">○ Unpaid</span>
+                    <span className="text-sm font-bold text-text-primary">Unpaid</span>
                   </label>
                   <label className="inline-flex items-center space-x-2 cursor-pointer">
                     <input
@@ -1020,7 +1031,7 @@ export default function CreateInvoicePage() {
                       onChange={() => setPaymentStatus('PAID')}
                       className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
                     />
-                    <span className="text-sm font-bold text-text-primary">● Paid</span>
+                    <span className="text-sm font-bold text-text-primary">Paid</span>
                   </label>
                   <label className="inline-flex items-center space-x-2 cursor-pointer">
                     <input
@@ -1030,7 +1041,7 @@ export default function CreateInvoicePage() {
                       onChange={() => setPaymentStatus('PARTIAL')}
                       className="h-4 w-4 text-primary-700 focus:ring-primary-600 cursor-pointer"
                     />
-                    <span className="text-sm font-bold text-text-primary">◐ Partial</span>
+                    <span className="text-sm font-bold text-text-primary">Partial</span>
                   </label>
                 </div>
               </div>
