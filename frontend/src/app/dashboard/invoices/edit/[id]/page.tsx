@@ -1438,7 +1438,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                     type="button"
                     disabled={submitLoading || items.length === 0 || !selectedCustomerId}
                     onClick={() => setConfirmFinalizeOpen(true)}
-                    className="flex-1 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
+                    className="flex-1 py-2.5 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
                     Finalize & Issue Bill
                   </button>
@@ -1530,7 +1530,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                 type="button"
                 disabled={submitLoading}
                 onClick={() => handleSubmit(undefined, true)}
-                className="flex-1 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                className="flex-1 py-2 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-lg font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
               >
                 {submitLoading ? 'Finalizing...' : 'Confirm & Finalize'}
               </button>
