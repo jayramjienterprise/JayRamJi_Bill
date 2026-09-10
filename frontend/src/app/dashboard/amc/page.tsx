@@ -27,6 +27,10 @@ import {
   Pencil,
   Trash2,
   Filter,
+  Share2,
+  MessageCircle,
+  Power,
+  AlertTriangle,
 } from 'lucide-react';
 import VisitsTab from './components/VisitsTab';
 import EntitlementModal from './components/EntitlementModal';
@@ -90,6 +94,17 @@ export default function AmcManagementPage() {
 
   // Convert Quotation Modal
   const [convertingQuotation, setConvertingQuotation] = useState<any | null>(null);
+
+  // Contract Details & Payment Modal state
+  const [selectedContractDetails, setSelectedContractDetails] = useState<any | null>(null);
+  const [contractPaymentForm, setContractPaymentForm] = useState({
+    paymentStatus: 'UNPAID',
+    paidAmount: 0,
+  });
+
+  // Plan Details & Active/Inactive Modal state
+  const [viewingPlan, setViewingPlan] = useState<any | null>(null);
+  const [planDeactivatePrompt, setPlanDeactivatePrompt] = useState<{ plan: any; message: string } | null>(null);
 
   // Form states
   const [contractForm, setContractForm] = useState({
@@ -390,6 +405,91 @@ export default function AmcManagementPage() {
       fetchInitialData();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error deleting AC equipment');
+    }
+  }
+
+  // Contract Action Handlers
+  function openContractDetails(c: any) {
+    setSelectedContractDetails(c);
+    setContractPaymentForm({
+      paymentStatus: c.paymentStatus || 'UNPAID',
+      paidAmount: c.financials?.paidAmount || 0,
+    });
+  }
+
+  async function handleUpdateContractPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedContractDetails) return;
+    try {
+      const res: any = await apiClient.patch(`/amc/contracts/${selectedContractDetails._id}/payment`, contractPaymentForm);
+      setSuccessMsg(`Payment updated for Contract #${selectedContractDetails.contractNumber}!`);
+      setSelectedContractDetails(res.data || {
+        ...selectedContractDetails,
+        paymentStatus: contractPaymentForm.paymentStatus,
+        financials: { ...selectedContractDetails.financials, paidAmount: contractPaymentForm.paidAmount },
+      });
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update contract payment');
+    }
+  }
+
+  async function handleDeleteContract(contractId: string, contractNumber: string) {
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete Contract #${contractNumber}?\n\nWARNING: Deleting this contract will automatically cancel and delete ALL associated Service Visits & Job-Cards for this contract. This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res: any = await apiClient.delete(`/amc/contracts/${contractId}`);
+      setSuccessMsg(res.message || `Contract #${contractNumber} deleted successfully.`);
+      setSelectedContractDetails(null);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to delete contract');
+    }
+  }
+
+  function handleShareContractWhatsApp(c: any) {
+    const text = `*AMC Contract Details - Jay Ramji Enterprise*\n\nContract No: *${c.contractNumber}*\nCustomer: *${c.customerId?.name || 'Valued Client'}*\nContract Type: *${c.contractType}*\nPeriod: ${new Date(c.startDate).toLocaleDateString()} to ${new Date(c.endDate).toLocaleDateString()}\nCovered Units: ${c.coveredUnits?.length || 0} AC Units\nTotal Contract Amount: Rs. ${(c.financials?.finalAmount || 0).toLocaleString('en-IN')}\nPayment Status: ${c.paymentStatus}\nContract Status: ${c.status}`;
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  }
+
+  // Plan Management Handlers
+  async function handleTogglePlanStatus(plan: any) {
+    const newActiveState = !plan.active;
+    try {
+      await apiClient.patch(`/amc/plans/${plan._id}`, { active: newActiveState });
+      setSuccessMsg(`Plan "${plan.name}" is now ${newActiveState ? 'ACTIVE' : 'INACTIVE'}.`);
+      if (viewingPlan && viewingPlan._id === plan._id) {
+        setViewingPlan({ ...viewingPlan, active: newActiveState });
+      }
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to toggle plan status');
+    }
+  }
+
+  async function handleDeletePlan(plan: any) {
+    if (!confirm(`Are you sure you want to delete plan "${plan.name}"?`)) return;
+
+    try {
+      await apiClient.delete(`/amc/plans/${plan._id}`);
+      setSuccessMsg(`Plan "${plan.name}" deleted successfully.`);
+      setViewingPlan(null);
+      fetchInitialData();
+    } catch (err: any) {
+      if (err.code === 'PLAN_LINKED_TO_ACTIVE_CONTRACTS' || err.message?.includes('active contract')) {
+        setPlanDeactivatePrompt({
+          plan,
+          message: err.message || 'This plan is currently in use by active contract(s). You cannot permanently delete it, but you can set it to Inactive.',
+        });
+      } else {
+        setErrorMsg(err.message || 'Failed to delete plan');
+      }
     }
   }
 
@@ -734,6 +834,15 @@ export default function AmcManagementPage() {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => openContractDetails(c)}
+                              className="px-2.5 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-[11px] font-bold transition cursor-pointer shadow-xs inline-flex items-center gap-1"
+                              title="Open Contract & Manage Payment / Details"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Open</span>
+                            </button>
+
                             <button
                               onClick={() => setSelectedSnapshot(c)}
                               className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer"
@@ -1249,7 +1358,44 @@ export default function AmcManagementPage() {
                         {p.partCoverages?.length || 0} product SKUs
                       </span>
                     </div>
+                    <div className="flex justify-between pt-1">
+                      <span>Status:</span>
+                      <span
+                        className={`font-bold text-[10.5px] px-2 py-0.5 rounded-md ${
+                          p.active !== false
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {p.active !== false ? 'ACTIVE' : 'INACTIVE'}
+                      </span>
+                    </div>
                   </div>
+                </div>
+
+                {/* Card Action Controls */}
+                <div className="mt-4 pt-3 border-t border-border-app flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => handleTogglePlanStatus(p)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                      p.active !== false
+                        ? 'bg-surface-2-app hover:bg-rose-500/10 text-rose-600'
+                        : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700'
+                    }`}
+                    title={p.active !== false ? 'Deactivate this plan' : 'Activate this plan'}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>{p.active !== false ? 'Deactivate' : 'Activate'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setViewingPlan(p)}
+                    className="px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs inline-flex items-center gap-1"
+                    title="Open Plan Details"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Open Plan</span>
+                  </button>
                 </div>
               </div>
             ))
@@ -2199,7 +2345,391 @@ export default function AmcManagementPage() {
 
 
 
-      {/* Entitlement Audit Modal (Issue 4 & 10) */}
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CONTRACT DETAILS & PAYMENT MANAGEMENT */}
+      {/* ---------------------------------------------------- */}
+      {selectedContractDetails && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-border-app pb-4">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-black text-primary-700">
+                    Contract #{selectedContractDetails.contractNumber}
+                  </h3>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      selectedContractDetails.status === 'ACTIVE'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : selectedContractDetails.status === 'PENDING_PAYMENT'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {selectedContractDetails.status}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-surface-2-app text-text-primary">
+                    {selectedContractDetails.contractType}
+                  </span>
+                </div>
+                <p className="text-xs text-text-secondary mt-1 font-medium">
+                  Client: <strong className="text-text-primary">{selectedContractDetails.customerId?.name || 'Customer'}</strong>
+                  {selectedContractDetails.customerId?.contact?.phone && ` • ${selectedContractDetails.customerId.contact.phone}`}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedContractDetails(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Coverage Period & Fleet Summary */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-surface-2-app/50 p-3.5 rounded-xl border border-border-app">
+              <div>
+                <span className="text-text-secondary block font-semibold">Coverage Period:</span>
+                <span className="font-bold text-text-primary">
+                  {new Date(selectedContractDetails.startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} &rarr;{' '}
+                  {new Date(selectedContractDetails.endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-secondary block font-semibold">Covered Fleet:</span>
+                <span className="font-bold text-text-primary">
+                  {selectedContractDetails.coveredUnits?.length || 0} Registered AC Units
+                </span>
+              </div>
+            </div>
+
+            {/* Covered AC Units List */}
+            <div>
+              <h4 className="text-xs font-black text-text-primary uppercase tracking-wider mb-2">
+                Covered Equipment Fleet
+              </h4>
+              <div className="border border-border-app rounded-xl overflow-hidden max-h-36 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-surface-2-app text-text-secondary font-bold">
+                    <tr>
+                      <th className="p-2.5">Brand &amp; Model</th>
+                      <th className="p-2.5">Tonnage</th>
+                      <th className="p-2.5">Location</th>
+                      <th className="p-2.5">Serial No.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-app">
+                    {selectedContractDetails.coveredUnits?.map((u: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="p-2.5 font-semibold text-text-primary">
+                          {u.acEquipmentId?.brand || u.unitBrand || 'AC Unit'} {u.acEquipmentId?.modelNumber || u.unitModel}
+                        </td>
+                        <td className="p-2.5 text-primary-700 font-bold">
+                          {u.acEquipmentId?.tonnage || u.unitTonnage} Ton
+                        </td>
+                        <td className="p-2.5 text-text-secondary">
+                          {u.acEquipmentId?.installationLocation || u.unitLocation || 'On-site'}
+                        </td>
+                        <td className="p-2.5 font-mono text-[11px] text-text-secondary">
+                          {u.acEquipmentId?.serialNumber || u.unitSerial || 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Financials & Payment Editor */}
+            <div className="bg-surface-2-app/60 border border-border-app p-4 rounded-xl space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-black text-text-primary uppercase tracking-wider">
+                  Financials &amp; Payment Status
+                </h4>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full font-bold text-xs ${
+                    selectedContractDetails.paymentStatus === 'PAID'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : selectedContractDetails.paymentStatus === 'PARTIALLY_PAID'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {selectedContractDetails.paymentStatus}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-xs">
+                <div className="bg-surface-app p-2.5 rounded-lg border border-border-app">
+                  <span className="text-text-secondary block text-[11px]">Total Contract Value</span>
+                  <span className="font-black text-text-primary text-sm">
+                    ₹ {(selectedContractDetails.financials?.finalAmount || 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="bg-surface-app p-2.5 rounded-lg border border-border-app">
+                  <span className="text-text-secondary block text-[11px]">Amount Collected</span>
+                  <span className="font-black text-emerald-600 text-sm">
+                    ₹ {(selectedContractDetails.financials?.paidAmount || 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="bg-surface-app p-2.5 rounded-lg border border-border-app">
+                  <span className="text-text-secondary block text-[11px]">Outstanding Balance</span>
+                  <span className="font-black text-rose-600 text-sm">
+                    ₹ {Math.max(0, (selectedContractDetails.financials?.finalAmount || 0) - (selectedContractDetails.financials?.paidAmount || 0)).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Form to update payment */}
+              <form onSubmit={handleUpdateContractPayment} className="pt-2 border-t border-border-app flex flex-wrap items-end gap-3 text-xs">
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-text-secondary font-bold mb-1">
+                    Update Paid Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={contractPaymentForm.paidAmount}
+                    onChange={(e) => setContractPaymentForm({ ...contractPaymentForm, paidAmount: Number(e.target.value) })}
+                    className="w-full bg-surface-app border border-border-app rounded-xl p-2 font-bold text-text-primary"
+                    min={0}
+                    max={selectedContractDetails.financials?.finalAmount || 9999999}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-text-secondary font-bold mb-1">
+                    Payment Status
+                  </label>
+                  <select
+                    value={contractPaymentForm.paymentStatus}
+                    onChange={(e) => setContractPaymentForm({ ...contractPaymentForm, paymentStatus: e.target.value })}
+                    className="w-full bg-surface-app border border-border-app rounded-xl p-2 font-bold text-text-primary"
+                  >
+                    <option value="UNPAID">Unpaid</option>
+                    <option value="PARTIALLY_PAID">Partially Paid</option>
+                    <option value="PAID">Paid in Full</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl font-bold transition shadow-xs cursor-pointer"
+                >
+                  Save Payment
+                </button>
+              </form>
+            </div>
+
+            {/* Bottom Actions Bar */}
+            <div className="pt-2 border-t border-border-app flex items-center justify-between gap-3">
+              {/* Delete Contract with cascade */}
+              <button
+                type="button"
+                onClick={() => handleDeleteContract(selectedContractDetails._id, selectedContractDetails.contractNumber)}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Delete this contract and all associated service visits"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Contract</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                {/* WhatsApp Share */}
+                <button
+                  type="button"
+                  onClick={() => handleShareContractWhatsApp(selectedContractDetails)}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Share Contract</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedContractDetails(null)}
+                  className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-secondary rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: PLAN DETAILS & ACTIVE/INACTIVE / SAFE DELETE */}
+      {/* ---------------------------------------------------- */}
+      {viewingPlan && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start border-b border-border-app pb-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-black text-text-primary">
+                    {viewingPlan.name}
+                  </h3>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-black ${
+                      viewingPlan.active !== false
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {viewingPlan.active !== false ? 'ACTIVE TEMPLATE' : 'INACTIVE TEMPLATE'}
+                  </span>
+                </div>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  {viewingPlan.planType} • {viewingPlan.durationMonths} Months • Benchmark Rate: ₹ {(viewingPlan.basePrice || 0).toLocaleString('en-IN')}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingPlan(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Plan Entitlements */}
+            <div className="space-y-2 text-xs">
+              <h4 className="font-bold text-text-primary uppercase tracking-wider text-[11px]">
+                Included Entitlements &amp; Frequencies:
+              </h4>
+              <div className="border border-border-app rounded-xl overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-surface-2-app text-text-secondary font-bold">
+                    <tr>
+                      <th className="p-2.5">Service Type</th>
+                      <th className="p-2.5">Scheduling</th>
+                      <th className="p-2.5">Quantity</th>
+                      <th className="p-2.5">Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-app">
+                    {viewingPlan.entitlements?.map((e: any, i: number) => (
+                      <tr key={i}>
+                        <td className="p-2.5 font-semibold text-text-primary">
+                          {e.serviceType?.replace(/_/g, ' ')}
+                        </td>
+                        <td className="p-2.5 text-text-secondary">{e.scheduling}</td>
+                        <td className="p-2.5 font-bold text-primary-700">{e.quantity}</td>
+                        <td className="p-2.5 text-text-secondary">{e.entitlementScope}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Gas & Parts Info */}
+            <div className="p-3.5 bg-surface-2-app rounded-xl text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Refrigerant Gas Top-Up:</span>
+                <span className="font-bold text-text-primary">
+                  {viewingPlan.gasCoverage?.included
+                    ? `Included (Limit: ${viewingPlan.gasCoverage.quantityLimitKg || 'Limit'} kg)`
+                    : 'Excluded (Chargeable)'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Covered Spare Parts:</span>
+                <span className="font-bold text-text-primary">
+                  {viewingPlan.partCoverages?.length || 0} product SKUs included
+                </span>
+              </div>
+            </div>
+
+            {/* Policy notice */}
+            <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
+              💡 <strong>Deactivation Notice:</strong> If this plan template is marked Inactive, it cannot be selected for new quotations or contracts, but existing contracts that signed under this plan template will continue without disruption.
+            </div>
+
+            {/* Actions: Toggle Active/Inactive and Delete Plan */}
+            <div className="pt-2 border-t border-border-app flex items-center justify-between gap-3">
+              {/* Delete Plan */}
+              <button
+                type="button"
+                onClick={() => handleDeletePlan(viewingPlan)}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Delete this plan template"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Plan</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                {/* Active / Inactive Toggle */}
+                <button
+                  type="button"
+                  onClick={() => handleTogglePlanStatus(viewingPlan)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                    viewingPlan.active !== false
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  }`}
+                >
+                  <Power className="w-3.5 h-3.5" />
+                  <span>{viewingPlan.active !== false ? 'Set as Inactive' : 'Set as Active'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingPlan(null)}
+                  className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-secondary rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* POPUP: PLAN LINKED TO ACTIVE CONTRACTS ALERT */}
+      {/* ---------------------------------------------------- */}
+      {planDeactivatePrompt && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2.5 text-amber-600">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-black text-text-primary">
+                Plan Currently in Active Use
+              </h3>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              {planDeactivatePrompt.message}
+            </p>
+
+            <p className="text-xs text-text-primary font-medium bg-surface-2-app p-3 rounded-xl border border-border-app">
+              Would you like to <strong>deactivate this plan template</strong> now? Inactive templates are hidden from future selection while keeping current active contracts intact.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border-app">
+              <button
+                type="button"
+                onClick={() => setPlanDeactivatePrompt(null)}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-secondary rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleTogglePlanStatus(planDeactivatePrompt.plan);
+                  setPlanDeactivatePrompt(null);
+                  setViewingPlan(null);
+                }}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                Deactivate Plan Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {entitlementModalData && (
         <EntitlementModal
           data={entitlementModalData}

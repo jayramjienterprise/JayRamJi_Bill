@@ -336,3 +336,37 @@ export async function generateQuotationPdf(req: Request, res: Response, next: Ne
     next(error);
   }
 }
+
+/**
+ * Delete Quotation (e.g. Draft or Rejected)
+ */
+export async function deleteQuotation(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+
+    const quotation = await AmcQuotation.findOne({ _id: id, businessId });
+    if (!quotation) {
+      return next(new AppError('Quotation not found', 404, 'QUOTATION_NOT_FOUND'));
+    }
+
+    if (quotation.status === 'CONVERTED_TO_CONTRACT' && quotation.convertedContractId) {
+      return next(
+        new AppError(
+          'Cannot delete a quotation that has already been converted into an active AMC contract. Delete or cancel the contract instead.',
+          400,
+          'CANNOT_DELETE_CONVERTED_QUOTATION'
+        )
+      );
+    }
+
+    await AmcQuotation.deleteOne({ _id: id, businessId });
+
+    res.status(200).json({
+      success: true,
+      message: `Quotation #${quotation.quotationNumber} deleted successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}

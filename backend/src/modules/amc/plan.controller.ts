@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { AmcPlan } from '../../database/models/AmcPlan';
+import { AmcContract } from '../../database/models/AmcContract';
 import { Product } from '../../database/models/Product';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -47,14 +48,20 @@ const createPlanSchema = z.object({
   termsAndConditions: z.array(z.string()).optional(),
 });
 
-const updatePlanSchema = createPlanSchema.partial();
+const updatePlanSchema = createPlanSchema.partial().extend({
+  active: z.boolean().optional(),
+});
 
 export async function listPlans(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const businessId = req.businessId;
-    const { planType, search } = req.query;
+    const { planType, search, activeOnly } = req.query;
 
-    const query: any = { businessId, active: true };
+    const query: any = { businessId, deletedAt: null };
+
+    if (activeOnly === 'true') {
+      query.active = true;
+    }
 
     if (planType && (planType === 'COMPREHENSIVE' || planType === 'NON_COMPREHENSIVE')) {
       query.planType = planType;
@@ -190,9 +197,27 @@ export async function deletePlan(req: Request, res: Response, next: NextFunction
     const businessId = req.businessId;
     const { id } = req.params;
 
-    const plan = await AmcPlan.findOne({ _id: id, businessId, active: true });
+    const plan = await AmcPlan.findOne({ _id: id, businessId, deletedAt: null });
     if (!plan) {
       return next(new AppError('AMC Plan not found', 404, 'PLAN_NOT_FOUND'));
+    }
+
+    // Check if any active contract is using this plan
+    const activeContractCount = await AmcContract.countDocuments({
+      businessId,
+      planId: id,
+      active: true,
+      status: { $in: ['ACTIVE', 'PENDING_APPROVAL', 'PENDING_PAYMENT'] },
+    });
+
+    if (activeContractCount > 0) {
+      return next(
+        new AppError(
+          `This plan is currently in use by ${activeContractCount} active contract(s). It cannot be permanently deleted, but you can deactivate it so it won't be selectable for future contracts while preserving active contract history.`,
+          400,
+          'PLAN_LINKED_TO_ACTIVE_CONTRACTS'
+        )
+      );
     }
 
     plan.active = false;

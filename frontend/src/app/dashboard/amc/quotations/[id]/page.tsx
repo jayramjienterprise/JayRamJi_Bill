@@ -24,6 +24,7 @@ import {
   Building2,
   ShieldCheck,
   MessageCircle,
+  Trash2,
 } from 'lucide-react';
 
 export default function AmcQuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -284,6 +285,25 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
     }
   }
 
+  async function handleDeleteQuotation() {
+    if (!confirm(`Are you sure you want to permanently delete Quotation #${quotation?.quotationNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMsg(null);
+      await apiClient.delete(`/amc/quotations/${id}`);
+      setSuccessMsg(`Quotation #${quotation?.quotationNumber} deleted successfully.`);
+      setTimeout(() => {
+        router.push('/dashboard/amc?tab=quotations');
+      }, 1000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to delete quotation');
+      setActionLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
@@ -449,6 +469,19 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
             >
               <span>Convert to AMC</span>
               <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Delete Quotation */}
+          {!isConverted && (
+            <button
+              onClick={handleDeleteQuotation}
+              disabled={actionLoading}
+              className="px-3.5 py-2 bg-surface-2-app hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 text-rose-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              title="Delete this quotation"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
             </button>
           )}
         </div>

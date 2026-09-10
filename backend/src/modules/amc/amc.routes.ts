@@ -22,6 +22,7 @@ import {
   updateQuotation,
   updateQuotationStatus,
   generateQuotationPdf,
+  deleteQuotation,
 } from './quotation.controller';
 import {
   listContracts,
@@ -30,6 +31,8 @@ import {
   convertQuotationToContract,
   updateContractStatus,
   renewContract,
+  deleteContract,
+  updateContractPayment,
 } from './contract.controller';
 import {
   listVisits,
@@ -41,6 +44,8 @@ import {
   getVisitEntitlementSummary,
   listTechnicians,
   createTechnician,
+  updateTechnician,
+  deleteTechnician,
 } from './visit.controller';
 
 const router = Router();
@@ -78,6 +83,7 @@ router.post('/quotations', createQuotation);
 router.patch('/quotations/:id', updateQuotation);
 router.patch('/quotations/:id/status', updateQuotationStatus);
 router.post('/quotations/:quotationId/convert', convertQuotationToContract);
+router.delete('/quotations/:id', deleteQuotation);
 
 // ----------------------------------------------------
 // 4. AMC Contracts Endpoints
@@ -86,6 +92,8 @@ router.get('/contracts', listContracts);
 router.get('/contracts/:id', getContract);
 router.post('/contracts', createContract);
 router.patch('/contracts/:id/status', updateContractStatus);
+router.patch('/contracts/:id/payment', updateContractPayment);
+router.delete('/contracts/:id', deleteContract);
 router.post('/contracts/:id/renew', renewContract);
 router.get('/contracts/:contractId/entitlements', getVisitEntitlementSummary);
 router.post('/contracts/:contractId/generate-visits', generateContractVisits);
@@ -96,6 +104,8 @@ router.post('/contracts/:contractId/generate-visits', generateContractVisits);
 router.get('/visits', listVisits);
 router.get('/technicians', listTechnicians);
 router.post('/technicians', createTechnician);
+router.patch('/technicians/:id', updateTechnician);
+router.delete('/technicians/:id', deleteTechnician);
 router.get('/visits/:id', getVisit);
 router.patch('/visits/:id/assign', assignTechnician);
 router.post('/visits/:id/complete-jobcard', completeVisitJobCard);

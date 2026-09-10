@@ -22,6 +22,8 @@ import {
   PanelLeft,
   Plus,
   ShieldCheck,
+  UserCheck,
+  Bell,
 } from 'lucide-react';
 
 interface BusinessItem {
@@ -149,6 +151,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard/invoices', label: 'Invoices', icon: FileText },
     { href: '/dashboard/amc', label: 'AMC Contracts', icon: ShieldCheck },
     { href: '/dashboard/customers', label: 'Customers', icon: Users },
+    { href: '/dashboard/employees', label: 'Employees', icon: UserCheck },
+    { href: '/dashboard/notifications', label: 'Visit Alerts', icon: Bell },
     { href: '/dashboard/services', label: 'Products / Services', icon: Package },
     { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
     { href: '/dashboard/branding', label: 'Branding', icon: Palette },

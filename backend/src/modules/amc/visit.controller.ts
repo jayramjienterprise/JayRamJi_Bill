@@ -623,3 +623,86 @@ export async function createTechnician(req: Request, res: Response, next: NextFu
     next(error);
   }
 }
+
+export async function updateTechnician(req: Request, res: Response, next: NextFunction) {
+  try {
+    const businessId = (req as any).businessId;
+    const { id } = req.params;
+    const { name, email, phone, active } = req.body;
+
+    const member = await BusinessMember.findOne({ businessId, userId: id });
+    if (!member) {
+      return next(new AppError('Technician membership not found', 404, 'MEMBER_NOT_FOUND'));
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return next(new AppError('User account not found', 404, 'USER_NOT_FOUND'));
+    }
+
+    if (name && name.trim()) user.name = name.trim();
+    if (phone !== undefined) user.phone = phone ? phone.trim() : null;
+    if (email && email.trim()) user.email = email.trim().toLowerCase();
+    await user.save();
+
+    if (active !== undefined) {
+      member.status = active ? 'ACTIVE' : 'SUSPENDED';
+      await member.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: member.role,
+        active: member.status === 'ACTIVE',
+      },
+      message: 'Technician details updated successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteTechnician(req: Request, res: Response, next: NextFunction) {
+  try {
+    const businessId = (req as any).businessId;
+    const { id } = req.params;
+
+    const member = await BusinessMember.findOne({ businessId, userId: id });
+    if (!member) {
+      return next(new AppError('Technician not found in this business', 404, 'MEMBER_NOT_FOUND'));
+    }
+
+    // Check if technician has active visits
+    const pendingVisits = await AmcServiceVisit.countDocuments({
+      businessId,
+      technicianId: id,
+      status: { $in: ['SCHEDULED', 'ASSIGNED', 'IN_PROGRESS'] },
+      active: true,
+    });
+
+    if (pendingVisits > 0) {
+      return next(
+        new AppError(
+          `Cannot delete technician because they have ${pendingVisits} active/scheduled visit(s) assigned. Please reassign those visits first.`,
+          400,
+          'TECHNICIAN_HAS_PENDING_VISITS'
+        )
+      );
+    }
+
+    member.status = 'SUSPENDED';
+    await member.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Technician removed from business staff',
+    });
+  } catch (error) {
+    next(error);
+  }
+}

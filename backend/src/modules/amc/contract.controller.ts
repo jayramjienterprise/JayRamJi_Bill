@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { AmcContract, IAmcContractPlanSnapshot } from '../../database/models/AmcContract';
+import { AmcServiceVisit } from '../../database/models/AmcServiceVisit';
 import { AmcPlan } from '../../database/models/AmcPlan';
 import { AmcQuotation } from '../../database/models/AmcQuotation';
 import { Customer } from '../../database/models/Customer';
@@ -467,3 +468,87 @@ export async function renewContract(req: Request, res: Response, next: NextFunct
     next(error);
   }
 }
+
+/**
+ * Delete AMC Contract and cascade delete all associated Service Visits & Job-Cards
+ */
+export async function deleteContract(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+
+    const contract = await AmcContract.findOne({ _id: id, businessId });
+    if (!contract) {
+      return next(new AppError('Contract not found', 404, 'CONTRACT_NOT_FOUND'));
+    }
+
+    // Cascade delete all service visits and job cards associated with this contract
+    const visitsDeleted = await AmcServiceVisit.deleteMany({ contractId: id, businessId });
+
+    // Delete contract
+    await AmcContract.deleteOne({ _id: id, businessId });
+
+    res.status(200).json({
+      success: true,
+      message: `Contract #${contract.contractNumber} and ${visitsDeleted.deletedCount} associated service visit(s) deleted successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Update payment status and payment amount for AMC Contract
+ */
+export async function updateContractPayment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+    const { paymentStatus, paidAmount } = req.body;
+
+    const contract = await AmcContract.findOne({ _id: id, businessId });
+    if (!contract) {
+      return next(new AppError('Contract not found', 404, 'CONTRACT_NOT_FOUND'));
+    }
+
+    if (paymentStatus) {
+      contract.paymentStatus = paymentStatus;
+    }
+
+    if (paidAmount !== undefined && !isNaN(Number(paidAmount))) {
+      const newPaid = Number(paidAmount);
+      contract.financials.paidAmount = newPaid;
+      const finalAmt = contract.financials.finalAmount || 0;
+
+      if (newPaid >= finalAmt && finalAmt > 0) {
+        contract.paymentStatus = 'PAID';
+      } else if (newPaid > 0) {
+        contract.paymentStatus = 'PARTIALLY_PAID';
+      } else {
+        contract.paymentStatus = 'UNPAID';
+      }
+    }
+
+    // Auto-activate contract if advance/payment was the gating trigger
+    if (contract.paymentStatus === 'PAID' || contract.paymentStatus === 'PARTIALLY_PAID') {
+      if (contract.status === 'PENDING_PAYMENT') {
+        contract.status = 'ACTIVE';
+      }
+    }
+
+    await contract.save();
+
+    const populated = await AmcContract.findById(contract._id)
+      .populate('customerId', 'name contact address taxProfile')
+      .populate('coveredUnits.acEquipmentId', 'brand tonnage modelNumber serialNumber installationLocation');
+
+    res.status(200).json({
+      success: true,
+      data: populated,
+      message: `Payment updated for Contract #${contract.contractNumber}. Status: ${contract.paymentStatus}.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
