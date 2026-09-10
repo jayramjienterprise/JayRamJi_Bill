@@ -24,6 +24,9 @@ import {
   X,
   Eye,
   Check,
+  Pencil,
+  Trash2,
+  Filter,
 } from 'lucide-react';
 import VisitsTab from './components/VisitsTab';
 import EntitlementModal from './components/EntitlementModal';
@@ -49,6 +52,18 @@ export default function AmcManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expiringOnly, setExpiringOnly] = useState(false);
 
+  // Tab-specific search & filter states
+  const [quotationSearchQuery, setQuotationSearchQuery] = useState('');
+  const [quotationStatusFilter, setQuotationStatusFilter] = useState('ALL');
+  const [quotationTypeFilter, setQuotationTypeFilter] = useState('ALL');
+
+  const [equipmentSearchQuery, setEquipmentSearchQuery] = useState('');
+  const [equipmentTypeFilter, setEquipmentTypeFilter] = useState('ALL');
+  const [equipmentStatusFilter, setEquipmentStatusFilter] = useState('ALL');
+
+  const [planSearchQuery, setPlanSearchQuery] = useState('');
+  const [planTypeFilter, setPlanTypeFilter] = useState('ALL');
+
   // Modals
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
@@ -57,6 +72,21 @@ export default function AmcManagementPage() {
   const [selectedHistoryEquipment, setSelectedHistoryEquipment] = useState<any | null>(null);
   const [equipmentHistoryList, setEquipmentHistoryList] = useState<any[]>([]);
   const [entitlementModalData, setEntitlementModalData] = useState<any | null>(null);
+
+  // Edit Equipment Modal state
+  const [editingEquipment, setEditingEquipment] = useState<any | null>(null);
+  const [editEquipmentForm, setEditEquipmentForm] = useState({
+    customerId: '',
+    brand: '',
+    modelNumber: '',
+    serialNumber: '',
+    tonnage: '1.5',
+    acType: 'SPLIT',
+    installationLocation: '',
+    refrigerantType: 'R32',
+    status: 'OPERATIONAL',
+    notes: '',
+  });
 
   // Convert Quotation Modal
   const [convertingQuotation, setConvertingQuotation] = useState<any | null>(null);
@@ -318,6 +348,91 @@ export default function AmcManagementPage() {
       setErrorMsg(err.message || 'Error creating AMC Plan');
     }
   }
+
+  function startEditEquipment(eq: any) {
+    setEditingEquipment(eq);
+    setEditEquipmentForm({
+      customerId: eq.customerId?._id || eq.customerId || '',
+      brand: eq.brand || '',
+      modelNumber: eq.modelNumber || '',
+      serialNumber: eq.serialNumber || '',
+      tonnage: eq.tonnage || '1.5',
+      acType: eq.acType || 'SPLIT',
+      installationLocation: eq.installationLocation || '',
+      refrigerantType: eq.refrigerantType || 'R32',
+      status: eq.status || 'OPERATIONAL',
+      notes: eq.notes || '',
+    });
+  }
+
+  async function handleUpdateEquipment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingEquipment) return;
+    try {
+      await apiClient.patch(`/amc/equipment/${editingEquipment._id}`, editEquipmentForm);
+      setSuccessMsg(`Equipment "${editEquipmentForm.brand}" updated successfully!`);
+      setEditingEquipment(null);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error updating AC equipment');
+    }
+  }
+
+  async function handleDeleteEquipment(eq: any) {
+    const brandName = eq.brand || 'AC unit';
+    const loc = eq.installationLocation ? ` at ${eq.installationLocation}` : '';
+    if (!confirm(`Are you sure you want to delete ${brandName}${loc}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await apiClient.delete(`/amc/equipment/${eq._id}`);
+      setSuccessMsg(`AC unit (${brandName}) removed from registry!`);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error deleting AC equipment');
+    }
+  }
+
+  // Filtered lists
+  const filteredQuotations = quotations.filter((q) => {
+    if (quotationStatusFilter !== 'ALL' && q.status !== quotationStatusFilter) return false;
+    if (quotationTypeFilter !== 'ALL' && q.quotationType !== quotationTypeFilter) return false;
+    if (quotationSearchQuery.trim()) {
+      const query = quotationSearchQuery.toLowerCase();
+      const numMatch = q.quotationNumber?.toLowerCase().includes(query);
+      const custMatch = q.customerId?.name?.toLowerCase().includes(query);
+      const compMatch = q.customerId?.companyName?.toLowerCase().includes(query);
+      return numMatch || custMatch || compMatch;
+    }
+    return true;
+  });
+
+  const filteredEquipment = equipmentList.filter((eq) => {
+    if (equipmentTypeFilter !== 'ALL' && eq.acType !== equipmentTypeFilter) return false;
+    if (equipmentStatusFilter !== 'ALL' && eq.status !== equipmentStatusFilter) return false;
+    if (equipmentSearchQuery.trim()) {
+      const query = equipmentSearchQuery.toLowerCase();
+      const brandMatch = eq.brand?.toLowerCase().includes(query);
+      const modelMatch = eq.modelNumber?.toLowerCase().includes(query);
+      const serialMatch = eq.serialNumber?.toLowerCase().includes(query);
+      const locMatch = eq.installationLocation?.toLowerCase().includes(query);
+      const custMatch = eq.customerId?.name?.toLowerCase().includes(query);
+      const compMatch = eq.customerId?.companyName?.toLowerCase().includes(query);
+      return brandMatch || modelMatch || serialMatch || locMatch || custMatch || compMatch;
+    }
+    return true;
+  });
+
+  const filteredPlans = plans.filter((p) => {
+    if (planTypeFilter !== 'ALL' && p.planType !== planTypeFilter) return false;
+    if (planSearchQuery.trim()) {
+      const query = planSearchQuery.toLowerCase();
+      const nameMatch = p.name?.toLowerCase().includes(query);
+      const typeMatch = p.planType?.toLowerCase().includes(query);
+      return nameMatch || typeMatch;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -702,6 +817,54 @@ export default function AmcManagementPage() {
             </Link>
           </div>
 
+          {/* Quotations Search & Filters */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3 rounded-xl shadow-xs text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="font-bold text-text-secondary">Filters:</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Status:</span>
+                <select
+                  value={quotationStatusFilter}
+                  onChange={(e) => setQuotationStatusFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="DRAFT">Draft</option>
+                  <option value="SENT">Finalized</option>
+                  <option value="CONVERTED_TO_CONTRACT">Active Contract</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Type:</span>
+                <select
+                  value={quotationTypeFilter}
+                  onChange={(e) => setQuotationTypeFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Types</option>
+                  <option value="COMPREHENSIVE">Comprehensive AMC</option>
+                  <option value="NON_COMPREHENSIVE">Non-Comprehensive AMC</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-text-secondary absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search quotation #, customer..."
+                value={quotationSearchQuery}
+                onChange={(e) => setQuotationSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-secondary focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div className="bg-surface-app border border-border-app rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -718,17 +881,19 @@ export default function AmcManagementPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-app text-sm">
-                  {quotations.length === 0 ? (
+                  {filteredQuotations.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-text-secondary">
                         <p className="text-base font-medium text-text-primary mb-1">No AMC quotations found</p>
                         <p className="text-xs text-text-secondary">
-                          Click &quot;Create Quotation&quot; to compile your first quotation.
+                          {quotationSearchQuery || quotationStatusFilter !== 'ALL' || quotationTypeFilter !== 'ALL'
+                            ? 'Try clearing the filters or search term.'
+                            : 'Click "Create Quotation" to compile your first quotation.'}
                         </p>
                       </td>
                     </tr>
                   ) : (
-                    quotations.map((q) => (
+                    filteredQuotations.map((q) => (
                       <tr key={q._id} className="hover:bg-surface-2-app/30 transition">
                         <td className="py-4 px-6">
                           <Link
@@ -830,6 +995,60 @@ export default function AmcManagementPage() {
       {/* ---------------------------------------------------- */}
       {activeTab === 'equipment' && (
         <div className="space-y-4">
+          {/* Equipment Search & Filters */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3 rounded-xl shadow-xs text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="font-bold text-text-secondary">Filters:</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Type:</span>
+                <select
+                  value={equipmentTypeFilter}
+                  onChange={(e) => setEquipmentTypeFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Types</option>
+                  <option value="SPLIT">Split AC</option>
+                  <option value="WINDOW">Window AC</option>
+                  <option value="CASSETTE">Cassette AC</option>
+                  <option value="DUCTABLE">Ductable AC</option>
+                  <option value="TOWER">Tower AC</option>
+                  <option value="PACKAGE">Package AC</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Status:</span>
+                <select
+                  value={equipmentStatusFilter}
+                  onChange={(e) => setEquipmentStatusFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="OPERATIONAL">Operational</option>
+                  <option value="NEEDS_SERVICE">Needs Service</option>
+                  <option value="UNDER_REPAIR">Under Repair</option>
+                  <option value="DECOMMISSIONED">Decommissioned</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-text-secondary absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search brand, model, serial #, location..."
+                value={equipmentSearchQuery}
+                onChange={(e) => setEquipmentSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-secondary focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -842,18 +1061,20 @@ export default function AmcManagementPage() {
                     <th className="py-3 px-4">Serial No.</th>
                     <th className="py-3 px-4">Location</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Audit History</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-app">
-                  {equipmentList.length === 0 ? (
+                  {filteredEquipment.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-text-secondary">
-                        No customer AC equipment registered yet.
+                        {equipmentSearchQuery || equipmentTypeFilter !== 'ALL' || equipmentStatusFilter !== 'ALL'
+                          ? 'No customer AC equipment matches the active filters.'
+                          : 'No customer AC equipment registered yet.'}
                       </td>
                     </tr>
                   ) : (
-                    equipmentList.map((eq) => (
+                    filteredEquipment.map((eq) => (
                       <tr key={eq._id} className="hover:bg-surface-2-app/50 transition">
                         <td className="py-3.5 px-4 font-bold text-text-primary">
                           {eq.customerId?.name || 'Unassigned'}
@@ -885,13 +1106,34 @@ export default function AmcManagementPage() {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => viewEquipmentHistory(eq)}
-                            className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
-                          >
-                            <History className="w-3 h-3" />
-                            <span>History</span>
-                          </button>
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => startEditEquipment(eq)}
+                              className="px-2 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-primary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                              title="Edit AC unit details"
+                            >
+                              <Pencil className="w-3 h-3 text-primary-700" />
+                              <span>Edit</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteEquipment(eq)}
+                              className="px-2 py-1 bg-surface-2-app hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 rounded-lg text-rose-600 text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                              title="Delete this AC unit"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Delete</span>
+                            </button>
+
+                            <button
+                              onClick={() => viewEquipmentHistory(eq)}
+                              className="px-2 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                              title="View ownership history"
+                            >
+                              <History className="w-3 h-3" />
+                              <span>History</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -907,13 +1149,50 @@ export default function AmcManagementPage() {
       {/* TAB 4: PLAN TEMPLATES */}
       {/* ---------------------------------------------------- */}
       {activeTab === 'plans' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {plans.length === 0 ? (
-            <div className="col-span-full py-12 text-center text-text-secondary bg-surface-app border border-border-app rounded-2xl">
-              No AMC plan templates created yet. Create a Comprehensive or Non-Comprehensive template.
+        <div className="space-y-4">
+          {/* Plans Search & Filters */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3 rounded-xl shadow-xs text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="font-bold text-text-secondary">Filters:</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Plan Type:</span>
+                <select
+                  value={planTypeFilter}
+                  onChange={(e) => setPlanTypeFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Types</option>
+                  <option value="COMPREHENSIVE">Comprehensive (Parts + Service)</option>
+                  <option value="NON_COMPREHENSIVE">Non-Comprehensive (Service Only)</option>
+                </select>
+              </div>
             </div>
-          ) : (
-            plans.map((p) => (
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-text-secondary absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search plan template name..."
+                value={planSearchQuery}
+                onChange={(e) => setPlanSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-secondary focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredPlans.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-text-secondary bg-surface-app border border-border-app rounded-2xl">
+                {planSearchQuery || planTypeFilter !== 'ALL'
+                  ? 'No AMC plan templates found matching your filters.'
+                  : 'No AMC plan templates created yet. Click "Create AMC Plan" above to create one.'}
+              </div>
+            ) : (
+              filteredPlans.map((p) => (
               <div
                 key={p._id}
                 className="bg-surface-app border border-border-app rounded-2xl p-5 shadow-xs flex flex-col justify-between hover:border-primary-700/50 transition"
@@ -975,6 +1254,7 @@ export default function AmcManagementPage() {
               </div>
             ))
           )}
+          </div>
         </div>
       )}
 
@@ -1552,6 +1832,364 @@ export default function AmcManagementPage() {
                   className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
                 >
                   Register Unit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: EDIT AC UNIT */}
+      {/* ---------------------------------------------------- */}
+      {editingEquipment && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <div>
+                <h3 className="text-base font-black text-text-primary">
+                  Edit AC Equipment Details
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Update unit specifications, location, or operational status
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingEquipment(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateEquipment} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Customer
+                </label>
+                <select
+                  value={editEquipmentForm.customerId}
+                  onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, customerId: e.target.value })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium"
+                  required
+                >
+                  <option value="">Select Customer</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    AC Type *
+                  </label>
+                  <select
+                    value={editEquipmentForm.acType}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, acType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  >
+                    <option value="SPLIT">Split AC</option>
+                    <option value="WINDOW">Window AC</option>
+                    <option value="CASSETTE">Cassette AC</option>
+                    <option value="DUCTABLE">Ductable AC</option>
+                    <option value="TOWER">Tower AC</option>
+                    <option value="PACKAGE">Package AC</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Tonnage *
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.tonnage}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, tonnage: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Brand *
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.brand}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, brand: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Model Number
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.modelNumber}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, modelNumber: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Serial Number
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.serialNumber}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, serialNumber: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Refrigerant Gas
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.refrigerantType}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, refrigerantType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Installation Location *
+                  </label>
+                  <input
+                    type="text"
+                    value={editEquipmentForm.installationLocation}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, installationLocation: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Operational Status
+                  </label>
+                  <select
+                    value={editEquipmentForm.status}
+                    onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, status: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  >
+                    <option value="OPERATIONAL">Operational</option>
+                    <option value="NEEDS_SERVICE">Needs Service</option>
+                    <option value="UNDER_REPAIR">Under Repair</option>
+                    <option value="DECOMMISSIONED">Decommissioned</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Notes
+                </label>
+                <textarea
+                  rows={2}
+                  value={editEquipmentForm.notes}
+                  onChange={(e) => setEditEquipmentForm({ ...editEquipmentForm, notes: e.target.value })}
+                  placeholder="Additional unit remarks..."
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border-app">
+                <button
+                  type="button"
+                  onClick={() => setEditingEquipment(null)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CREATE AMC PLAN */}
+      {/* ---------------------------------------------------- */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <div>
+                <h3 className="text-base font-black text-text-primary">
+                  Create AMC Plan Template
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Configure default service visits, gas policy, and coverage rules
+                </p>
+              </div>
+              <button
+                onClick={() => setIsPlanModalOpen(false)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePlan} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Plan Name *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Standard 1-Year Comprehensive Fleet"
+                  value={planForm.name}
+                  onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Plan Type *
+                  </label>
+                  <select
+                    value={planForm.planType}
+                    onChange={(e) => setPlanForm({ ...planForm, planType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  >
+                    <option value="COMPREHENSIVE">Comprehensive (Parts &amp; Labor)</option>
+                    <option value="NON_COMPREHENSIVE">Non-Comprehensive (Labor Only)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Duration (Months) *
+                  </label>
+                  <input
+                    type="number"
+                    value={planForm.durationMonths}
+                    onChange={(e) => setPlanForm({ ...planForm, durationMonths: Number(e.target.value) })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Base Price / Benchmark Rate (₹) *
+                </label>
+                <input
+                  type="number"
+                  value={planForm.basePrice}
+                  onChange={(e) => setPlanForm({ ...planForm, basePrice: Number(e.target.value) })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-black"
+                  required
+                />
+              </div>
+
+              {/* Service Entitlements */}
+              <div className="bg-surface-2-app/50 border border-border-app p-3 rounded-xl space-y-2.5">
+                <h4 className="font-bold text-text-primary uppercase tracking-wider text-[11px]">
+                  Included Service Entitlements:
+                </h4>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <label className="block text-text-secondary text-[11px] font-semibold mb-1">
+                      Dry Visits (Year)
+                    </label>
+                    <input
+                      type="number"
+                      value={planForm.dryVisits}
+                      onChange={(e) => setPlanForm({ ...planForm, dryVisits: Number(e.target.value) })}
+                      className="w-full bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold text-text-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-text-secondary text-[11px] font-semibold mb-1">
+                      Water Visits (Year)
+                    </label>
+                    <input
+                      type="number"
+                      value={planForm.waterVisits}
+                      onChange={(e) => setPlanForm({ ...planForm, waterVisits: Number(e.target.value) })}
+                      className="w-full bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold text-text-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-text-secondary text-[11px] font-semibold mb-1">
+                      Breakdown Calls
+                    </label>
+                    <input
+                      type="number"
+                      value={planForm.breakdownVisits}
+                      onChange={(e) => setPlanForm({ ...planForm, breakdownVisits: Number(e.target.value) })}
+                      className="w-full bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold text-text-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Gas Refill Coverage */}
+              <div className="bg-surface-2-app/50 border border-border-app p-3 rounded-xl space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-text-primary">
+                  <input
+                    type="checkbox"
+                    checked={planForm.gasIncluded}
+                    onChange={(e) => setPlanForm({ ...planForm, gasIncluded: e.target.checked })}
+                    className="rounded text-primary-700"
+                  />
+                  <span>Include Refrigerant Gas Top-Up</span>
+                </label>
+
+                {planForm.gasIncluded && (
+                  <div className="pt-2">
+                    <label className="block text-text-secondary text-[11px] font-semibold mb-1">
+                      Gas Refill Limit (Kg per Contract)
+                    </label>
+                    <input
+                      type="number"
+                      value={planForm.gasLimitKg}
+                      onChange={(e) => setPlanForm({ ...planForm, gasLimitKg: Number(e.target.value) })}
+                      className="w-full bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold text-text-primary"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border-app">
+                <button
+                  type="button"
+                  onClick={() => setIsPlanModalOpen(false)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Create Plan Template
                 </button>
               </div>
             </form>

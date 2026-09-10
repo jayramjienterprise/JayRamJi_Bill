@@ -387,6 +387,19 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     const customerName = invoice.customerSnapshot?.name || 'Customer';
     const amount = `₹${((invoice.totals?.grandTotalMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+    const rawPhone =
+      (invoice.customerSnapshot as any)?.phone ||
+      (invoice.customerSnapshot as any)?.contact?.phone ||
+      (invoice as any).customer?.phone ||
+      (invoice as any).customer?.contact?.phone ||
+      '';
+    const cleanDigits = String(rawPhone).replace(/\D/g, '');
+    const phoneDigits = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+
+    const isMobile =
+      typeof navigator !== 'undefined' &&
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+
     setSharingLoading(true);
     try {
       if (shareFormat === 'PDF') {
@@ -394,24 +407,35 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         const file = new File([blob], `Invoice-${invoiceNum}.pdf`, { type: 'application/pdf' });
 
         if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
-          // Native file share directly into WhatsApp without extra links
-          await navigator.share({
-            files: [file],
-            title: `Invoice #${invoiceNum}`,
-          });
-        } else {
-          // Desktop Fallback: Download file directly and open WhatsApp Web
-          const fileUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = fileUrl;
-          link.download = `Invoice-${invoiceNum}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(fileUrl);
+          try {
+            await navigator.share({
+              files: [file],
+              title: `Invoice #${invoiceNum}`,
+            });
+            return;
+          } catch (shareErr: any) {
+            if (shareErr.name === 'AbortError') return;
+          }
+        }
 
-          const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
-          const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        // Fallback: Download file directly and open WhatsApp
+        const fileUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = `Invoice-${invoiceNum}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(fileUrl);
+
+        const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
+        const whatsappUrl = phoneDigits
+          ? `https://api.whatsapp.com/send?phone=${phoneDigits}&text=${encodeURIComponent(text)}`
+          : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+
+        if (isMobile) {
+          window.location.href = whatsappUrl;
+        } else {
           window.open(whatsappUrl, '_blank');
         }
       } else if (shareFormat === 'PNG') {
@@ -419,32 +443,50 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         const file = new File([blob], `Invoice-${invoiceNum}.png`, { type: 'image/png' });
 
         if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
-          // Native file share directly sends PNG photo
-          await navigator.share({
-            files: [file],
-            title: `Invoice #${invoiceNum}`,
-          });
-        } else {
-          // Desktop Fallback: Download image and open WhatsApp Web
-          const fileUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = fileUrl;
-          link.download = `Invoice-${invoiceNum}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(fileUrl);
+          try {
+            await navigator.share({
+              files: [file],
+              title: `Invoice #${invoiceNum}`,
+            });
+            return;
+          } catch (shareErr: any) {
+            if (shareErr.name === 'AbortError') return;
+          }
+        }
 
-          const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
-          const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        // Fallback: Download image and open WhatsApp
+        const fileUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = `Invoice-${invoiceNum}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(fileUrl);
+
+        const text = `*JAY RAMJI ENTERPRISE*\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*`;
+        const whatsappUrl = phoneDigits
+          ? `https://api.whatsapp.com/send?phone=${phoneDigits}&text=${encodeURIComponent(text)}`
+          : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+
+        if (isMobile) {
+          window.location.href = whatsappUrl;
+        } else {
           window.open(whatsappUrl, '_blank');
         }
       } else {
         // Share Interactive Web Link
         const activeShareUrl = await ensureShareLink();
         const text = `*JAY RAMJI ENTERPRISE*\n\nTax Invoice: *#${invoiceNum}*\nCustomer: ${customerName}\nTotal Amount: *${amount}*\n\nView Bill Online:\n${activeShareUrl}`;
-        const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-        window.open(whatsappUrl, '_blank');
+        const whatsappUrl = phoneDigits
+          ? `https://api.whatsapp.com/send?phone=${phoneDigits}&text=${encodeURIComponent(text)}`
+          : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+
+        if (isMobile) {
+          window.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, '_blank');
+        }
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {

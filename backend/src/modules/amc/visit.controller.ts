@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { AmcServiceVisit } from '../../database/models/AmcServiceVisit';
 import { AmcContract } from '../../database/models/AmcContract';
@@ -567,6 +568,56 @@ export async function listTechnicians(req: Request, res: Response, next: NextFun
     res.status(200).json({
       success: true,
       data: technicians,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createTechnician(req: Request, res: Response, next: NextFunction) {
+  try {
+    const businessId = (req as any).businessId;
+    const { name, email, phone } = req.body;
+
+    if (!name || !name.trim()) {
+      return next(new AppError('Technician name is required', 400, 'INVALID_NAME'));
+    }
+
+    const techEmail = email && email.trim() ? email.trim().toLowerCase() : `tech.${Date.now()}@jayramji.local`;
+
+    let user = await User.findOne({ email: techEmail });
+    if (!user) {
+      const passwordHash = await bcrypt.hash('Tech@123', 10);
+      user = await User.create({
+        name: name.trim(),
+        email: techEmail,
+        phone: phone?.trim() || null,
+        passwordHash,
+        status: 'ACTIVE',
+      });
+    } else {
+      if (phone && phone.trim()) {
+        user.phone = phone.trim();
+        await user.save();
+      }
+    }
+
+    await BusinessMember.findOneAndUpdate(
+      { businessId, userId: user._id },
+      { businessId, userId: user._id, role: 'STAFF', active: true },
+      { upsert: true, new: true }
+    );
+
+    res.status(201).json({
+      success: true,
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: 'STAFF',
+      },
+      message: 'Technician added successfully',
     });
   } catch (error) {
     next(error);

@@ -5,6 +5,7 @@ export interface AmcQuotationRenderData {
     quotationDate: Date | string;
     validUntil?: Date | string;
     paymentTerms: string;
+    quotationType?: string;
     title?: string;
     termsAndConditions?: string[];
   };
@@ -145,6 +146,32 @@ export class AmcRenderService {
       `;
     }).join('');
 
+    // Determine AMC Type Label
+    const amcTypeLabel = quotation.quotationType === 'COMPREHENSIVE'
+      ? 'Comprehensive AMC'
+      : quotation.quotationType === 'NON_COMPREHENSIVE'
+        ? 'Non-Comprehensive AMC'
+        : (quotation.quotationType || 'AMC');
+
+    // Default 10 rows (empty or filled)
+    const DEFAULT_ROWS = 10;
+    const emptyRowsCount = Math.max(0, DEFAULT_ROWS - items.length);
+    let emptyRowsHtml = '';
+    for (let i = 0; i < emptyRowsCount; i++) {
+      const rowIdx = items.length + i;
+      const isAlt = rowIdx % 2 === 1;
+      const bgStyle = isAlt ? 'background-color: #fafbfc;' : 'background-color: #ffffff;';
+      emptyRowsHtml += `
+        <tr style="${bgStyle}; height: 23px;">
+          <td style="text-align: center; border-right: 1px solid black; border-bottom: 1px solid black;">&nbsp;</td>
+          <td style="border-right: 1px solid black; border-bottom: 1px solid black;">&nbsp;</td>
+          <td style="border-right: 1px solid black; border-bottom: 1px solid black;">&nbsp;</td>
+          <td style="border-right: 1px solid black; border-bottom: 1px solid black;">&nbsp;</td>
+          <td style="border-bottom: 1px solid black;">&nbsp;</td>
+        </tr>
+      `;
+    }
+
     const defaultTerms = [
       'This AMC is valid for 1 year from the date of agreement or approval.',
       'Only refrigerant gas is included in the above rates if explicitly configured.',
@@ -213,26 +240,33 @@ export class AmcRenderService {
             width: 25%;
             text-align: left;
           }
-          .quotation-box-centered {
-            display: inline-block;
-            border: 1.5px solid black;
-            font-size: 13pt;
+          .quotation-heading-section {
+            text-align: center;
+            margin-top: 14px;
+            margin-bottom: 16px;
+          }
+          .quotation-title-centered {
+            font-size: 15pt;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            text-align: center;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .amc-type-subtitle {
+            font-size: 10pt;
             font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            text-align: center;
-            padding: 3px 20px;
-            margin: 6px auto;
-          }
-          .quotation-box-wrapper {
-            text-align: center;
-            margin-bottom: 6px;
+            letter-spacing: 1px;
+            color: #222222;
+            margin-top: 4px;
+            line-height: 1.2;
           }
           .sold-to-block {
             text-align: left;
-            margin-bottom: 6px;
-            border: 1px solid black;
-            padding: 6px 10px;
+            margin-bottom: 12px;
+            padding: 0;
           }
           .sold-to-title {
             font-size: 9.5pt;
@@ -404,9 +438,10 @@ export class AmcRenderService {
               </tr>
             </table>
 
-            <!-- Title -->
-            <div class="quotation-box-wrapper">
-              <div class="quotation-box-centered">${quotation.title || 'QUOTATION INQUIRY'}</div>
+            <!-- Title & AMC Type -->
+            <div class="quotation-heading-section">
+              <div class="quotation-title-centered">${quotation.title || 'QUOTATION INQUIRY'}</div>
+              <div class="amc-type-subtitle">${amcTypeLabel}</div>
             </div>
 
             <!-- Sold To -->
@@ -456,6 +491,7 @@ export class AmcRenderService {
               </thead>
               <tbody>
                 ${rowsHtml}
+                ${emptyRowsHtml}
                 <!-- Subtotal Row -->
                 <tr style="background-color: #fafbfc; font-weight: bold; border-top: 1.5px solid black;">
                   <td colspan="2" style="text-align: center; border-right: 1px solid black; font-size: 9pt;">Total</td>

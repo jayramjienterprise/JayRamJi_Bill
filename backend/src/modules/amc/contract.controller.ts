@@ -316,15 +316,22 @@ export async function convertQuotationToContract(req: Request, res: Response, ne
       equipmentQuery._id = { $in: coveredEquipmentIds };
     }
 
-    const customerEquipments = await CustomerAcEquipment.find(equipmentQuery);
+    let customerEquipments = await CustomerAcEquipment.find(equipmentQuery);
     if (customerEquipments.length === 0) {
-      return next(
-        new AppError(
-          'Customer does not have registered AC units. Please register at least one AC unit for this customer first.',
-          400,
-          'NO_EQUIPMENT_FOUND'
-        )
-      );
+      // Auto-register a default AC unit for this customer from quotation line items so conversion succeeds seamlessly
+      const firstItem = quotation.items?.[0];
+      const autoEquip = await CustomerAcEquipment.create({
+        businessId,
+        customerId: quotation.customerId,
+        acType: 'SPLIT',
+        tonnage: '1.5 Ton',
+        brand: 'General / Multi-Brand',
+        installationLocation: 'Customer Premises',
+        notes: `Auto-registered from Quotation #${quotation.quotationNumber}${firstItem?.description ? ` (${firstItem.description})` : ''}`,
+        status: 'OPERATIONAL',
+        active: true,
+      });
+      customerEquipments = [autoEquip];
     }
 
     const coveredUnits = customerEquipments.map((eq) => ({

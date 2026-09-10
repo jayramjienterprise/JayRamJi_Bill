@@ -40,6 +40,7 @@ import {
   createSupplementaryQuotationFromVisit,
   getVisitEntitlementSummary,
   listTechnicians,
+  createTechnician,
 } from './visit.controller';
 
 const router = Router();
@@ -94,6 +95,7 @@ router.post('/contracts/:contractId/generate-visits', generateContractVisits);
 // ----------------------------------------------------
 router.get('/visits', listVisits);
 router.get('/technicians', listTechnicians);
+router.post('/technicians', createTechnician);
 router.get('/visits/:id', getVisit);
 router.patch('/visits/:id/assign', assignTechnician);
 router.post('/visits/:id/complete-jobcard', completeVisitJobCard);

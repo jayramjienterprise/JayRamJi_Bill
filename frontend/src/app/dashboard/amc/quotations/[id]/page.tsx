@@ -175,7 +175,36 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
       const blob = await response.blob();
       const fileName = `Quotation-${quotation.quotationNumber || 'Document'}.pdf`;
 
-      // 1. Always download the PDF file directly to machine
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+
+      const rawPhone =
+        quotation.customer?.contact?.phone ||
+        (quotation.customer as any)?.phone ||
+        '';
+      const cleanDigits = String(rawPhone).replace(/\D/g, '');
+      const phoneDigits = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      // 1. If on mobile and native sharing is supported, share directly into WhatsApp
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Quotation #${quotation.quotationNumber || 'Document'}`,
+          });
+          return; // Native share dialog successfully handled
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') {
+            // User cancelled share dialog
+            return;
+          }
+        }
+      }
+
+      // 2. Download file to device
       const fileUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = fileUrl;
@@ -185,41 +214,35 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
       document.body.removeChild(a);
       window.URL.revokeObjectURL(fileUrl);
 
-      // 2. Check if user is on mobile (where native share sheet works without prompt expiry)
-      const isMobile =
-        typeof navigator !== 'undefined' &&
-        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
+      // 3. Open WhatsApp chat
       if (isMobile) {
-        try {
-          const file = new File([blob], fileName, { type: 'application/pdf' });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file] });
-            return;
-          }
-        } catch (_) {
-          // User gesture expired or share dismissed, fall back to WhatsApp Web
-        }
-      }
-
-      // 3. For Laptop / Desktop (Opens WhatsApp Desktop app & Web):
-      setSuccessMsg('Quotation PDF downloaded! Attach and send directly in WhatsApp.');
-
-      // Try launching WhatsApp Desktop application via whatsapp:// protocol
-      try {
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = 'whatsapp://send';
-        document.body.appendChild(iframe);
+        setSuccessMsg('Quotation PDF downloaded! Opening WhatsApp...');
+        const mobileUrl = phoneDigits
+          ? `https://api.whatsapp.com/send?phone=${phoneDigits}`
+          : 'whatsapp://send';
         setTimeout(() => {
-          if (iframe.parentNode) document.body.removeChild(iframe);
-        }, 1500);
-      } catch (_) {}
+          window.location.href = mobileUrl;
+        }, 400);
+      } else {
+        // Laptop / Desktop:
+        setSuccessMsg('Quotation PDF downloaded! Attach and send directly in WhatsApp.');
+        try {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = phoneDigits ? `whatsapp://send?phone=${phoneDigits}` : 'whatsapp://send';
+          document.body.appendChild(iframe);
+          setTimeout(() => {
+            if (iframe.parentNode) document.body.removeChild(iframe);
+          }, 1500);
+        } catch (_) {}
 
-      // Open WhatsApp Web in tab as reliable complement
-      setTimeout(() => {
-        window.open('https://web.whatsapp.com', '_blank');
-      }, 400);
+        setTimeout(() => {
+          const webUrl = phoneDigits
+            ? `https://web.whatsapp.com/send?phone=${phoneDigits}`
+            : 'https://web.whatsapp.com';
+          window.open(webUrl, '_blank');
+        }, 400);
+      }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setErrorMsg(err.message || 'Failed to prepare quotation PDF');

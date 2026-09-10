@@ -11,12 +11,13 @@ export interface AmcQuotationPaperItem {
 
 export interface AmcQuotationPaperProps {
   quotation: {
+    title?: string;
     quotationNumber: string | null;
     quotationDate: string | Date;
     paymentTerms: string | null;
     validUntil?: string | Date | null;
-    quotationType: 'COMPREHENSIVE' | 'NON_COMPREHENSIVE' | string;
-    amountInWords: string;
+    quotationType?: 'COMPREHENSIVE' | 'NON_COMPREHENSIVE' | string;
+    amountInWords?: string;
     termsAndConditions?: string[];
   };
   business: {
@@ -96,45 +97,69 @@ export default function AmcQuotationPaper({
     );
   }
 
-  const formattedDate = new Date(quotation.quotationDate).toLocaleDateString('en-IN', {
+  const formattedDate = new Date(quotation.quotationDate).toLocaleDateString('en-GB', {
     day: '2-digit',
-    month: 'short',
+    month: '2-digit',
     year: 'numeric',
   });
 
-  const businessAddrLines = [
-    business.address?.line1,
-    business.address?.line2,
-    business.address?.city,
-    business.address?.state,
-    business.address?.postalCode
-      ? `${business.address.state}-${business.address.postalCode}`
-      : business.address?.state,
-  ].filter(Boolean);
+  const isJayRamJi =
+    business.name?.toUpperCase().includes('JAY RAMJI') ||
+    (business.legalName && business.legalName.toUpperCase().includes('JAY RAMJI')) ||
+    (business.displayName && business.displayName.toUpperCase().includes('JAY RAMJI'));
 
-  const businessAddrStr = businessAddrLines.join(', ');
-  const businessPhoneStr = business.contact?.phone ? `Contact No.: ${business.contact.phone}` : '';
+  const rawBusinessAddress =
+    business.address?.displayAddress ||
+    (business.address?.line1
+      ? [
+          business.address.line1,
+          business.address.line2,
+          [business.address.city, business.address.state].filter(Boolean).join('-'),
+          business.address.postalCode,
+        ]
+          .filter(Boolean)
+          .join(', ')
+      : 'AT- Maruti Chhaya Complex, Nr. Satkar Shopping.St. Xevier School Road, Baroi Road, Mundra-370421');
+
+  const addressLen = rawBusinessAddress.length;
+  const addressFontSize =
+    addressLen > 115 ? '6.0pt' : addressLen > 95 ? '6.6pt' : addressLen > 75 ? '7.5pt' : '8.5pt';
+  const addressLetterSpacing = addressLen > 90 ? '-0.25px' : 'normal';
+
+  const businessPhoneStr = business.contact?.phone ? `Mo:- ${business.contact.phone}` : '';
   const businessEmailStr = business.contact?.email ? `Email: ${business.contact.email}` : '';
   const businessGstinStr = business.taxProfile?.gstin ? `GSTIN: ${business.taxProfile.gstin}` : '';
 
+  const hasPeriod = items.some((it) => it.period && it.period.trim().length > 0);
+
+  const formatCurrency = (val: number) => {
+    return (Number(val) || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
   const displayItems = items.map((it, idx) => ({
     ...it,
-    serialNumber: idx + 1,
+    serialNumber: it.serialNumber || idx + 1,
   }));
 
-  const paddingRowsCount = Math.max(0, 8 - displayItems.length);
+  const amcTypeLabel =
+    quotation.quotationType === 'COMPREHENSIVE'
+      ? 'Comprehensive AMC'
+      : quotation.quotationType === 'NON_COMPREHENSIVE'
+        ? 'Non-Comprehensive AMC'
+        : (quotation.quotationType || 'AMC');
 
-  const subtotalValue = totals.subtotal || 0;
-  const taxTotalValue = totals.taxTotal || 0;
-  const grandTotalValue = totals.grandTotal || 0;
+  const DEFAULT_ROWS = 10;
+  const emptyRowsCount = Math.max(0, DEFAULT_ROWS - displayItems.length);
 
   const defaultTerms = [
-    'This AMC quotation is valid for 30 days from issuance date.',
-    quotation.quotationType === 'COMPREHENSIVE'
-      ? 'Comprehensive AMC: Routine scheduled maintenance and eligible components are covered.'
-      : 'Non-Comprehensive AMC: Labour & routine inspection included. Spare parts & gas are chargeable.',
-    'Payment Terms: ' + (quotation.paymentTerms || '10 Days from Invoice Date'),
-    'Emergency breakdown calls will be attended to within 24 to 48 hours.',
+    'This AMC is valid for 1 year from the date of agreement or approval.',
+    'Only refrigerant gas is included in the above rates if explicitly configured.',
+    'Spare parts are not included. The above rates are for labour charges only.',
+    'AC installation charges include up to 10 feet of standard installation.',
+    'Additional copper piping beyond 10 feet will be charged on a per-foot basis.',
   ];
 
   const termsList =
@@ -142,220 +167,513 @@ export default function AmcQuotationPaper({
       ? quotation.termsAndConditions
       : defaultTerms;
 
-  const isComprehensive = quotation.quotationType === 'COMPREHENSIVE';
-
   return (
     <div
-      className="bg-white text-black font-['Arial',_Helvetica,_sans-serif] relative flex flex-col justify-between w-full h-full box-border"
+      className="bg-white text-black font-['Arial',_Helvetica,_sans-serif] relative flex flex-col justify-between w-full h-full box-border select-text"
       style={{
+        width: '210mm',
+        minHeight: '297mm',
         padding: '10mm 15mm 12mm 15mm',
-        fontSize: '8.5pt',
-        lineHeight: '1.2',
+        boxSizing: 'border-box',
+        backgroundColor: 'white',
         border: '1.5px solid black',
+        fontSize: '8.5pt',
+        lineHeight: 1.2,
       }}
     >
       <div>
-        {/* 1. Header Section */}
-        <div className="grid grid-cols-12 gap-3 items-center border-b border-black pb-2 mb-2">
-          <div className="col-span-3 flex justify-start items-center">
-            {assets?.logo?.secureUrl ? (
-              <img
-                src={assets.logo.secureUrl}
-                alt="Logo"
-                style={{
-                  maxHeight: '28mm',
-                  maxWidth: '100%',
-                  objectFit: 'contain',
-                }}
-              />
-            ) : (
-              <div className="w-24 h-16 border border-dashed border-gray-300 flex items-center justify-center text-[10px] text-gray-400 font-bold">
-                LOGO
-              </div>
-            )}
-          </div>
-
-          <div className="col-span-9 text-center space-y-0.5">
-            <h1 className="text-[20pt] font-black uppercase tracking-wide leading-none text-black">
-              {business.displayName || business.name || 'JAY RAMJI ENTERPRISE'}
-            </h1>
-            <p className="text-[9pt] font-bold tracking-tight text-gray-800">
-              YOUR SATISFACTION, OUR SUCCESS.
-            </p>
-            <p className="text-[7.5pt] text-gray-700 leading-tight">
-              {businessAddrStr || 'Mundra Highway Road, Mundra-Gujarat, 370421'}
-            </p>
-            <p className="text-[7.5pt] font-medium text-gray-700">
-              {[businessPhoneStr, businessEmailStr, businessGstinStr].filter(Boolean).join(' | ')}
-            </p>
-          </div>
-        </div>
-
-        {/* 2. Document Title Box */}
-        <div className="text-center mb-2">
-          <div className="inline-block border border-black px-6 py-1 font-bold text-center uppercase tracking-widest text-[11pt] bg-neutral-50">
-            AMC QUOTATION
-          </div>
-          <div className="text-[8pt] font-black text-primary-700 uppercase tracking-wider mt-0.5">
-            {isComprehensive ? 'COMPREHENSIVE AMC CONTRACT' : 'NON-COMPREHENSIVE AMC CONTRACT'}
-          </div>
-        </div>
-
-        {/* 3. SOLD TO Box */}
-        <div className="border border-black p-2 mb-2 text-left bg-neutral-50/50">
-          <div className="text-[8.5pt] font-bold text-gray-600 uppercase mb-0.5">SOLD TO:</div>
-          <div className="text-[9pt] font-bold uppercase text-black">
-            {customer?.name || 'CUSTOMER NAME'}
-          </div>
-          <div className="text-[8pt] text-gray-700 leading-tight">
-            {[
-              customer?.address?.line1,
-              customer?.address?.line2,
-              customer?.address?.city,
-              customer?.address?.state,
-              customer?.address?.postalCode,
-            ]
-              .filter(Boolean)
-              .join(', ') || 'CUSTOMER ADDRESS'}
-          </div>
-          {customer?.contact?.phone && (
-            <div className="text-[8pt] text-gray-700">Contact: {customer.contact.phone}</div>
-          )}
-          {customer?.taxProfile?.gstin && (
-            <div className="text-[8pt] font-bold text-gray-800">
-              GSTIN: {customer.taxProfile.gstin}
-            </div>
-          )}
-        </div>
-
-        {/* 4. Metadata Strip */}
-        <table className="w-full border-collapse border border-black mb-2 text-[8pt] font-bold">
-          <thead>
-            <tr className="bg-[#fce4d0]">
-              <th className="border-r border-black p-1 text-left uppercase w-1/3">
-                QUOTATION NO.
-              </th>
-              <th className="border-r border-black p-1 text-left uppercase w-1/3">
-                QUOTATION DATE
-              </th>
-              <th className="p-1 text-left uppercase w-1/3">TERMS OF PAYMENT / VALIDITY</th>
-            </tr>
-          </thead>
+        {/* Header Table */}
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            borderBottom: '1.5px solid black',
+            paddingBottom: '6px',
+            marginBottom: '6px',
+          }}
+        >
           <tbody>
             <tr>
-              <td className="border-r border-black p-1 text-left text-[8.5pt]">
-                {quotation.quotationNumber || 'DRAFT'}
+              <td style={{ width: '25%', textAlign: 'left', verticalAlign: 'middle', border: 'none', padding: 0 }}>
+                {assets?.logo?.secureUrl ? (
+                  <img
+                    src={assets.logo.secureUrl}
+                    alt="Logo"
+                    style={{ maxHeight: '32mm', maxWidth: '100%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '32mm',
+                      height: '20mm',
+                      border: '2px dashed #ccc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '11px',
+                      color: '#999',
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    LOGO
+                  </div>
+                )}
               </td>
-              <td className="border-r border-black p-1 text-left">{formattedDate}</td>
-              <td className="p-1 text-left">{quotation.paymentTerms || '10 Days from Invoice date'}</td>
+              <td style={{ width: '75%', textAlign: 'center', verticalAlign: 'middle', border: 'none', padding: 0 }}>
+                <h1
+                  style={{
+                    fontSize: '24pt',
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    margin: 0,
+                    letterSpacing: '1px',
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {business.displayName || business.name}
+                </h1>
+                {isJayRamJi && (
+                  <p style={{ fontSize: '9.5pt', fontWeight: 'bold', margin: '2px 0 0 0' }}>
+                    YOUR SATISFACTION, OUR SUCCESS.
+                  </p>
+                )}
+                <p
+                  style={{
+                    fontSize: addressFontSize,
+                    letterSpacing: addressLetterSpacing,
+                    fontWeight: 'bold',
+                    margin: '3px 0 0 0',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {rawBusinessAddress}
+                </p>
+                <p style={{ fontSize: '8.5pt', fontWeight: 'bold', margin: '2px 0 0 0' }}>
+                  {[businessPhoneStr, businessEmailStr, businessGstinStr].filter(Boolean).join(' | ')}
+                </p>
+              </td>
             </tr>
           </tbody>
         </table>
 
-        {/* 5. AMC Table */}
-        <table className="w-full border-collapse border border-black text-[8pt]">
+        {/* Title & AMC Type Section */}
+        <div style={{ textAlign: 'center', marginTop: '14px', marginBottom: '16px' }}>
+          <div
+            style={{
+              fontSize: '15pt',
+              fontWeight: 900,
+              textTransform: 'uppercase',
+              letterSpacing: '1.5px',
+              textAlign: 'center',
+              margin: 0,
+              lineHeight: 1.2,
+            }}
+          >
+            {quotation.title || 'QUOTATION INQUIRY'}
+          </div>
+          <div
+            style={{
+              fontSize: '10pt',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              color: '#222222',
+              marginTop: '4px',
+              lineHeight: 1.2,
+            }}
+          >
+            {amcTypeLabel}
+          </div>
+        </div>
+
+        {/* Sold To (No Border Box) */}
+        <div style={{ textAlign: 'left', marginBottom: '12px' }}>
+          <h4 style={{ fontSize: '9.5pt', fontWeight: 'bold', textTransform: 'uppercase', margin: '0 0 3px 0' }}>
+            SOLD TO:
+          </h4>
+          <div style={{ fontSize: '9.5pt', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, lineHeight: 1.25 }}>
+            {customer?.name || 'CUSTOMER NAME'}
+            {customer?.address?.line1 && (
+              <p style={{ fontWeight: 'normal', fontSize: '9pt', margin: '2px 0 0 0' }}>
+                {customer.address.line1}
+              </p>
+            )}
+            {customer?.address?.line2 && (
+              <p style={{ fontWeight: 'normal', fontSize: '9pt', margin: '2px 0 0 0' }}>
+                {customer.address.line2}
+              </p>
+            )}
+            {(customer?.address?.city || customer?.address?.state) && (
+              <p style={{ fontWeight: 'normal', fontSize: '9pt', margin: '2px 0 0 0' }}>
+                {[customer.address.city, customer.address.state].filter(Boolean).join(' - ')}
+                {customer.address?.postalCode ? ', ' + customer.address.postalCode : ''}
+              </p>
+            )}
+            {customer?.contact?.phone && (
+              <p style={{ fontWeight: 'normal', fontSize: '9pt', margin: '2px 0 0 0' }}>
+                Mo: {customer.contact.phone}
+              </p>
+            )}
+            {customer?.taxProfile?.gstin && (
+              <p style={{ fontWeight: 'bold', fontSize: '9pt', marginTop: '3px' }}>
+                GSTIN: {customer.taxProfile.gstin}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Metadata Table */}
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            marginBottom: '6px',
+            border: '1px solid black',
+            fontSize: '9pt',
+            fontWeight: 'bold',
+          }}
+        >
           <thead>
-            <tr className="bg-[#fce4d0] font-bold border-b border-black text-center">
-              <th className="border-r border-black p-1.5 w-10">SR NO.</th>
-              <th className="border-r border-black p-1.5 text-left">DESCRIPTION OF SERVICE / GOODS</th>
-              <th className="border-r border-black p-1.5 w-24">PERIOD</th>
-              <th className="border-r border-black p-1.5 w-12">QTY</th>
-              <th className="border-r border-black p-1.5 w-20 text-right">RATE</th>
-              <th className="p-1.5 w-24 text-right">AMOUNT</th>
+            <tr>
+              <th
+                style={{
+                  width: '22%',
+                  borderRight: '1px solid black',
+                  borderBottom: '1px solid black',
+                  padding: '4px 6px',
+                  textAlign: 'left',
+                  fontWeight: 'bold',
+                  backgroundColor: '#fce4d0',
+                  textTransform: 'uppercase',
+                }}
+              >
+                QUTATION NO.
+              </th>
+              <th
+                style={{
+                  width: '26%',
+                  borderRight: '1px solid black',
+                  borderBottom: '1px solid black',
+                  padding: '4px 6px',
+                  textAlign: 'left',
+                  fontWeight: 'bold',
+                  backgroundColor: '#fce4d0',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Date
+              </th>
+              <th
+                style={{
+                  width: '52%',
+                  borderBottom: '1px solid black',
+                  padding: '4px 6px',
+                  textAlign: 'left',
+                  fontWeight: 'bold',
+                  backgroundColor: '#fce4d0',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Payment Terms*
+              </th>
             </tr>
           </thead>
           <tbody>
-            {displayItems.map((item, idx) => (
-              <tr key={idx} className="border-b border-black/30 text-left">
-                <td className="border-r border-black p-1 text-center font-medium">
-                  {item.serialNumber}
-                </td>
-                <td className="border-r border-black p-1 font-semibold">{item.description}</td>
-                <td className="border-r border-black p-1 text-center font-medium text-gray-700">
-                  {item.period || '-'}
-                </td>
-                <td className="border-r border-black p-1 text-center font-semibold">
-                  {item.quantity}
-                </td>
-                <td className="border-r border-black p-1 text-right font-medium">
-                  ₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </td>
-                <td className="p-1 text-right font-bold">
-                  ₹{Number(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </td>
-              </tr>
-            ))}
-
-            {Array.from({ length: paddingRowsCount }).map((_, i) => (
-              <tr key={`pad-${i}`} className="border-b border-black/20 h-6">
-                <td className="border-r border-black"></td>
-                <td className="border-r border-black"></td>
-                <td className="border-r border-black"></td>
-                <td className="border-r border-black"></td>
-                <td className="border-r border-black"></td>
-                <td></td>
-              </tr>
-            ))}
-
-            {/* Total Row */}
-            <tr className="border-t border-b border-black font-bold bg-neutral-50">
-              <td colSpan={2} className="p-1.5 border-r border-black text-left">
-                Total
+            <tr>
+              <td style={{ borderRight: '1px solid black', padding: '5px 6px', textAlign: 'left', fontWeight: 'bold' }}>
+                {quotation.quotationNumber || 'DRAFT'}
               </td>
-              <td className="border-r border-black"></td>
-              <td className="border-r border-black"></td>
-              <td className="border-r border-black"></td>
-              <td className="p-1.5 text-right font-black">
-                ₹{subtotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <td style={{ borderRight: '1px solid black', padding: '5px 6px', textAlign: 'left', fontWeight: 'bold' }}>
+                {formattedDate}
+              </td>
+              <td style={{ padding: '5px 6px', textAlign: 'left', fontWeight: 'bold' }}>
+                {quotation.paymentTerms || '10 Days from the Invoice date'}
               </td>
             </tr>
+          </tbody>
+        </table>
 
-            {/* Terms and Financial Breakdown */}
-            <tr className="align-top">
-              <td colSpan={4} className="p-2 border-r border-black border-b border-black text-left">
-                <div>
-                  <span className="font-bold text-[8pt] uppercase block mb-1">
-                    Terms & Conditions:
-                  </span>
-                  <ol className="list-decimal pl-3.5 space-y-0.5 text-[7.5pt] text-gray-800">
-                    {termsList.map((t, idx) => (
-                      <li key={idx}>{t}</li>
-                    ))}
-                  </ol>
-                </div>
+        {/* Items Table */}
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '8.5pt',
+            border: '1px solid black',
+            marginBottom: '6px',
+          }}
+        >
+          <thead>
+            <tr>
+              <th
+                style={{
+                  width: '8%',
+                  textAlign: 'center',
+                  backgroundColor: '#f6e0d0',
+                  borderBottom: '1px solid black',
+                  borderRight: '1px solid black',
+                  padding: '5px 6px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                SR. NO.
+              </th>
+              <th
+                style={{
+                  width: '54%',
+                  textAlign: 'left',
+                  backgroundColor: '#f6e0d0',
+                  borderBottom: '1px solid black',
+                  borderRight: '1px solid black',
+                  padding: '5px 6px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                DESCRIPTION OF GOODS
+              </th>
+              {hasPeriod ? (
+                <th
+                  style={{
+                    width: '14%',
+                    textAlign: 'center',
+                    backgroundColor: '#f6e0d0',
+                    borderBottom: '1px solid black',
+                    borderRight: '1px solid black',
+                    padding: '5px 6px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  PERIOD
+                </th>
+              ) : (
+                <th
+                  style={{
+                    width: '10%',
+                    textAlign: 'right',
+                    backgroundColor: '#f6e0d0',
+                    borderBottom: '1px solid black',
+                    borderRight: '1px solid black',
+                    padding: '5px 6px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  QTY
+                </th>
+              )}
+              <th
+                style={{
+                  width: '12%',
+                  textAlign: 'right',
+                  backgroundColor: '#f6e0d0',
+                  borderBottom: '1px solid black',
+                  borderRight: '1px solid black',
+                  padding: '5px 6px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                PRICE
+              </th>
+              <th
+                style={{
+                  width: '16%',
+                  textAlign: 'right',
+                  backgroundColor: '#f6e0d0',
+                  borderBottom: '1px solid black',
+                  padding: '5px 6px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                AMOUNT
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayItems.map((it, idx) => {
+              const isAlt = idx % 2 === 1;
+              const bgStyle = isAlt ? '#fafbfc' : '#ffffff';
+              return (
+                <tr key={idx} style={{ backgroundColor: bgStyle }}>
+                  <td
+                    style={{
+                      textAlign: 'center',
+                      borderRight: '1px solid black',
+                      borderBottom: '1px solid black',
+                      padding: '4px 6px',
+                    }}
+                  >
+                    {it.serialNumber}
+                  </td>
+                  <td
+                    style={{
+                      borderRight: '1px solid black',
+                      borderBottom: '1px solid black',
+                      padding: '4px 6px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {it.description}
+                  </td>
+                  {hasPeriod ? (
+                    <td
+                      style={{
+                        textAlign: 'center',
+                        borderRight: '1px solid black',
+                        borderBottom: '1px solid black',
+                        padding: '4px 6px',
+                      }}
+                    >
+                      {it.period || 'Annual'}
+                    </td>
+                  ) : (
+                    <td
+                      style={{
+                        textAlign: 'right',
+                        borderRight: '1px solid black',
+                        borderBottom: '1px solid black',
+                        padding: '4px 6px',
+                      }}
+                    >
+                      {Number(it.quantity || 0).toFixed(2)}
+                    </td>
+                  )}
+                  <td
+                    style={{
+                      textAlign: 'right',
+                      borderRight: '1px solid black',
+                      borderBottom: '1px solid black',
+                      padding: '4px 6px',
+                    }}
+                  >
+                    {formatCurrency(it.unitPrice)}
+                  </td>
+                  <td
+                    style={{
+                      textAlign: 'right',
+                      borderBottom: '1px solid black',
+                      padding: '4px 6px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {formatCurrency(it.amount)}
+                  </td>
+                </tr>
+              );
+            })}
 
-                <div className="mt-2 pt-2 border-t border-dashed border-gray-300">
-                  <span className="font-bold text-[7.5pt] block mb-0.5">Amount In Words:</span>
-                  <p className="font-bold text-[8pt] text-primary-900">{quotation.amountInWords}</p>
-                </div>
+            {/* Default 10 rows padding */}
+            {Array.from({ length: emptyRowsCount }).map((_, i) => {
+              const rowIdx = displayItems.length + i;
+              const isAlt = rowIdx % 2 === 1;
+              const bgStyle = isAlt ? '#fafbfc' : '#ffffff';
+              return (
+                <tr key={`empty-${i}`} style={{ backgroundColor: bgStyle, height: '23px' }}>
+                  <td style={{ textAlign: 'center', borderRight: '1px solid black', borderBottom: '1px solid black' }}>
+                    &nbsp;
+                  </td>
+                  <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
+                  <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
+                  <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
+                  <td style={{ borderBottom: '1px solid black' }}>&nbsp;</td>
+                </tr>
+              );
+            })}
 
-                <div className="mt-2 pt-1 text-[7.5pt] text-gray-700">
-                  <span className="font-bold">Bank Details: </span>
-                  {business.bankDetails?.bankName} | A/C: {business.bankDetails?.accountNumber} | IFSC: {business.bankDetails?.ifsc}
-                </div>
+            {/* Subtotal Row */}
+            <tr style={{ backgroundColor: '#fafbfc', fontWeight: 'bold', borderTop: '1.5px solid black' }}>
+              <td
+                colSpan={2}
+                style={{
+                  textAlign: 'center',
+                  borderRight: '1px solid black',
+                  fontSize: '9pt',
+                  padding: '4px 6px',
+                }}
+              >
+                Total
               </td>
+              {hasPeriod ? (
+                <td style={{ borderRight: '1px solid black' }}></td>
+              ) : (
+                <td style={{ textAlign: 'right', borderRight: '1px solid black', padding: '4px 6px' }}>
+                  {displayItems.reduce((s, it) => s + (it.quantity || 0), 0).toFixed(2)}
+                </td>
+              )}
+              <td style={{ borderRight: '1px solid black' }}></td>
+              <td style={{ textAlign: 'right', fontSize: '9.5pt', padding: '4px 6px' }}>
+                ₹ {formatCurrency(totals.subtotal || totals.grandTotal)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-              <td colSpan={2} className="p-0 border-b border-black">
-                <table className="w-full border-collapse text-[8pt]">
+        {/* Terms and Grand Total Block */}
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            border: '1px solid black',
+            marginTop: '4px',
+            fontSize: '8pt',
+          }}
+        >
+          <tbody>
+            <tr>
+              <td
+                style={{
+                  width: '65%',
+                  borderRight: '1px solid black',
+                  verticalAlign: 'top',
+                  padding: '6px',
+                }}
+              >
+                <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '4px' }}>
+                  Terms &amp; Conditions*:-
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', lineHeight: 1.45, fontSize: '8pt' }}>
+                  {termsList.map((t, idx) => (
+                    <li key={idx}>{t}</li>
+                  ))}
+                </ul>
+              </td>
+              <td
+                style={{
+                  width: '35%',
+                  textAlign: 'right',
+                  padding: 0,
+                  verticalAlign: 'top',
+                }}
+              >
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9.5pt', fontWeight: 'bold' }}>
                   <tbody>
-                    <tr className="border-b border-black/30">
-                      <td className="p-1.5 font-bold border-r border-black">SUBTOTAL</td>
-                      <td className="p-1.5 text-right font-bold">
-                        ₹{subtotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                    {taxTotalValue > 0 && (
-                      <tr className="border-b border-black/30">
-                        <td className="p-1.5 font-bold border-r border-black">GST (18%)</td>
-                        <td className="p-1.5 text-right font-bold">
-                          ₹{taxTotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    {totals.discount ? (
+                      <tr style={{ borderBottom: '1px solid black', fontSize: '8.5pt' }}>
+                        <td style={{ textAlign: 'left', padding: '8px 10px' }}>Discount</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>
+                          - ₹ {formatCurrency(totals.discount)}
                         </td>
                       </tr>
-                    )}
-                    <tr className="bg-[#e7e6e6] font-black">
-                      <td className="p-1.5 border-r border-black">GRAND TOTAL</td>
-                      <td className="p-1.5 text-right">
-                        ₹{grandTotalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    ) : null}
+                    {totals.taxTotal ? (
+                      <tr style={{ borderBottom: '1px solid black', fontSize: '8.5pt' }}>
+                        <td style={{ textAlign: 'left', padding: '8px 10px' }}>GST</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>
+                          ₹ {formatCurrency(totals.taxTotal)}
+                        </td>
+                      </tr>
+                    ) : null}
+                    <tr style={{ backgroundColor: '#fce4d0' }}>
+                      <td style={{ textAlign: 'left', fontSize: '10.5pt', textTransform: 'uppercase', padding: '8px 10px' }}>
+                        TOTAL
+                      </td>
+                      <td style={{ textAlign: 'right', fontSize: '11pt', fontWeight: 900, padding: '8px 10px' }}>
+                        ₹ {formatCurrency(totals.grandTotal)}
                       </td>
                     </tr>
                   </tbody>
@@ -366,39 +684,98 @@ export default function AmcQuotationPaper({
         </table>
       </div>
 
-      {/* 6. Footer Signatures */}
-      <div className="pt-4">
-        <div className="flex justify-between items-end text-[8pt]">
-          <div className="flex flex-col justify-end w-1/2">
-            <div className="h-14"></div>
-            <div className="border-b border-black w-44"></div>
-            <span className="text-[7.5pt] mt-1 font-bold text-gray-600 uppercase">
-              SERVICE SUPERVISED BY
-            </span>
-          </div>
+      {/* Footer Signatures */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          marginTop: '15px',
+          paddingBottom: '8px',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: '45%' }}>
+          <div style={{ height: '70px' }}></div>
+          <div style={{ borderBottom: '1px solid black', width: '180px', marginTop: 0 }}></div>
+          <span
+            style={{
+              marginTop: '5px',
+              fontSize: '8pt',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              width: '180px',
+              textAlign: 'center',
+            }}
+          >
+            SERVICE SUPERVISED BY
+          </span>
+        </div>
 
-          <div className="flex flex-col items-end justify-end w-1/2 text-right">
-            <div className="w-44 h-14 flex items-end justify-center relative mb-1 pointer-events-none">
-              {assets?.stamp?.secureUrl && (
-                <img
-                  src={assets.stamp.secureUrl}
-                  alt="Business Stamp"
-                  className="w-24 max-h-14 object-contain opacity-95"
-                />
-              )}
-              {assets?.signature?.secureUrl && (
-                <img
-                  src={assets.signature.secureUrl}
-                  alt="Authorized Signature"
-                  className="w-32 max-h-14 object-contain absolute bottom-0 opacity-95 z-20"
-                />
-              )}
-            </div>
-            <div className="border-b border-black w-44"></div>
-            <span className="text-[7.5pt] mt-1 font-bold text-gray-600 uppercase w-44 text-center">
-              Authorized Signatory
-            </span>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+            width: '45%',
+            alignItems: 'flex-end',
+            textAlign: 'right',
+          }}
+        >
+          <div
+            style={{
+              width: '180px',
+              height: '90px',
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              position: 'relative',
+              marginBottom: '4px',
+              pointerEvents: 'none',
+            }}
+          >
+            {assets?.stamp?.secureUrl && (
+              <img
+                src={assets.stamp.secureUrl}
+                alt="Stamp"
+                style={{
+                  maxWidth: '260px',
+                  maxHeight: '95px',
+                  objectFit: 'contain',
+                  opacity: 0.92,
+                  zIndex: 1,
+                  transform: 'rotate(-2deg)',
+                }}
+              />
+            )}
+            {assets?.signature?.secureUrl && (
+              <img
+                src={assets.signature.secureUrl}
+                alt="Signature"
+                style={{
+                  maxHeight: '45px',
+                  maxWidth: '170px',
+                  objectFit: 'contain',
+                  opacity: 0.95,
+                  position: 'absolute',
+                  bottom: '2px',
+                  zIndex: 2,
+                }}
+              />
+            )}
           </div>
+          <div style={{ borderBottom: '1px solid black', width: '180px', marginTop: 0 }}></div>
+          <span
+            style={{
+              marginTop: '5px',
+              fontSize: '8pt',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              width: '180px',
+              textAlign: 'center',
+            }}
+          >
+            SIGNED
+          </span>
         </div>
       </div>
     </div>
