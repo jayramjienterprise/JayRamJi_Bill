@@ -151,21 +151,82 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
     }
   }
 
-  // Handle WhatsApp Share
-  function handleShareWhatsApp() {
-    if (!quotation) return;
-    const quoteNum = quotation.quotationNumber;
-    const clientName = quotation.customerId?.name || 'Customer';
-    const type =
-      quotation.quotationType === 'COMPREHENSIVE'
-        ? 'Comprehensive AMC'
-        : 'Non-Comprehensive AMC';
-    const amount = `₹${(quotation.grandTotal || 0).toLocaleString('en-IN')}`;
-    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+  // Handle WhatsApp Share (Sends PDF only — no text, no links)
+  async function handleShareWhatsApp() {
+    if (!id || !quotation) return;
+    try {
+      setIsPdfGenerating(true);
+      setErrorMsg(null);
 
-    const text = `*JAY RAMJI ENTERPRISE*\n*AMC Maintenance Quotation*\n\nQuotation No: *#${quoteNum}*\nCustomer: ${clientName}\nContract Type: *${type}*\nTotal Proposal Amount: *${amount}*\n\nView Full Quotation Online:\n${pageUrl}`;
-    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(whatsappUrl, '_blank');
+      // Fetch PDF Blob from backend
+      const baseUrl = apiClient.getBaseUrl();
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const storedBusinessId = localStorage.getItem('x-business-id');
+        if (storedBusinessId) headers['x-business-id'] = storedBusinessId;
+      }
+      const response = await fetch(`${baseUrl}/amc/quotations/${id}/pdf`, {
+        credentials: 'include',
+        headers,
+      });
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF document for WhatsApp');
+      }
+      const blob = await response.blob();
+      const fileName = `Quotation-${quotation.quotationNumber || 'Document'}.pdf`;
+
+      // 1. Always download the PDF file directly to machine
+      const fileUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(fileUrl);
+
+      // 2. Check if user is on mobile (where native share sheet works without prompt expiry)
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        try {
+          const file = new File([blob], fileName, { type: 'application/pdf' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file] });
+            return;
+          }
+        } catch (_) {
+          // User gesture expired or share dismissed, fall back to WhatsApp Web
+        }
+      }
+
+      // 3. For Laptop / Desktop (Opens WhatsApp Desktop app & Web):
+      setSuccessMsg('Quotation PDF downloaded! Attach and send directly in WhatsApp.');
+
+      // Try launching WhatsApp Desktop application via whatsapp:// protocol
+      try {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = 'whatsapp://send';
+        document.body.appendChild(iframe);
+        setTimeout(() => {
+          if (iframe.parentNode) document.body.removeChild(iframe);
+        }, 1500);
+      } catch (_) {}
+
+      // Open WhatsApp Web in tab as reliable complement
+      setTimeout(() => {
+        window.open('https://web.whatsapp.com', '_blank');
+      }, 400);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setErrorMsg(err.message || 'Failed to prepare quotation PDF');
+      }
+    } finally {
+      setIsPdfGenerating(false);
+    }
   }
 
   // Handle Copy Link
@@ -314,14 +375,15 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
             </>
           )}
 
-          {/* Share via WhatsApp */}
+          {/* Share PDF via WhatsApp */}
           <button
             onClick={handleShareWhatsApp}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-            title="Share quotation via WhatsApp"
+            disabled={isPdfGenerating}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+            title="Share quotation PDF via WhatsApp"
           >
             <MessageCircle className="w-3.5 h-3.5" />
-            <span>Share via WhatsApp</span>
+            <span>{isPdfGenerating ? 'Preparing PDF...' : 'Share PDF on WhatsApp'}</span>
           </button>
 
           {/* Download PDF */}
@@ -402,10 +464,11 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
           <div className="flex items-center gap-2">
             <button
               onClick={handleShareWhatsApp}
-              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+              disabled={isPdfGenerating}
+              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50"
             >
               <MessageCircle className="w-3 h-3" />
-              <span>WhatsApp</span>
+              <span>{isPdfGenerating ? 'Preparing PDF...' : 'Share PDF on WhatsApp'}</span>
             </button>
             <button
               onClick={handleDownloadPdf}

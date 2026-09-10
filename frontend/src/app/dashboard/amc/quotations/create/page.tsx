@@ -267,6 +267,41 @@ export default function CreateAmcQuotationPage() {
   // Line item modifiers
   function handleAddItemFromProduct(p: Product) {
     const unitPrice = p.defaultPriceMinor ? p.defaultPriceMinor / 100 : ((p as any).price || 0);
+
+    // If item with identical product name already exists, increment its quantity
+    const existingIndex = items.findIndex(
+      (it) => it.description.trim().toLowerCase() === p.name.trim().toLowerCase()
+    );
+
+    if (existingIndex >= 0) {
+      const updated = [...items];
+      const existing = updated[existingIndex];
+      const newQty = (Number(existing.quantity) || 0) + 1;
+      const rate = Number(existing.unitPrice) || unitPrice;
+      updated[existingIndex] = {
+        ...existing,
+        quantity: newQty,
+        amount: Math.round(newQty * rate * 100) / 100,
+      };
+      setItems(updated);
+      return;
+    }
+
+    // If first item is empty/blank placeholder, populate it
+    if (items.length === 1 && !items[0].description.trim()) {
+      setItems([
+        {
+          serialNumber: 1,
+          description: p.name,
+          period: 'Quarterly',
+          quantity: 1,
+          unitPrice,
+          amount: unitPrice,
+        },
+      ]);
+      return;
+    }
+
     const newItem: AmcQuotationPaperItem = {
       serialNumber: items.length + 1,
       description: p.name,
@@ -405,14 +440,14 @@ export default function CreateAmcQuotationPage() {
         savedQuotation = await apiClient.patch(`/amc/quotations/${editId}`, payload);
         setSuccessMsg(
           status === 'DRAFT'
-            ? 'Draft quotation updated successfully!'
+            ? 'Draft quotation saved! Opening preview & sharing...'
             : 'AMC Quotation finalized! Opening preview & sharing...'
         );
       } else {
         savedQuotation = await apiClient.post('/amc/quotations', payload);
         setSuccessMsg(
           status === 'DRAFT'
-            ? 'Quotation saved as Draft!'
+            ? 'Quotation saved as Draft! Opening preview & sharing...'
             : 'AMC Quotation created & finalized! Opening preview & sharing...'
         );
       }
@@ -424,7 +459,7 @@ export default function CreateAmcQuotationPage() {
         savedQuotation?.data?._id ||
         savedQuotation?.data?.id;
 
-      if (status === 'SENT' && qId) {
+      if (qId) {
         setTimeout(() => {
           router.push(`/dashboard/amc/quotations/${qId}`);
         }, 700);
