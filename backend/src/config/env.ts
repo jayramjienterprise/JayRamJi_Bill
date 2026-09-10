@@ -16,6 +16,9 @@ const envSchema = z.object({
   JWT_SECRET: z.string().default('development_jwt_signing_secret_key_1234567890'),
   EMAIL_USER: z.string().optional().default(''),
   EMAIL_PASS: z.string().optional().default(''),
+  EMAIL_HOST: z.string().optional().default('smtp.gmail.com'),
+  EMAIL_PORT: z.coerce.number().optional().default(465),
+  EMAIL_SECURE: z.coerce.boolean().optional().default(true),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -36,6 +39,9 @@ if (!parsed.success) {
     JWT_SECRET: process.env.JWT_SECRET || 'development_jwt_signing_secret_key_1234567890',
     EMAIL_USER: process.env.EMAIL_USER || '',
     EMAIL_PASS: process.env.EMAIL_PASS || '',
+    EMAIL_HOST: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    EMAIL_PORT: Number(process.env.EMAIL_PORT) || 465,
+    EMAIL_SECURE: process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === 'true' : true,
   };
 } else {
   validatedEnv = parsed.data;

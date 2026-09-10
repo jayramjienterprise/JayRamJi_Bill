@@ -391,11 +391,13 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
       const frontendUrl = env.FRONTEND_URL.replace(/\/$/, '');
       const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
-      // Deliver password reset email via Gmail SMTP
-      await emailService.sendPasswordResetEmail(user.email, resetUrl, user.name);
+      // Deliver password reset email asynchronously in background so client request is not blocked
+      emailService.sendPasswordResetEmail(user.email, resetUrl, user.name).catch((err) => {
+        console.error(`❌ [Auth] Background password reset email failed for ${user.email}:`, err);
+      });
     }
 
-    // Always return generic response to prevent email enumeration
+    // Always return generic response immediately to prevent email enumeration and eliminate client lag
     res.status(200).json({
       success: true,
       data: {

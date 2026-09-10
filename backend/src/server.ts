@@ -1,6 +1,7 @@
 import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './database/db';
+import { emailService } from './services/EmailService';
 
 console.log('REAL-BOOT: server.ts started');
 console.log(`REAL-BOOT: PORT=${env.PORT} | NODE_ENV=${env.NODE_ENV}`);
@@ -25,7 +26,10 @@ connectDatabase()
     console.error('REAL-BOOT: MongoDB connection failed:', dbErr.message);
   });
 
-// 3. Graceful Shutdown Routine
+// 3. Pre-warm SMTP connection pool in background
+emailService.verifyConnection().catch(() => {});
+
+// 4. Graceful Shutdown Routine
 const handleExit = async (signal: string) => {
   console.log(`\n⚠️ Process received ${signal}. Starting graceful shutdown...`);
 

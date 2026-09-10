@@ -14,16 +14,54 @@ class EmailService {
     }
 
     if (!this.transporter) {
+      const isSecure = env.EMAIL_SECURE ?? (env.EMAIL_PORT === 465);
+
       this.transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: env.EMAIL_HOST || 'smtp.gmail.com',
+        port: env.EMAIL_PORT || 465,
+        secure: isSecure,
+        // Connection pooling: Keeps connections alive and avoids 3-5s cold handshakes on every mail
+        pool: true,
+        maxConnections: 3,
+        maxMessages: 100,
+        rateDelta: 1000,
+        rateLimit: 5,
+        // Explicit timeouts to prevent hanging sockets
+        connectionTimeout: 10000, // 10s connection timeout
+        greetingTimeout: 5000,    // 5s server greeting timeout
+        socketTimeout: 15000,     // 15s socket inactivity timeout
+        dnsTimeout: 5000,         // 5s DNS resolution timeout
         auth: {
           user: env.EMAIL_USER,
           pass: env.EMAIL_PASS,
         },
-      });
+        // Force IPv4 to prevent 3-5s IPv6 DNS resolution timeouts on cloud container platforms
+        family: 4,
+        tls: {
+          rejectUnauthorized: true,
+          minVersion: 'TLSv1.2',
+        },
+      } as any);
     }
 
     return this.transporter;
+  }
+
+  /**
+   * Pre-warms and verifies SMTP connection pool asynchronously on application startup
+   */
+  async verifyConnection(): Promise<boolean> {
+    const transporter = this.getTransporter();
+    if (!transporter) return false;
+
+    try {
+      await transporter.verify();
+      console.log('✅ [EmailService] SMTP connection pool verified and ready.');
+      return true;
+    } catch (err: any) {
+      console.warn('⚠️ [EmailService] SMTP connection warm-up warning:', err.message);
+      return false;
+    }
   }
 
   /**
