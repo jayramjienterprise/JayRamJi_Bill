@@ -396,29 +396,43 @@ export default function CreateAmcQuotationPage() {
         status,
       };
 
+      let savedQuotation: any;
       if (editId) {
         if (existingQuotation && existingQuotation.status !== 'DRAFT') {
           setErrorMsg('Only draft quotations can be edited. This quotation is locked.');
           return;
         }
-        await apiClient.patch(`/amc/quotations/${editId}`, payload);
+        savedQuotation = await apiClient.patch(`/amc/quotations/${editId}`, payload);
         setSuccessMsg(
           status === 'DRAFT'
             ? 'Draft quotation updated successfully!'
-            : 'AMC Quotation updated and finalized successfully!'
+            : 'AMC Quotation finalized! Opening preview & sharing...'
         );
       } else {
-        await apiClient.post('/amc/quotations', payload);
+        savedQuotation = await apiClient.post('/amc/quotations', payload);
         setSuccessMsg(
           status === 'DRAFT'
             ? 'Quotation saved as Draft!'
-            : 'AMC Quotation finalized and issued successfully!'
+            : 'AMC Quotation created & finalized! Opening preview & sharing...'
         );
       }
 
-      setTimeout(() => {
-        router.push('/dashboard/amc?tab=quotations');
-      }, 1200);
+      const qId =
+        editId ||
+        savedQuotation?._id ||
+        savedQuotation?.id ||
+        savedQuotation?.data?._id ||
+        savedQuotation?.data?.id;
+
+      if (status === 'SENT' && qId) {
+        setTimeout(() => {
+          router.push(`/dashboard/amc/quotations/${qId}`);
+        }, 700);
+      } else {
+        setTimeout(() => {
+          router.push('/dashboard/amc?tab=quotations');
+        }, 1000);
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save quotation');
       window.scrollTo({ top: 0, behavior: 'smooth' });

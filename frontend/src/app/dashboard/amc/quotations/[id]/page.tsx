@@ -5,10 +5,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../../../lib/api/client';
 import { convertNumberToWords } from '../../../../../lib/utils/numberToWords';
-import AmcQuotationPaper, { AmcQuotationPaperItem } from '../../components/AmcQuotationPaper';
+import AmcQuotationPaper from '../../components/AmcQuotationPaper';
 import {
   ArrowLeft,
   Download,
+  Printer,
+  Share2,
+  Copy,
+  Check,
   Edit3,
   CheckCircle2,
   AlertCircle,
@@ -19,7 +23,7 @@ import {
   FileText,
   Building2,
   ShieldCheck,
-  Check,
+  MessageCircle,
 } from 'lucide-react';
 
 export default function AmcQuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +44,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
@@ -101,8 +106,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
       setActionLoading(true);
       setErrorMsg(null);
       await apiClient.patch(`/amc/quotations/${id}/status`, { status: 'SENT' });
-      setSuccessMsg('Quotation successfully finalized!');
-      // Reload
+      setSuccessMsg('Quotation successfully finalized and ready for sharing!');
       const updated: any = await apiClient.get(`/amc/quotations/${id}`);
       setQuotation(updated.data || updated);
     } catch (err: any) {
@@ -112,22 +116,87 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
     }
   }
 
-  // Handle Download PDF
+  // Handle Download PDF directly via binary stream
   async function handleDownloadPdf() {
-    if (!id) return;
+    if (!id || !quotation) return;
     try {
       setIsPdfGenerating(true);
       setErrorMsg(null);
-      const res: any = await apiClient.get(`/amc/quotations/${id}/pdf`);
-      if (res?.pdfUrl) {
-        window.open(res.pdfUrl, '_blank');
-      } else {
-        alert('PDF document is being compiled. Please try again in a few moments.');
+      const baseUrl = apiClient.getBaseUrl();
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const storedBusinessId = localStorage.getItem('x-business-id');
+        if (storedBusinessId) headers['x-business-id'] = storedBusinessId;
       }
+      const response = await fetch(`${baseUrl}/amc/quotations/${id}/pdf`, {
+        credentials: 'include',
+        headers,
+      });
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF document');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Quotation-${quotation.quotationNumber || 'Document'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to generate PDF quotation');
+      setErrorMsg(err.message || 'Failed to download PDF quotation');
     } finally {
       setIsPdfGenerating(false);
+    }
+  }
+
+  // Handle WhatsApp Share
+  function handleShareWhatsApp() {
+    if (!quotation) return;
+    const quoteNum = quotation.quotationNumber;
+    const clientName = quotation.customerId?.name || 'Customer';
+    const type =
+      quotation.quotationType === 'COMPREHENSIVE'
+        ? 'Comprehensive AMC'
+        : 'Non-Comprehensive AMC';
+    const amount = `₹${(quotation.grandTotal || 0).toLocaleString('en-IN')}`;
+    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+    const text = `*JAY RAMJI ENTERPRISE*\n*AMC Maintenance Quotation*\n\nQuotation No: *#${quoteNum}*\nCustomer: ${clientName}\nContract Type: *${type}*\nTotal Proposal Amount: *${amount}*\n\nView Full Quotation Online:\n${pageUrl}`;
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
+  }
+
+  // Handle Copy Link
+  function handleCopyLink() {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  }
+
+  // Handle Print
+  function handlePrint() {
+    window.print();
+  }
+
+  // Handle Convert to Contract
+  async function handleConvertToContract() {
+    if (!confirm(`Convert Quotation #${quotation?.quotationNumber} into an active AMC Contract?`)) return;
+    try {
+      setActionLoading(true);
+      setErrorMsg(null);
+      await apiClient.post(`/amc/quotations/${id}/convert`, {});
+      setSuccessMsg('Quotation successfully converted to active AMC Contract!');
+      setTimeout(() => {
+        router.push('/dashboard/amc?tab=contracts');
+      }, 1200);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to convert quotation to contract');
+    } finally {
+      setActionLoading(false);
     }
   }
 
@@ -135,7 +204,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-700"></div>
-        <p className="text-sm font-semibold text-text-secondary">Loading quotation details...</p>
+        <p className="text-sm font-semibold text-text-secondary">Loading quotation preview...</p>
       </div>
     );
   }
@@ -165,8 +234,8 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
 
   return (
     <div className="space-y-6">
-      {/* Top Navigation & Actions Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-app border border-border-app p-4 sm:p-5 rounded-2xl shadow-xs">
+      {/* Top Header & Actions Bar (Hidden during print) */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-app border border-border-app p-4 sm:p-5 rounded-2xl shadow-xs no-print">
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard/amc?tab=quotations"
@@ -185,9 +254,9 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
                   isConverted
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                     : quotation.status === 'SENT'
-                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                    ? 'bg-success-soft/60 text-success-app border border-success-app/20'
                     : quotation.status === 'DRAFT'
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                    ? 'bg-surface-2-app text-text-secondary border border-border-app'
                     : 'bg-blue-100 text-blue-800 border border-blue-200'
                 }`}
               >
@@ -219,56 +288,90 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Draft Actions */}
           {isDraft && (
-            <Link
-              href={`/dashboard/amc/quotations/create?edit=${id}`}
-              className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-              title="Edit line items and pricing"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Edit Draft Quotation</span>
-            </Link>
+            <>
+              <Link
+                href={`/dashboard/amc/quotations/create?edit=${id}`}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Edit line items, rates, and terms"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-primary-700" />
+                <span>Edit Draft</span>
+              </Link>
+
+              <button
+                onClick={handleFinalize}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Lock and finalize proposal"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{actionLoading ? 'Finalizing...' : 'Finalize Quotation'}</span>
+              </button>
+            </>
           )}
 
-          {isDraft && (
-            <button
-              onClick={handleFinalize}
-              disabled={actionLoading}
-              className="px-4 py-2 bg-surface-2-app hover:bg-border-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              title="Lock and finalize proposal"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-success-app" />
-              <span>{actionLoading ? 'Finalizing...' : 'Finalize Quotation'}</span>
-            </button>
-          )}
+          {/* Share via WhatsApp */}
+          <button
+            onClick={handleShareWhatsApp}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Share quotation via WhatsApp"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span>Share via WhatsApp</span>
+          </button>
 
+          {/* Download PDF */}
           <button
             onClick={handleDownloadPdf}
             disabled={isPdfGenerating}
-            className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-semibold text-text-primary transition flex items-center gap-1.5 cursor-pointer"
-            title="Download PDF"
+            className="px-3.5 py-2 bg-surface-2-app hover:bg-border-app border border-border-app rounded-xl text-xs font-bold text-text-primary transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Download PDF document"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-primary-700" />
             <span>{isPdfGenerating ? 'Generating...' : 'Download PDF'}</span>
           </button>
 
+          {/* Print */}
+          <button
+            onClick={handlePrint}
+            className="px-3 py-2 bg-surface-2-app hover:bg-border-app border border-border-app rounded-xl text-xs font-semibold text-text-secondary transition flex items-center gap-1.5 cursor-pointer"
+            title="Print Quotation"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Print</span>
+          </button>
+
+          {/* Copy Link */}
+          <button
+            onClick={handleCopyLink}
+            className="px-3 py-2 bg-surface-2-app hover:bg-border-app border border-border-app rounded-xl text-xs font-semibold text-text-secondary transition flex items-center gap-1.5 cursor-pointer"
+            title="Copy direct quotation link"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-success-app" /> : <Copy className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy Link'}</span>
+          </button>
+
+          {/* Convert to Contract */}
           {!isConverted && (
-            <Link
-              href={`/dashboard/amc?tab=quotations&convertId=${id}`}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            <button
+              onClick={handleConvertToContract}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <span>Convert to AMC</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            </button>
           )}
         </div>
       </div>
 
       {/* Notifications */}
       {errorMsg && (
-        <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-xs rounded-xl flex items-center justify-between font-medium">
+        <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-xs rounded-xl flex items-center justify-between font-medium no-print">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
@@ -278,7 +381,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
       )}
 
       {successMsg && (
-        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-xs rounded-xl flex items-center justify-between font-medium">
+        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-xs rounded-xl flex items-center justify-between font-medium no-print">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
@@ -287,30 +390,68 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
         </div>
       )}
 
+      {/* Finalized Banner */}
+      {quotation.status === 'SENT' && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 text-xs rounded-xl flex items-center justify-between font-medium no-print">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span>
+              <strong>Quotation Finalized:</strong> This proposal is ready to share. You can send it directly to the customer via WhatsApp, download the PDF, or print it.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleShareWhatsApp}
+              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <MessageCircle className="w-3 h-3" />
+              <span>WhatsApp</span>
+            </button>
+            <button
+              onClick={handleDownloadPdf}
+              disabled={isPdfGenerating}
+              className="px-3 py-1 bg-surface-app border border-border-app hover:bg-surface-2-app text-text-primary rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <Download className="w-3 h-3 text-primary-700" />
+              <span>PDF</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Banner */}
       {isDraft && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs rounded-xl flex items-center justify-between font-medium">
+        <div className="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs rounded-xl flex items-center justify-between font-medium no-print">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 shrink-0 text-amber-600" />
             <span>
-              <strong>Draft Mode:</strong> This proposal is editable. Click <strong>Edit Draft Quotation</strong> above to modify services, quantities, prices, or terms.
+              <strong>Draft Mode:</strong> This proposal is editable. Click <strong>Edit Draft</strong> to update line items, rates, quantities, or terms. Click <strong>Finalize Quotation</strong> when ready to issue.
             </span>
           </div>
-          <Link
-            href={`/dashboard/amc/quotations/create?edit=${id}`}
-            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shrink-0"
-          >
-            Edit Now
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={`/dashboard/amc/quotations/create?edit=${id}`}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition"
+            >
+              Edit Items
+            </Link>
+            <button
+              onClick={handleFinalize}
+              className="px-3 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition"
+            >
+              Finalize Now
+            </button>
+          </div>
         </div>
       )}
 
       {/* Paper Preview Card */}
-      <div className="bg-surface-app border border-border-app rounded-2xl shadow-sm p-4 sm:p-6 space-y-4">
-        <div className="flex justify-between items-center border-b border-border-app pb-3">
+      <div className="bg-surface-app border border-border-app rounded-2xl shadow-sm p-4 sm:p-6 space-y-4 print-only-container">
+        <div className="flex justify-between items-center border-b border-border-app pb-3 no-print">
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-primary-700" />
             <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">
-              Official Quotation Inquiry Document
+              Official Quotation Inquiry Document Preview
             </h2>
           </div>
           <div className="text-xs text-text-secondary font-medium">
@@ -330,7 +471,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
               width: 794,
               marginBottom: `${Math.max(0, (1 - scale) * -1123)}px`,
             }}
-            className="transition-transform duration-150 ease-out"
+            className="transition-transform duration-150 ease-out shadow-lg rounded bg-white shrink-0"
           >
             <AmcQuotationPaper
               quotation={{
@@ -362,6 +503,33 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
           </div>
         </div>
       </div>
+
+      {/* Print Styles */}
+      <style jsx global>{`
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          header,
+          aside,
+          nav,
+          .no-print {
+            display: none !important;
+          }
+          .print-only-container {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
+          }
+          @page {
+            size: A4;
+            margin: 8mm;
+          }
+        }
+      `}</style>
     </div>
   );
 }
