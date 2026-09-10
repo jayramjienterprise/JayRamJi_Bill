@@ -18,6 +18,7 @@ import dashboardRouter from './modules/dashboard/dashboard.routes';
 import analyticsRouter from './modules/analytics/analytics.routes';
 import publicInvoiceRouter from './modules/invoice/public.routes';
 import uploadSessionRouter from './modules/upload-session/upload-session.routes';
+import amcRouter from './modules/amc/amc.routes';
 
 const app: Express = express();
 
@@ -132,6 +133,7 @@ apiRouter.use('/upload-sessions', uploadSessionRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);
+apiRouter.use('/amc', amcRouter);
 
 // Support direct /api, same-domain proxy /api/backend/api, and /api/backend
 app.use('/api', apiRouter);

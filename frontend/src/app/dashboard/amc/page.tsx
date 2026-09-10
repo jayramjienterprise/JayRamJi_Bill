@@ -1,0 +1,1711 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../../../lib/api/client';
+import {
+  ShieldCheck,
+  FileText,
+  Wrench,
+  Layers,
+  Plus,
+  Search,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  ArrowRight,
+  RefreshCw,
+  Building2,
+  Calendar,
+  History,
+  Tag,
+  ChevronRight,
+  X,
+  Eye,
+  Check,
+} from 'lucide-react';
+import VisitsTab from './components/VisitsTab';
+import EntitlementModal from './components/EntitlementModal';
+
+export default function AmcManagementPage() {
+  const [activeTab, setActiveTab] = useState<'contracts' | 'visits' | 'quotations' | 'equipment' | 'plans'>('contracts');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Data lists
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [visits, setVisits] = useState<any[]>([]);
+  const [quotations, setQuotations] = useState<any[]>([]);
+  const [equipmentList, setEquipmentList] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  // Filters
+  const [contractStatusFilter, setContractStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expiringOnly, setExpiringOnly] = useState(false);
+
+  // Modals
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+  const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<any | null>(null);
+  const [selectedHistoryEquipment, setSelectedHistoryEquipment] = useState<any | null>(null);
+  const [equipmentHistoryList, setEquipmentHistoryList] = useState<any[]>([]);
+  const [entitlementModalData, setEntitlementModalData] = useState<any | null>(null);
+
+  // Convert Quotation Modal
+  const [convertingQuotation, setConvertingQuotation] = useState<any | null>(null);
+
+  // Form states
+  const [contractForm, setContractForm] = useState({
+    customerId: '',
+    planId: '',
+    contractType: 'NON_COMPREHENSIVE',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+    selectedEquipmentIds: [] as string[],
+    contractAmount: 0,
+    paidAmount: 0,
+    activationTrigger: 'ADMIN_APPROVAL',
+  });
+
+  const [quotationForm, setQuotationForm] = useState({
+    customerId: '',
+    quotationNumber: '',
+    quotationType: 'RATE_CARD',
+    paymentTerms: '10 Days from the Invoice date',
+    items: [{ description: 'AC Water Service (Up to 5 Ton)', period: '', quantity: 1, unitPrice: 1650, amount: 1650 }],
+  });
+
+  const [equipmentForm, setEquipmentForm] = useState({
+    customerId: '',
+    acType: 'SPLIT',
+    tonnage: '1.5',
+    brand: 'Daikin',
+    modelNumber: '',
+    serialNumber: '',
+    installationLocation: '',
+    refrigerantType: 'R32',
+  });
+
+  const [planForm, setPlanForm] = useState({
+    name: '',
+    planType: 'COMPREHENSIVE',
+    durationMonths: 12,
+    basePrice: 10000,
+    dryVisits: 12,
+    waterVisits: 4,
+    breakdownVisits: 2,
+    selectedProductCoverages: [] as { productId: string; coverageType: string; quantityLimitPerYear: number }[],
+    gasIncluded: false,
+    gasLimitKg: 5,
+  });
+
+  useEffect(() => {
+    fetchInitialData();
+  }, [activeTab, contractStatusFilter, expiringOnly]);
+
+  async function fetchInitialData() {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      if (activeTab === 'contracts') {
+        let url = `/amc/contracts?status=${contractStatusFilter}`;
+        if (expiringOnly) url += '&expiringDays=30';
+        const res: any = await apiClient.get(url);
+        setContracts(res.data || []);
+      } else if (activeTab === 'visits') {
+        const res: any = await apiClient.get('/amc/visits');
+        setVisits(res.data || []);
+      } else if (activeTab === 'quotations') {
+        const res: any = await apiClient.get('/amc/quotations');
+        setQuotations(res.data || []);
+      } else if (activeTab === 'equipment') {
+        const res: any = await apiClient.get('/amc/equipment');
+        setEquipmentList(res.data || []);
+      } else if (activeTab === 'plans') {
+        const res: any = await apiClient.get('/amc/plans');
+        setPlans(res.data || []);
+      }
+
+      // Preload auxiliary data
+      const [custRes, prodRes, planRes, eqRes, techRes, visitRes]: any = await Promise.all([
+        apiClient.get('/customers'),
+        apiClient.get('/products'),
+        apiClient.get('/amc/plans'),
+        apiClient.get('/amc/equipment'),
+        apiClient.get('/amc/technicians').catch(() => ({ data: [] })),
+        apiClient.get('/amc/visits').catch(() => ({ data: [] })),
+      ]);
+      setCustomers(custRes.data || []);
+      setProducts(prodRes.data || []);
+      setPlans(planRes.data || []);
+      setEquipmentList(eqRes.data || []);
+      setTechnicians(techRes.data || []);
+      setVisits(visitRes.data || []);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to load AMC module data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGenerateVisits(contractId: string, contractNumber: string) {
+    if (!confirm(`Generate all periodic dry and water service visit tickets for Contract #${contractNumber} for the year?`)) return;
+    try {
+      const res: any = await apiClient.post(`/amc/contracts/${contractId}/generate-visits`, {});
+      setSuccessMsg(res.message || 'Periodic service visits generated successfully!');
+      fetchInitialData();
+      setActiveTab('visits');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to generate visits');
+    }
+  }
+
+  async function handleViewEntitlements(contractId: string) {
+    try {
+      const res: any = await apiClient.get(`/amc/contracts/${contractId}/entitlements`);
+      setEntitlementModalData(res.data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to load entitlement audit');
+    }
+  }
+
+  // Contract Actions
+  async function handleCreateContract(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contractForm.customerId) return setErrorMsg('Please select a customer');
+    if (contractForm.selectedEquipmentIds.length === 0) return setErrorMsg('Please select at least one covered AC unit');
+
+    try {
+      await apiClient.post('/amc/contracts', {
+        customerId: contractForm.customerId,
+        planId: contractForm.planId || undefined,
+        contractType: contractForm.contractType,
+        startDate: contractForm.startDate,
+        endDate: contractForm.endDate,
+        coveredUnits: contractForm.selectedEquipmentIds.map((id) => ({ acEquipmentId: id })),
+        financials: {
+          contractAmount: Number(contractForm.contractAmount),
+          finalAmount: Number(contractForm.contractAmount),
+          paidAmount: Number(contractForm.paidAmount),
+        },
+        activationTrigger: contractForm.activationTrigger,
+      });
+
+      setSuccessMsg('AMC Contract created successfully!');
+      setIsContractModalOpen(false);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error creating AMC Contract');
+    }
+  }
+
+  async function handleRenewContract(contractId: string, contractNumber: string) {
+    if (!confirm(`Are you sure you want to renew contract #${contractNumber}? A linked successor contract will be generated.`)) return;
+    try {
+      const res: any = await apiClient.post(`/amc/contracts/${contractId}/renew`, {});
+      setSuccessMsg(res.message || 'Contract renewed successfully!');
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error renewing contract');
+    }
+  }
+
+  // Quotation Actions
+  async function handleCreateQuotation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!quotationForm.customerId) return setErrorMsg('Please select a customer');
+    if (quotationForm.items.length === 0) return setErrorMsg('Please add at least one line item');
+
+    try {
+      await apiClient.post('/amc/quotations', {
+        customerId: quotationForm.customerId,
+        quotationNumber: quotationForm.quotationNumber || undefined,
+        quotationType: quotationForm.quotationType,
+        paymentTerms: quotationForm.paymentTerms,
+        items: quotationForm.items,
+      });
+
+      setSuccessMsg('Quotation created successfully!');
+      setIsQuotationModalOpen(false);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error creating quotation');
+    }
+  }
+
+  function downloadQuotationPdf(quotationId: string) {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('jre_token') || '' : '';
+    const businessId = typeof window !== 'undefined' ? localStorage.getItem('x-business-id') || '' : '';
+    window.open(`${apiBase}/amc/quotations/${quotationId}/pdf?token=${token}&b=${businessId}`, '_blank');
+  }
+
+  async function handleConvertQuotation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!convertingQuotation) return;
+    try {
+      await apiClient.post(`/amc/quotations/${convertingQuotation._id}/convert`, {
+        planId: contractForm.planId || undefined,
+        activationTrigger: 'ADMIN_APPROVAL',
+      });
+      setSuccessMsg(`Quotation #${convertingQuotation.quotationNumber} successfully converted to AMC Contract!`);
+      setConvertingQuotation(null);
+      setActiveTab('contracts');
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to convert quotation to contract');
+    }
+  }
+
+  // Equipment Actions
+  async function handleCreateEquipment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!equipmentForm.customerId) return setErrorMsg('Please select a customer');
+    if (!equipmentForm.installationLocation) return setErrorMsg('Installation location is required');
+
+    try {
+      await apiClient.post('/amc/equipment', equipmentForm);
+      setSuccessMsg('AC unit registered successfully!');
+      setIsEquipmentModalOpen(false);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error registering AC equipment');
+    }
+  }
+
+  async function viewEquipmentHistory(eq: any) {
+    setSelectedHistoryEquipment(eq);
+    try {
+      const res: any = await apiClient.get(`/amc/equipment/${eq._id}/history`);
+      setEquipmentHistoryList(res.data || []);
+    } catch (err: any) {
+      setErrorMsg('Failed to load equipment assignment history');
+    }
+  }
+
+  // Plan Actions
+  async function handleCreatePlan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!planForm.name) return setErrorMsg('Plan name is required');
+
+    try {
+      await apiClient.post('/amc/plans', {
+        name: planForm.name,
+        planType: planForm.planType,
+        durationMonths: Number(planForm.durationMonths),
+        basePrice: Number(planForm.basePrice),
+        entitlements: [
+          { serviceType: 'DRY_SERVICE', scheduling: 'MONTHLY', quantity: Number(planForm.dryVisits), entitlementScope: 'PER_EQUIPMENT' },
+          { serviceType: 'WATER_SERVICE', scheduling: 'QUARTERLY', quantity: Number(planForm.waterVisits), entitlementScope: 'PER_EQUIPMENT' },
+          { serviceType: 'BREAKDOWN_REPAIR', scheduling: 'ON_DEMAND', quantity: Number(planForm.breakdownVisits), entitlementScope: 'PER_CONTRACT' },
+        ],
+        partCoverages: planForm.selectedProductCoverages,
+        gasCoverage: {
+          included: planForm.gasIncluded,
+          refrigerantTypes: ['R32', 'R410A'],
+          quantityLimitKg: planForm.gasIncluded ? Number(planForm.gasLimitKg) : null,
+          limitScope: 'PER_CONTRACT',
+          excludeDamagePipingLeaks: true,
+        },
+      });
+
+      setSuccessMsg('AMC Plan created successfully!');
+      setIsPlanModalOpen(false);
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error creating AMC Plan');
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto p-2 sm:p-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-primary-900/10 text-primary-700 rounded-xl">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h1 className="text-xl font-black tracking-tight text-text-primary">
+              AMC Contract Management
+            </h1>
+          </div>
+          <p className="text-xs text-text-secondary mt-1">
+            Annual Maintenance Contracts, Rate-Card Quotations, Customer Fleet Registry & Plan Snapshots
+          </p>
+        </div>
+
+        {/* Global Tab Actions */}
+        <div className="flex items-center gap-2">
+          {activeTab === 'contracts' && (
+            <button
+              onClick={() => setIsContractModalOpen(true)}
+              className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Contract</span>
+            </button>
+          )}
+          {activeTab === 'quotations' && (
+            <button
+              onClick={() => setIsQuotationModalOpen(true)}
+              className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Quotation</span>
+            </button>
+          )}
+          {activeTab === 'equipment' && (
+            <button
+              onClick={() => setIsEquipmentModalOpen(true)}
+              className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Register AC Unit</span>
+            </button>
+          )}
+          {activeTab === 'plans' && (
+            <button
+              onClick={() => setIsPlanModalOpen(true)}
+              className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create AMC Plan</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Notifications */}
+      {errorMsg && (
+        <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-xs rounded-xl flex items-center justify-between font-medium">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg(null)} className="cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-xs rounded-xl flex items-center justify-between font-medium">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg(null)} className="cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-border-app space-x-2">
+        <button
+          onClick={() => setActiveTab('contracts')}
+          className={`pb-3 px-4 text-xs font-bold transition border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'contracts'
+              ? 'border-primary-700 text-primary-700'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Contracts</span>
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-surface-2-app text-[10px] font-bold">
+            {contracts.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('visits')}
+          className={`pb-3 px-4 text-xs font-bold transition border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'visits'
+              ? 'border-primary-700 text-primary-700'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Service Visits & Job-Cards</span>
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-surface-2-app text-[10px] font-bold">
+            {visits.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('quotations')}
+          className={`pb-3 px-4 text-xs font-bold transition border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'quotations'
+              ? 'border-primary-700 text-primary-700'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Quotations</span>
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-surface-2-app text-[10px] font-bold">
+            {quotations.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('equipment')}
+          className={`pb-3 px-4 text-xs font-bold transition border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'equipment'
+              ? 'border-primary-700 text-primary-700'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Wrench className="w-4 h-4" />
+          <span>AC Equipment Registry</span>
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-surface-2-app text-[10px] font-bold">
+            {equipmentList.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('plans')}
+          className={`pb-3 px-4 text-xs font-bold transition border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'plans'
+              ? 'border-primary-700 text-primary-700'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Plan Templates</span>
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-surface-2-app text-[10px] font-bold">
+            {plans.length}
+          </span>
+        </button>
+      </div>
+
+      {/* ---------------------------------------------------- */}
+      {/* TAB 1: CONTRACTS */}
+      {/* ---------------------------------------------------- */}
+      {activeTab === 'contracts' && (
+        <div className="space-y-4">
+          {/* Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3.5 rounded-xl">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-text-secondary">Status:</span>
+              <select
+                value={contractStatusFilter}
+                onChange={(e) => setContractStatusFilter(e.target.value)}
+                className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-semibold text-text-primary"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="PENDING_PAYMENT">Pending Payment</option>
+                <option value="EXPIRED">Expired</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setExpiringOnly(!expiringOnly)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  expiringOnly
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-surface-2-app border border-border-app text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Expiring Soon (30d)</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchInitialData}
+              className="p-1.5 hover:bg-surface-2-app rounded-lg text-text-secondary cursor-pointer"
+              title="Refresh Contracts"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Contracts Table */}
+          <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-2-app border-b border-border-app text-text-secondary uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Contract No.</th>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Type</th>
+                    <th className="py-3 px-4">Coverage Period</th>
+                    <th className="py-3 px-4">Covered Units</th>
+                    <th className="py-3 px-4">Amount</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-app">
+                  {contracts.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-text-secondary">
+                        No AMC contracts found. Create one or convert from an accepted Quotation.
+                      </td>
+                    </tr>
+                  ) : (
+                    contracts.map((c) => {
+                      const isExpiring =
+                        new Date(c.endDate).getTime() - new Date().getTime() <= 30 * 24 * 60 * 60 * 1000 &&
+                        c.status === 'ACTIVE';
+
+                      return (
+                        <tr key={c._id} className="hover:bg-surface-2-app/50 transition">
+                          <td className="py-3.5 px-4 font-black text-primary-700">
+                            {c.contractNumber}
+                            {c.previousContractId && (
+                              <span className="block text-[10px] text-text-secondary font-normal">
+                                Renewed from #{c.previousContractId.contractNumber}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-text-primary">
+                            {c.customerId?.name || 'Unknown Client'}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-bold text-[10.5px] ${
+                                c.contractType === 'COMPREHENSIVE'
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}
+                            >
+                              {c.contractType === 'COMPREHENSIVE' ? 'Comprehensive' : 'Non-Comp'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-text-secondary">
+                            {new Date(c.startDate).toLocaleDateString()} &rarr;{' '}
+                            <span className={isExpiring ? 'text-amber-600 font-bold' : ''}>
+                              {new Date(c.endDate).toLocaleDateString()}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold">
+                            {c.coveredUnits?.length || 0} AC Units
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-text-primary">
+                            ₹ {(c.financials?.finalAmount || 0).toLocaleString('en-IN')}
+                            <span
+                              className={`block text-[10px] font-bold ${
+                                c.paymentStatus === 'PAID'
+                                  ? 'text-emerald-600'
+                                  : c.paymentStatus === 'PARTIALLY_PAID'
+                                  ? 'text-amber-600'
+                                  : 'text-red-500'
+                              }`}
+                            >
+                              {c.paymentStatus}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                c.status === 'ACTIVE'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : c.status === 'EXPIRED'
+                                  ? 'bg-neutral-200 text-neutral-700'
+                                  : c.status === 'PENDING_PAYMENT'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}
+                            >
+                              {c.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => setSelectedSnapshot(c)}
+                              className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer"
+                              title="View Plan Snapshot"
+                            >
+                              Snapshot
+                            </button>
+
+                            <button
+                              onClick={() => handleViewEntitlements(c._id)}
+                              className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                              title="View Authoritative Entitlements & DB Completed Count"
+                            >
+                              Entitlements
+                            </button>
+
+                            {c.status === 'ACTIVE' && (
+                              <button
+                                onClick={() => handleGenerateVisits(c._id, c.contractNumber)}
+                                className="px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                                title="Auto-Generate Periodic Service Visits for Covered Fleet"
+                              >
+                                Generate Visits
+                              </button>
+                            )}
+
+                            {!c.renewedByContractId && (
+                              <button
+                                onClick={() => handleRenewContract(c._id, c.contractNumber)}
+                                className="px-2.5 py-1 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                                title="1-Click Non-Destructive Renewal"
+                              >
+                                Renew
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* TAB 2: SERVICE VISITS & JOB CARDS */}
+      {/* ---------------------------------------------------- */}
+      {activeTab === 'visits' && (
+        <VisitsTab
+          visits={visits}
+          technicians={technicians}
+          products={products}
+          onRefresh={fetchInitialData}
+          apiClient={apiClient}
+          setSuccessMsg={setSuccessMsg}
+          setErrorMsg={setErrorMsg}
+        />
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* TAB 3: QUOTATIONS */}
+      {/* ---------------------------------------------------- */}
+      {activeTab === 'quotations' && (
+        <div className="space-y-4">
+          <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-2-app border-b border-border-app text-text-secondary uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Quotation No.</th>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Type</th>
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Items</th>
+                    <th className="py-3 px-4">Total Amount</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-app">
+                  {quotations.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-text-secondary">
+                        No AMC quotations recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    quotations.map((q) => (
+                      <tr key={q._id} className="hover:bg-surface-2-app/50 transition">
+                        <td className="py-3.5 px-4 font-black text-primary-700">
+                          {q.quotationNumber}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-text-primary">
+                          {q.customerId?.name || 'Unknown Client'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-md font-bold text-[10.5px] bg-surface-2-app text-text-secondary">
+                            {q.quotationType === 'PERIODIC_CONTRACT'
+                              ? 'Periodic Fleet'
+                              : 'Rate Card'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-text-secondary">
+                          {new Date(q.quotationDate).toLocaleDateString()}
+                        </td>
+                        <td className="py-3.5 px-4 text-text-secondary font-medium">
+                          {q.items?.length || 0} line items
+                        </td>
+                        <td className="py-3.5 px-4 font-black text-text-primary">
+                          ₹ {(q.grandTotal || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              q.status === 'CONVERTED_TO_CONTRACT'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : q.status === 'ACCEPTED'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-neutral-200 text-neutral-700'
+                            }`}
+                          >
+                            {q.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-2">
+                          <button
+                            onClick={() => downloadQuotationPdf(q._id)}
+                            className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                            title="Download PDF in JRE Format"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>PDF</span>
+                          </button>
+
+                          {q.status !== 'CONVERTED_TO_CONTRACT' && (
+                            <button
+                              onClick={() => setConvertingQuotation(q)}
+                              className="px-2.5 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <span>Convert to AMC</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* TAB 3: AC EQUIPMENT REGISTRY */}
+      {/* ---------------------------------------------------- */}
+      {activeTab === 'equipment' && (
+        <div className="space-y-4">
+          <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-2-app border-b border-border-app text-text-secondary uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Brand & Model</th>
+                    <th className="py-3 px-4">Tonnage</th>
+                    <th className="py-3 px-4">AC Type</th>
+                    <th className="py-3 px-4">Serial No.</th>
+                    <th className="py-3 px-4">Location</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Audit History</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-app">
+                  {equipmentList.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-text-secondary">
+                        No customer AC equipment registered yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    equipmentList.map((eq) => (
+                      <tr key={eq._id} className="hover:bg-surface-2-app/50 transition">
+                        <td className="py-3.5 px-4 font-bold text-text-primary">
+                          {eq.customerId?.name || 'Unassigned'}
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-text-primary">
+                          {eq.brand} {eq.modelNumber && `(${eq.modelNumber})`}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-primary-700">
+                          {eq.tonnage} Ton
+                        </td>
+                        <td className="py-3.5 px-4 text-text-secondary">
+                          {eq.acType}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-[11px] text-text-secondary">
+                          {eq.serialNumber || 'N/A'}
+                        </td>
+                        <td className="py-3.5 px-4 text-text-primary font-medium">
+                          {eq.installationLocation}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              eq.status === 'OPERATIONAL'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {eq.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => viewEquipmentHistory(eq)}
+                            className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <History className="w-3 h-3" />
+                            <span>History</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* TAB 4: PLAN TEMPLATES */}
+      {/* ---------------------------------------------------- */}
+      {activeTab === 'plans' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {plans.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-text-secondary bg-surface-app border border-border-app rounded-2xl">
+              No AMC plan templates created yet. Create a Comprehensive or Non-Comprehensive template.
+            </div>
+          ) : (
+            plans.map((p) => (
+              <div
+                key={p._id}
+                className="bg-surface-app border border-border-app rounded-2xl p-5 shadow-xs flex flex-col justify-between hover:border-primary-700/50 transition"
+              >
+                <div>
+                  <div className="flex justify-between items-start gap-2 mb-3">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-black tracking-wider uppercase ${
+                        p.planType === 'COMPREHENSIVE'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {p.planType === 'COMPREHENSIVE' ? 'Comprehensive' : 'Non-Comprehensive'}
+                    </span>
+                    <span className="text-sm font-black text-text-primary">
+                      ₹ {(p.basePrice || 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-black text-text-primary mb-1">
+                    {p.name}
+                  </h3>
+                  <p className="text-xs text-text-secondary mb-4">
+                    Valid for {p.durationMonths} Months • Fleet Maintenance
+                  </p>
+
+                  {/* Entitlements preview */}
+                  <div className="space-y-1.5 border-t border-border-app pt-3 text-xs">
+                    <p className="font-bold text-text-secondary text-[11px] uppercase tracking-wider mb-1">
+                      Included Entitlements:
+                    </p>
+                    {p.entitlements?.map((e: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-text-primary">
+                        <span>{e.serviceType.replace(/_/g, ' ')}:</span>
+                        <span className="font-bold">
+                          {e.quantity} ({e.scheduling} / {e.entitlementScope})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Gas & Parts Info */}
+                  <div className="mt-4 pt-3 border-t border-border-app text-xs space-y-1 text-text-secondary">
+                    <div className="flex justify-between">
+                      <span>Gas Refilling:</span>
+                      <span className="font-semibold text-text-primary">
+                        {p.gasCoverage?.included ? `Yes (${p.gasCoverage.quantityLimitKg || 'Limit'} kg)` : 'Excluded'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Covered Spare Parts:</span>
+                      <span className="font-semibold text-text-primary">
+                        {p.partCoverages?.length || 0} product SKUs
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CONTRACT PLAN SNAPSHOT VIEWER */}
+      {/* ---------------------------------------------------- */}
+      {selectedSnapshot && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto space-y-5">
+            <div className="flex justify-between items-center border-b border-border-app pb-4">
+              <div>
+                <h3 className="text-lg font-black text-text-primary">
+                  Contract #{selectedSnapshot.contractNumber} Plan Snapshot
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Immutable rules captured at contract execution
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedSnapshot(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4 bg-surface-2-app p-4 rounded-xl">
+                <div>
+                  <span className="text-text-secondary block">Plan Template:</span>
+                  <span className="font-bold text-text-primary text-sm">
+                    {selectedSnapshot.planSnapshot?.planName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-text-secondary block">Contract Type:</span>
+                  <span className="font-bold text-text-primary text-sm">
+                    {selectedSnapshot.planSnapshot?.planType}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-text-primary mb-2 uppercase tracking-wider text-[11px]">
+                  Service Entitlements:
+                </h4>
+                <div className="border border-border-app rounded-xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-surface-2-app text-text-secondary font-bold">
+                      <tr>
+                        <th className="p-2.5">Service Type</th>
+                        <th className="p-2.5">Scheduling</th>
+                        <th className="p-2.5">Quantity</th>
+                        <th className="p-2.5">Scope</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-app">
+                      {selectedSnapshot.planSnapshot?.entitlements?.map((e: any, i: number) => (
+                        <tr key={i}>
+                          <td className="p-2.5 font-semibold">{e.serviceType}</td>
+                          <td className="p-2.5">{e.scheduling}</td>
+                          <td className="p-2.5 font-bold">{e.quantity}</td>
+                          <td className="p-2.5">{e.entitlementScope}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-text-primary mb-2 uppercase tracking-wider text-[11px]">
+                  Product-Level Spare Parts Coverage:
+                </h4>
+                {selectedSnapshot.planSnapshot?.partCoverages?.length === 0 ? (
+                  <p className="text-text-secondary italic">No spare parts covered under this contract.</p>
+                ) : (
+                  <div className="border border-border-app rounded-xl overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead className="bg-surface-2-app text-text-secondary font-bold">
+                        <tr>
+                          <th className="p-2.5">Part Name</th>
+                          <th className="p-2.5">Coverage Type</th>
+                          <th className="p-2.5">Qty Limit/Year</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-app">
+                        {selectedSnapshot.planSnapshot?.partCoverages?.map((p: any, i: number) => (
+                          <tr key={i}>
+                            <td className="p-2.5 font-semibold">{p.productName || p.productId}</td>
+                            <td className="p-2.5 font-bold text-emerald-600">{p.coverageType}</td>
+                            <td className="p-2.5">{p.quantityLimitPerYear || 'Unlimited'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                onClick={() => setSelectedSnapshot(null)}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-primary font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Close Snapshot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: EQUIPMENT HISTORY VIEWER */}
+      {/* ---------------------------------------------------- */}
+      {selectedHistoryEquipment && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <div>
+                <h3 className="text-base font-black text-text-primary">
+                  Equipment Ownership History
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  {selectedHistoryEquipment.brand} ({selectedHistoryEquipment.tonnage} Ton) - Serial #{selectedHistoryEquipment.serialNumber || 'N/A'}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedHistoryEquipment(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {equipmentHistoryList.length === 0 ? (
+                <p className="text-xs text-text-secondary text-center py-6">No historical transfer logs found.</p>
+              ) : (
+                equipmentHistoryList.map((hist, idx) => (
+                  <div key={idx} className="p-3 bg-surface-2-app rounded-xl text-xs space-y-1">
+                    <div className="flex justify-between items-center font-bold">
+                      <span className="text-primary-700">{hist.reason}</span>
+                      <span className="text-text-secondary font-normal text-[11px]">
+                        {new Date(hist.transferredAt).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-text-primary">
+                      Owner: <strong className="text-text-primary">{hist.toCustomerId?.name || 'Customer'}</strong>
+                      {hist.fromCustomerId && ` (From: ${hist.fromCustomerId.name})`}
+                    </div>
+                    {hist.performedBy && (
+                      <div className="text-[10.5px] text-text-secondary">
+                        Logged by: {hist.performedBy.name}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                onClick={() => setSelectedHistoryEquipment(null)}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-primary font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Close History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CONVERT QUOTATION TO AMC CONTRACT */}
+      {/* ---------------------------------------------------- */}
+      {convertingQuotation && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <div>
+                <h3 className="text-base font-black text-text-primary">
+                  Convert Quotation to AMC Contract
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Quotation #{convertingQuotation.quotationNumber} • ₹ {convertingQuotation.grandTotal?.toLocaleString('en-IN')}
+                </p>
+              </div>
+              <button
+                onClick={() => setConvertingQuotation(null)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConvertQuotation} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Client:
+                </label>
+                <p className="font-black text-sm text-text-primary">
+                  {convertingQuotation.customerId?.name}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Select AMC Plan Template (Optional):
+                </label>
+                <select
+                  value={contractForm.planId}
+                  onChange={(e) => setContractForm({ ...contractForm, planId: e.target.value })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                >
+                  <option value="">Default Standard Plan</option>
+                  {plans.map((p) => (
+                    <option key={p._id} value={p._id}>
+                      {p.name} ({p.planType})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="p-3 bg-surface-2-app rounded-xl text-[11px] text-text-secondary leading-relaxed">
+                Notice: All customer AC units registered for this customer will automatically be assigned to this contract. You can edit covered units later in the Contract details.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConvertingQuotation(null)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Confirm &amp; Create Contract
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CREATE CONTRACT */}
+      {/* ---------------------------------------------------- */}
+      {isContractModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <h3 className="text-base font-black text-text-primary">Create New AMC Contract</h3>
+              <button
+                onClick={() => setIsContractModalOpen(false)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateContract} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Customer *
+                </label>
+                <select
+                  value={contractForm.customerId}
+                  onChange={(e) => setContractForm({ ...contractForm, customerId: e.target.value })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium"
+                  required
+                >
+                  <option value="">Select Customer</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Plan Template
+                  </label>
+                  <select
+                    value={contractForm.planId}
+                    onChange={(e) => setContractForm({ ...contractForm, planId: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  >
+                    <option value="">Standard Agreement</option>
+                    {plans.map((p) => (
+                      <option key={p._id} value={p._id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Contract Type *
+                  </label>
+                  <select
+                    value={contractForm.contractType}
+                    onChange={(e) => setContractForm({ ...contractForm, contractType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  >
+                    <option value="NON_COMPREHENSIVE">Non-Comprehensive (Labour Only)</option>
+                    <option value="COMPREHENSIVE">Comprehensive (Eligible Spares)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Multi-AC Unit Selector */}
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Select Covered AC Units (Customer Fleet) *
+                </label>
+                <div className="border border-border-app rounded-xl p-3 max-h-36 overflow-y-auto space-y-2 bg-surface-2-app/40">
+                  {equipmentList.filter((eq) => eq.customerId?._id === contractForm.customerId || eq.customerId === contractForm.customerId).length === 0 ? (
+                    <p className="text-text-secondary italic">
+                      {contractForm.customerId
+                        ? 'No AC units registered for this customer yet. Register AC units first.'
+                        : 'Select a customer above to view their AC units.'}
+                    </p>
+                  ) : (
+                    equipmentList
+                      .filter((eq) => eq.customerId?._id === contractForm.customerId || eq.customerId === contractForm.customerId)
+                      .map((eq) => {
+                        const checked = contractForm.selectedEquipmentIds.includes(eq._id);
+                        return (
+                          <label key={eq._id} className="flex items-center gap-2 cursor-pointer text-text-primary font-medium">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setContractForm({
+                                    ...contractForm,
+                                    selectedEquipmentIds: [...contractForm.selectedEquipmentIds, eq._id],
+                                  });
+                                } else {
+                                  setContractForm({
+                                    ...contractForm,
+                                    selectedEquipmentIds: contractForm.selectedEquipmentIds.filter((id) => id !== eq._id),
+                                  });
+                                }
+                              }}
+                              className="rounded text-primary-700"
+                            />
+                            <span>
+                              {eq.brand} ({eq.tonnage} Ton) - {eq.installationLocation} [{eq.serialNumber || 'No S/N'}]
+                            </span>
+                          </label>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={contractForm.startDate}
+                    onChange={(e) => setContractForm({ ...contractForm, startDate: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={contractForm.endDate}
+                    onChange={(e) => setContractForm({ ...contractForm, endDate: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Total Contract Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={contractForm.contractAmount}
+                    onChange={(e) => setContractForm({ ...contractForm, contractAmount: Number(e.target.value) })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Advance / Paid Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={contractForm.paidAmount}
+                    onChange={(e) => setContractForm({ ...contractForm, paidAmount: Number(e.target.value) })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsContractModalOpen(false)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Create Contract
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: REGISTER AC UNIT */}
+      {/* ---------------------------------------------------- */}
+      {isEquipmentModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <h3 className="text-base font-black text-text-primary">Register Customer AC Unit</h3>
+              <button
+                onClick={() => setIsEquipmentModalOpen(false)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateEquipment} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                  Customer *
+                </label>
+                <select
+                  value={equipmentForm.customerId}
+                  onChange={(e) => setEquipmentForm({ ...equipmentForm, customerId: e.target.value })}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium"
+                  required
+                >
+                  <option value="">Select Customer</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    AC Type *
+                  </label>
+                  <select
+                    value={equipmentForm.acType}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, acType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  >
+                    <option value="SPLIT">Split AC</option>
+                    <option value="WINDOW">Window AC</option>
+                    <option value="CASSETTE">Cassette AC</option>
+                    <option value="DUCTABLE">Ductable AC</option>
+                    <option value="TOWER">Tower AC</option>
+                    <option value="PACKAGE">Package AC</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Tonnage *
+                  </label>
+                  <input
+                    type="text"
+                    value={equipmentForm.tonnage}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, tonnage: e.target.value })}
+                    placeholder="e.g. 1.5 or Up to 5 Ton"
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Brand *
+                  </label>
+                  <input
+                    type="text"
+                    value={equipmentForm.brand}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, brand: e.target.value })}
+                    placeholder="Daikin, Voltas, Blue Star..."
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Installation Location *
+                  </label>
+                  <input
+                    type="text"
+                    value={equipmentForm.installationLocation}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, installationLocation: e.target.value })}
+                    placeholder="e.g. Server Room 1"
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Serial Number
+                  </label>
+                  <input
+                    type="text"
+                    value={equipmentForm.serialNumber}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, serialNumber: e.target.value })}
+                    placeholder="Serial No."
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Refrigerant Gas
+                  </label>
+                  <input
+                    type="text"
+                    value={equipmentForm.refrigerantType}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, refrigerantType: e.target.value })}
+                    placeholder="R32, R410A, R22"
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEquipmentModalOpen(false)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Register Unit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CREATE QUOTATION */}
+      {/* ---------------------------------------------------- */}
+      {isQuotationModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex justify-between items-center border-b border-border-app pb-3">
+              <h3 className="text-base font-black text-text-primary">Create AMC Quotation Inquiry</h3>
+              <button
+                onClick={() => setIsQuotationModalOpen(false)}
+                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateQuotation} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Customer *
+                  </label>
+                  <select
+                    value={quotationForm.customerId}
+                    onChange={(e) => setQuotationForm({ ...quotationForm, customerId: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium"
+                    required
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map((c) => (
+                      <option key={c._id} value={c._id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
+                    Quotation Layout Type
+                  </label>
+                  <select
+                    value={quotationForm.quotationType}
+                    onChange={(e) => setQuotationForm({ ...quotationForm, quotationType: e.target.value })}
+                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
+                  >
+                    <option value="RATE_CARD">Rate-Card (Like #252611)</option>
+                    <option value="PERIODIC_CONTRACT">Periodic Maintenance (Like #252612)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Line Items Editor */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="font-bold text-text-secondary uppercase tracking-wider text-[11px]">
+                    Quotation Line Items:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuotationForm({
+                        ...quotationForm,
+                        items: [
+                          ...quotationForm.items,
+                          { description: '', period: '', quantity: 1, unitPrice: 0, amount: 0 },
+                        ],
+                      })
+                    }
+                    className="text-primary-700 font-bold text-xs hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Item</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {quotationForm.items.map((it, idx) => (
+                    <div key={idx} className="flex gap-2 items-center bg-surface-2-app p-2 rounded-xl">
+                      <input
+                        type="text"
+                        placeholder="Description (e.g. AC Water Service)"
+                        value={it.description}
+                        onChange={(e) => {
+                          const updated = [...quotationForm.items];
+                          updated[idx].description = e.target.value;
+                          setQuotationForm({ ...quotationForm, items: updated });
+                        }}
+                        className="flex-1 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
+                        required
+                      />
+
+                      {quotationForm.quotationType === 'PERIODIC_CONTRACT' ? (
+                        <input
+                          type="text"
+                          placeholder="Period (e.g. Monthly, Quarterly)"
+                          value={it.period || ''}
+                          onChange={(e) => {
+                            const updated = [...quotationForm.items];
+                            updated[idx].period = e.target.value;
+                            setQuotationForm({ ...quotationForm, items: updated });
+                          }}
+                          className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
+                        />
+                      ) : (
+                        <input
+                          type="number"
+                          placeholder="Qty"
+                          value={it.quantity}
+                          onChange={(e) => {
+                            const updated = [...quotationForm.items];
+                            updated[idx].quantity = Number(e.target.value);
+                            updated[idx].amount = Number(e.target.value) * updated[idx].unitPrice;
+                            setQuotationForm({ ...quotationForm, items: updated });
+                          }}
+                          className="w-16 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
+                        />
+                      )}
+
+                      <input
+                        type="number"
+                        placeholder="Price"
+                        value={it.unitPrice}
+                        onChange={(e) => {
+                          const updated = [...quotationForm.items];
+                          updated[idx].unitPrice = Number(e.target.value);
+                          updated[idx].amount = updated[idx].quantity * Number(e.target.value);
+                          setQuotationForm({ ...quotationForm, items: updated });
+                        }}
+                        className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
+                        required
+                      />
+
+                      <input
+                        type="number"
+                        placeholder="Amount"
+                        value={it.amount}
+                        onChange={(e) => {
+                          const updated = [...quotationForm.items];
+                          updated[idx].amount = Number(e.target.value);
+                          setQuotationForm({ ...quotationForm, items: updated });
+                        }}
+                        className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold"
+                        required
+                      />
+
+                      {quotationForm.items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuotationForm({
+                              ...quotationForm,
+                              items: quotationForm.items.filter((_, i) => i !== idx),
+                            });
+                          }}
+                          className="p-1 text-danger-app hover:bg-danger-soft rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuotationModalOpen(false)}
+                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Create Quotation
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Entitlement Audit Modal (Issue 4 & 10) */}
+      {entitlementModalData && (
+        <EntitlementModal
+          data={entitlementModalData}
+          onClose={() => setEntitlementModalData(null)}
+        />
+      )}
+    </div>
+  );
+}

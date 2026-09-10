@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Plus,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface BusinessItem {
@@ -146,6 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
     { href: '/dashboard/invoices', label: 'Invoices', icon: FileText },
+    { href: '/dashboard/amc', label: 'AMC Contracts', icon: ShieldCheck },
     { href: '/dashboard/customers', label: 'Customers', icon: Users },
     { href: '/dashboard/services', label: 'Products / Services', icon: Package },
     { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },

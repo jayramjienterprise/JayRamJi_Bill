@@ -1,6 +1,7 @@
 import fs from 'fs';
 import puppeteer from 'puppeteer';
 import { InvoiceRenderService, InvoiceRenderData } from './InvoiceRenderService';
+import { AmcRenderService, AmcQuotationRenderData } from './AmcRenderService';
 import { uploadBufferToCloudinary } from './cloudinary';
 
 function getBrowserLaunchOptions() {
@@ -132,5 +133,73 @@ export class DocumentGenerationService {
     } finally {
       await browser.close();
     }
+  }
+
+  public static async generateAmcQuotationBuffers(
+    renderData: AmcQuotationRenderData
+  ): Promise<{ pngBuffer: Buffer; pdfBuffer: Buffer }> {
+    const html = AmcRenderService.render(renderData);
+
+    const browser = await puppeteer.launch(getBrowserLaunchOptions());
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'load' });
+      await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+
+      const pngRawBuffer = await page.screenshot({
+        type: 'png',
+        fullPage: true,
+      });
+      const pngBuffer = Buffer.from(pngRawBuffer);
+
+      const pdfRawBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+      });
+      const pdfBuffer = Buffer.from(pdfRawBuffer);
+
+      return { pngBuffer, pdfBuffer };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  public static async generateAmcQuotationDocuments(
+    businessId: string,
+    quotationId: string,
+    renderData: AmcQuotationRenderData
+  ): Promise<{
+    snapshot: { publicId: string; secureUrl: string; width: number; height: number };
+    pdf: { secureUrl: string };
+  }> {
+    const { pngBuffer, pdfBuffer } = await this.generateAmcQuotationBuffers(renderData);
+
+    const folderPath = `businesses/${businessId}/amc_quotations/${quotationId}`;
+
+    const pngUpload = await uploadBufferToCloudinary(pngBuffer, {
+      folder: folderPath,
+      public_id: 'original',
+      resource_type: 'image',
+    });
+
+    const pdfUpload = await uploadBufferToCloudinary(pdfBuffer, {
+      folder: folderPath,
+      public_id: 'quotation.pdf',
+      resource_type: 'raw',
+    });
+
+    return {
+      snapshot: {
+        publicId: pngUpload.public_id,
+        secureUrl: pngUpload.secure_url,
+        width: 794,
+        height: 1123,
+      },
+      pdf: {
+        secureUrl: pdfUpload.secure_url,
+      },
+    };
   }
 }
