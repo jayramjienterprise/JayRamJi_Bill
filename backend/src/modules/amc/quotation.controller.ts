@@ -24,7 +24,7 @@ const createQuotationSchema = z.object({
   quotationDate: z.string().optional(),
   validUntil: z.string().optional(),
   paymentTerms: z.string().default('10 Days from the Invoice date'),
-  quotationType: z.enum(['RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD']).default('RATE_CARD'),
+  quotationType: z.enum(['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD']).default('NON_COMPREHENSIVE'),
   items: z.array(quotationItemSchema).min(1, 'At least one line item is required'),
   discount: z.number().min(0).default(0),
   taxRateBps: z.number().min(0).default(0),
@@ -285,7 +285,7 @@ export async function generateQuotationPdf(req: Request, res: Response, next: Ne
         quotationDate: quotation.quotationDate,
         validUntil: quotation.validUntil,
         paymentTerms: quotation.paymentTerms,
-        title: 'QUOTATION INQUIRY',
+        title: quotation.quotationType === 'COMPREHENSIVE' ? 'AMC QUOTATION (COMPREHENSIVE)' : 'AMC QUOTATION (NON-COMPREHENSIVE)',
         termsAndConditions: quotation.termsAndConditions,
       },
       business: {

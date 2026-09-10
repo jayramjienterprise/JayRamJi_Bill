@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { apiClient } from '../../../lib/api/client';
 import {
   ShieldCheck,
@@ -50,7 +51,6 @@ export default function AmcManagementPage() {
 
   // Modals
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
-  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<any | null>(null);
@@ -72,14 +72,6 @@ export default function AmcManagementPage() {
     contractAmount: 0,
     paidAmount: 0,
     activationTrigger: 'ADMIN_APPROVAL',
-  });
-
-  const [quotationForm, setQuotationForm] = useState({
-    customerId: '',
-    quotationNumber: '',
-    quotationType: 'RATE_CARD',
-    paymentTerms: '10 Days from the Invoice date',
-    items: [{ description: 'AC Water Service (Up to 5 Ton)', period: '', quantity: 1, unitPrice: 1650, amount: 1650 }],
   });
 
   const [equipmentForm, setEquipmentForm] = useState({
@@ -107,8 +99,24 @@ export default function AmcManagementPage() {
   });
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam && ['contracts', 'visits', 'quotations', 'equipment', 'plans'].includes(tabParam)) {
+        setActiveTab(tabParam as any);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     fetchInitialData();
   }, [activeTab, contractStatusFilter, expiringOnly]);
+
+  function extractArray(res: any): any[] {
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray(res.data)) return res.data;
+    return [];
+  }
 
   async function fetchInitialData() {
     setLoading(true);
@@ -118,36 +126,44 @@ export default function AmcManagementPage() {
         let url = `/amc/contracts?status=${contractStatusFilter}`;
         if (expiringOnly) url += '&expiringDays=30';
         const res: any = await apiClient.get(url);
-        setContracts(res.data || []);
+        setContracts(extractArray(res));
       } else if (activeTab === 'visits') {
         const res: any = await apiClient.get('/amc/visits');
-        setVisits(res.data || []);
+        setVisits(extractArray(res));
       } else if (activeTab === 'quotations') {
         const res: any = await apiClient.get('/amc/quotations');
-        setQuotations(res.data || []);
+        setQuotations(extractArray(res));
       } else if (activeTab === 'equipment') {
         const res: any = await apiClient.get('/amc/equipment');
-        setEquipmentList(res.data || []);
+        setEquipmentList(extractArray(res));
       } else if (activeTab === 'plans') {
         const res: any = await apiClient.get('/amc/plans');
-        setPlans(res.data || []);
+        setPlans(extractArray(res));
       }
 
       // Preload auxiliary data
-      const [custRes, prodRes, planRes, eqRes, techRes, visitRes]: any = await Promise.all([
-        apiClient.get('/customers'),
-        apiClient.get('/products'),
-        apiClient.get('/amc/plans'),
-        apiClient.get('/amc/equipment'),
-        apiClient.get('/amc/technicians').catch(() => ({ data: [] })),
-        apiClient.get('/amc/visits').catch(() => ({ data: [] })),
+      const [custRes, prodRes, planRes, eqRes, techRes, visitRes, quoteRes, contractRes]: any = await Promise.all([
+        apiClient.get('/customers').catch(() => []),
+        apiClient.get('/products').catch(() => []),
+        apiClient.get('/amc/plans').catch(() => []),
+        apiClient.get('/amc/equipment').catch(() => []),
+        apiClient.get('/amc/technicians').catch(() => []),
+        apiClient.get('/amc/visits').catch(() => []),
+        apiClient.get('/amc/quotations').catch(() => []),
+        apiClient.get('/amc/contracts').catch(() => []),
       ]);
-      setCustomers(custRes.data || []);
-      setProducts(prodRes.data || []);
-      setPlans(planRes.data || []);
-      setEquipmentList(eqRes.data || []);
-      setTechnicians(techRes.data || []);
-      setVisits(visitRes.data || []);
+      const custList = custRes?.customers || custRes?.data?.customers || extractArray(custRes);
+      const prodList = prodRes?.products || prodRes?.data?.products || extractArray(prodRes);
+      setCustomers(custList);
+      setProducts(prodList);
+      setPlans(extractArray(planRes));
+      setEquipmentList(extractArray(eqRes));
+      setTechnicians(extractArray(techRes));
+      setVisits(extractArray(visitRes));
+      setQuotations(extractArray(quoteRes));
+      if (activeTab === 'contracts') {
+        setContracts(extractArray(contractRes));
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load AMC module data');
     } finally {
@@ -217,28 +233,7 @@ export default function AmcManagementPage() {
     }
   }
 
-  // Quotation Actions
-  async function handleCreateQuotation(e: React.FormEvent) {
-    e.preventDefault();
-    if (!quotationForm.customerId) return setErrorMsg('Please select a customer');
-    if (quotationForm.items.length === 0) return setErrorMsg('Please add at least one line item');
 
-    try {
-      await apiClient.post('/amc/quotations', {
-        customerId: quotationForm.customerId,
-        quotationNumber: quotationForm.quotationNumber || undefined,
-        quotationType: quotationForm.quotationType,
-        paymentTerms: quotationForm.paymentTerms,
-        items: quotationForm.items,
-      });
-
-      setSuccessMsg('Quotation created successfully!');
-      setIsQuotationModalOpen(false);
-      fetchInitialData();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error creating quotation');
-    }
-  }
 
   function downloadQuotationPdf(quotationId: string) {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -342,8 +337,17 @@ export default function AmcManagementPage() {
           </p>
         </div>
 
-        {/* Global Tab Actions */}
-        <div className="flex items-center gap-2">
+        {/* Top Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            href="/dashboard/amc/quotations/create"
+            className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+            title="Create AMC Quotation"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ New Quotation</span>
+          </Link>
+
           {activeTab === 'contracts' && (
             <button
               onClick={() => setIsContractModalOpen(true)}
@@ -351,15 +355,6 @@ export default function AmcManagementPage() {
             >
               <Plus className="w-4 h-4" />
               <span>New Contract</span>
-            </button>
-          )}
-          {activeTab === 'quotations' && (
-            <button
-              onClick={() => setIsQuotationModalOpen(true)}
-              className="px-4 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Quotation</span>
             </button>
           )}
           {activeTab === 'equipment' && (
@@ -691,6 +686,22 @@ export default function AmcManagementPage() {
       {/* ---------------------------------------------------- */}
       {activeTab === 'quotations' && (
         <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-surface-app border border-border-app p-4 rounded-2xl shadow-xs">
+            <div>
+              <h3 className="text-sm font-black text-text-primary">AMC Quotations</h3>
+              <p className="text-xs text-text-secondary">
+                Client inquiries & proposals before finalizing active AMC maintenance contracts
+              </p>
+            </div>
+            <Link
+              href="/dashboard/amc/quotations/create"
+              className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Quotation</span>
+            </Link>
+          </div>
+
           <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -706,11 +717,11 @@ export default function AmcManagementPage() {
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border-app">
+                <tbody className="divide-y border-border-app">
                   {quotations.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-text-secondary">
-                        No AMC quotations recorded yet.
+                        No AMC quotations recorded yet. Click &quot;Create Quotation&quot; to compile your first quotation.
                       </td>
                     </tr>
                   ) : (
@@ -723,10 +734,16 @@ export default function AmcManagementPage() {
                           {q.customerId?.name || 'Unknown Client'}
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded-md font-bold text-[10.5px] bg-surface-2-app text-text-secondary">
-                            {q.quotationType === 'PERIODIC_CONTRACT'
-                              ? 'Periodic Fleet'
-                              : 'Rate Card'}
+                          <span
+                            className={`px-2.5 py-0.5 rounded-md font-bold text-[10px] ${
+                              q.quotationType === 'COMPREHENSIVE'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {q.quotationType === 'COMPREHENSIVE'
+                              ? 'Comprehensive AMC'
+                              : 'Non-Comprehensive AMC'}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-text-secondary">
@@ -745,10 +762,20 @@ export default function AmcManagementPage() {
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : q.status === 'ACCEPTED'
                                 ? 'bg-blue-100 text-blue-800'
+                                : q.status === 'SENT'
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : q.status === 'DRAFT'
+                                ? 'bg-amber-100 text-amber-800'
                                 : 'bg-neutral-200 text-neutral-700'
                             }`}
                           >
-                            {q.status}
+                            {q.status === 'CONVERTED_TO_CONTRACT'
+                              ? 'Active Contract'
+                              : q.status === 'SENT'
+                              ? 'Finalized'
+                              : q.status === 'DRAFT'
+                              ? 'Draft'
+                              : q.status}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-2">
@@ -1515,189 +1542,7 @@ export default function AmcManagementPage() {
         </div>
       )}
 
-      {/* ---------------------------------------------------- */}
-      {/* MODAL: CREATE QUOTATION */}
-      {/* ---------------------------------------------------- */}
-      {isQuotationModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-surface-app border border-border-app rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex justify-between items-center border-b border-border-app pb-3">
-              <h3 className="text-base font-black text-text-primary">Create AMC Quotation Inquiry</h3>
-              <button
-                onClick={() => setIsQuotationModalOpen(false)}
-                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <form onSubmit={handleCreateQuotation} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
-                    Customer *
-                  </label>
-                  <select
-                    value={quotationForm.customerId}
-                    onChange={(e) => setQuotationForm({ ...quotationForm, customerId: e.target.value })}
-                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium"
-                    required
-                  >
-                    <option value="">Select Customer</option>
-                    {customers.map((c) => (
-                      <option key={c._id} value={c._id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-text-secondary font-bold mb-1 uppercase tracking-wider">
-                    Quotation Layout Type
-                  </label>
-                  <select
-                    value={quotationForm.quotationType}
-                    onChange={(e) => setQuotationForm({ ...quotationForm, quotationType: e.target.value })}
-                    className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
-                  >
-                    <option value="RATE_CARD">Rate-Card (Like #252611)</option>
-                    <option value="PERIODIC_CONTRACT">Periodic Maintenance (Like #252612)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Line Items Editor */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="font-bold text-text-secondary uppercase tracking-wider text-[11px]">
-                    Quotation Line Items:
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setQuotationForm({
-                        ...quotationForm,
-                        items: [
-                          ...quotationForm.items,
-                          { description: '', period: '', quantity: 1, unitPrice: 0, amount: 0 },
-                        ],
-                      })
-                    }
-                    className="text-primary-700 font-bold text-xs hover:underline cursor-pointer flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Item</span>
-                  </button>
-                </div>
-
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {quotationForm.items.map((it, idx) => (
-                    <div key={idx} className="flex gap-2 items-center bg-surface-2-app p-2 rounded-xl">
-                      <input
-                        type="text"
-                        placeholder="Description (e.g. AC Water Service)"
-                        value={it.description}
-                        onChange={(e) => {
-                          const updated = [...quotationForm.items];
-                          updated[idx].description = e.target.value;
-                          setQuotationForm({ ...quotationForm, items: updated });
-                        }}
-                        className="flex-1 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
-                        required
-                      />
-
-                      {quotationForm.quotationType === 'PERIODIC_CONTRACT' ? (
-                        <input
-                          type="text"
-                          placeholder="Period (e.g. Monthly, Quarterly)"
-                          value={it.period || ''}
-                          onChange={(e) => {
-                            const updated = [...quotationForm.items];
-                            updated[idx].period = e.target.value;
-                            setQuotationForm({ ...quotationForm, items: updated });
-                          }}
-                          className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
-                        />
-                      ) : (
-                        <input
-                          type="number"
-                          placeholder="Qty"
-                          value={it.quantity}
-                          onChange={(e) => {
-                            const updated = [...quotationForm.items];
-                            updated[idx].quantity = Number(e.target.value);
-                            updated[idx].amount = Number(e.target.value) * updated[idx].unitPrice;
-                            setQuotationForm({ ...quotationForm, items: updated });
-                          }}
-                          className="w-16 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
-                        />
-                      )}
-
-                      <input
-                        type="number"
-                        placeholder="Price"
-                        value={it.unitPrice}
-                        onChange={(e) => {
-                          const updated = [...quotationForm.items];
-                          updated[idx].unitPrice = Number(e.target.value);
-                          updated[idx].amount = updated[idx].quantity * Number(e.target.value);
-                          setQuotationForm({ ...quotationForm, items: updated });
-                        }}
-                        className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs"
-                        required
-                      />
-
-                      <input
-                        type="number"
-                        placeholder="Amount"
-                        value={it.amount}
-                        onChange={(e) => {
-                          const updated = [...quotationForm.items];
-                          updated[idx].amount = Number(e.target.value);
-                          setQuotationForm({ ...quotationForm, items: updated });
-                        }}
-                        className="w-24 bg-surface-app border border-border-app rounded-lg p-2 text-xs font-bold"
-                        required
-                      />
-
-                      {quotationForm.items.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuotationForm({
-                              ...quotationForm,
-                              items: quotationForm.items.filter((_, i) => i !== idx),
-                            });
-                          }}
-                          className="p-1 text-danger-app hover:bg-danger-soft rounded"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsQuotationModalOpen(false)}
-                  className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-                >
-                  Create Quotation
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Entitlement Audit Modal (Issue 4 & 10) */}
       {entitlementModalData && (

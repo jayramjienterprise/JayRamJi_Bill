@@ -16,7 +16,7 @@ export interface IAmcQuotation extends Document {
   quotationDate: Date;
   validUntil: Date;
   paymentTerms: string; // e.g. '10 Days from the Invoice date'
-  quotationType: 'RATE_CARD' | 'PERIODIC_CONTRACT' | 'STANDARD';
+  quotationType: 'COMPREHENSIVE' | 'NON_COMPREHENSIVE' | 'RATE_CARD' | 'PERIODIC_CONTRACT' | 'STANDARD';
   items: IAmcQuotationItem[];
   subtotal: number;
   discount: number;
@@ -83,8 +83,8 @@ const AmcQuotationSchema = new Schema<IAmcQuotation>(
     quotationType: {
       type: String,
       required: true,
-      enum: ['RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD'],
-      default: 'RATE_CARD',
+      enum: ['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD'],
+      default: 'NON_COMPREHENSIVE',
     },
     items: {
       type: [AmcQuotationItemSchema],
