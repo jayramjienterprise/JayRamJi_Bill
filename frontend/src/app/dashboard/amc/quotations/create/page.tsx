@@ -62,6 +62,23 @@ export default function CreateAmcQuotationPage() {
   const [validityDays, setValidityDays] = useState('30 Days');
   const [taxOption, setTaxOption] = useState<'NONE' | 'GST_18'>('NONE');
 
+  // Edit Mode state
+  const [editId, setEditId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [existingQuotation, setExistingQuotation] = useState<any | null>(null);
+
+  // Read edit query param
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const editParam = params.get('edit');
+      if (editParam) {
+        setEditId(editParam);
+        setIsEditing(true);
+      }
+    }
+  }, []);
+
   // Terms & Conditions list
   const [termsList, setTermsList] = useState<string[]>([
     'This AMC quotation is valid for 1 Year from issuance date.',
@@ -82,6 +99,58 @@ export default function CreateAmcQuotationPage() {
       amount: 4800,
     },
   ]);
+
+  // Load quotation details if in edit mode
+  useEffect(() => {
+    if (!editId) return;
+    async function loadQuotationForEditing() {
+      try {
+        setLoading(true);
+        const res: any = await apiClient.get(`/amc/quotations/${editId}`);
+        const quote = res?.data || res;
+        if (quote) {
+          setExistingQuotation(quote);
+          setQuotationNumber(quote.quotationNumber || '');
+          const custId = quote.customerId?._id || quote.customerId?.id || quote.customerId;
+          if (custId) setSelectedCustomerId(custId);
+          if (quote.quotationDate) {
+            setQuotationDate(new Date(quote.quotationDate).toISOString().split('T')[0]);
+          }
+          if (quote.quotationType) {
+            setAmcType(quote.quotationType);
+          }
+          if (quote.paymentTerms) {
+            setPaymentTerms(quote.paymentTerms);
+          }
+          if (quote.taxRateBps && quote.taxRateBps > 0) {
+            setTaxOption('GST_18');
+          } else {
+            setTaxOption('NONE');
+          }
+          if (Array.isArray(quote.termsAndConditions) && quote.termsAndConditions.length > 0) {
+            setTermsList(quote.termsAndConditions);
+          }
+          if (Array.isArray(quote.items) && quote.items.length > 0) {
+            setItems(
+              quote.items.map((it: any, idx: number) => ({
+                serialNumber: it.serialNumber || idx + 1,
+                description: it.description,
+                period: it.period || '',
+                quantity: Number(it.quantity) || 1,
+                unitPrice: Number(it.unitPrice) || 0,
+                amount: Number(it.amount) || 0,
+              }))
+            );
+          }
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Failed to load quotation for editing');
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadQuotationForEditing();
+  }, [editId]);
 
   // Inline Customer Modal state
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
@@ -125,9 +194,11 @@ export default function CreateAmcQuotationPage() {
         const signature = assetsList.find((a) => a.type === 'SIGNATURE' && a.active);
         setActiveAssets({ logo, stamp, signature });
 
-        // Generate next quotation number
-        const randomNum = Math.floor(1000 + Math.random() * 9000);
-        setQuotationNumber(`JRE-Q-2526-${randomNum}`);
+        // Generate next quotation number only for new quotation
+        if (!editId) {
+          const randomNum = Math.floor(1000 + Math.random() * 9000);
+          setQuotationNumber((prev) => prev || `JRE-Q-2526-${randomNum}`);
+        }
       } catch (err: any) {
         console.error('Failed loading initial master data:', err);
       } finally {
@@ -136,7 +207,7 @@ export default function CreateAmcQuotationPage() {
     }
 
     initData();
-  }, [activeBusinessId]);
+  }, [activeBusinessId, editId]);
 
   // Sync selected customer
   useEffect(() => {
@@ -325,12 +396,25 @@ export default function CreateAmcQuotationPage() {
         status,
       };
 
-      const res: any = await apiClient.post('/amc/quotations', payload);
-      setSuccessMsg(
-        status === 'DRAFT'
-          ? 'Quotation saved as Draft!'
-          : 'AMC Quotation finalized and issued successfully!'
-      );
+      if (editId) {
+        if (existingQuotation && existingQuotation.status !== 'DRAFT') {
+          setErrorMsg('Only draft quotations can be edited. This quotation is locked.');
+          return;
+        }
+        await apiClient.patch(`/amc/quotations/${editId}`, payload);
+        setSuccessMsg(
+          status === 'DRAFT'
+            ? 'Draft quotation updated successfully!'
+            : 'AMC Quotation updated and finalized successfully!'
+        );
+      } else {
+        await apiClient.post('/amc/quotations', payload);
+        setSuccessMsg(
+          status === 'DRAFT'
+            ? 'Quotation saved as Draft!'
+            : 'AMC Quotation finalized and issued successfully!'
+        );
+      }
 
       setTimeout(() => {
         router.push('/dashboard/amc?tab=quotations');
@@ -343,8 +427,10 @@ export default function CreateAmcQuotationPage() {
     }
   }
 
+  const isReadOnly = existingQuotation && existingQuotation.status !== 'DRAFT';
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-2 sm:p-4">
+    <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-app border border-border-app p-4 sm:p-5 rounded-2xl shadow-xs">
         <div>
@@ -352,7 +438,7 @@ export default function CreateAmcQuotationPage() {
             <Link
               href="/dashboard/amc?tab=quotations"
               className="p-2 bg-surface-2-app hover:bg-border-app rounded-xl text-text-secondary transition"
-              title="Back to AMC Contracts"
+              title="Back to AMC Quotations"
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
@@ -360,11 +446,13 @@ export default function CreateAmcQuotationPage() {
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary-700" />
                 <h1 className="text-xl font-black tracking-tight text-text-primary">
-                  Create AMC Quotation
+                  {isEditing ? `Edit AMC Quotation: ${quotationNumber}` : 'Create AMC Quotation'}
                 </h1>
               </div>
               <p className="text-xs text-text-secondary mt-0.5">
-                Compile an official AMC quotation, add AC maintenance services, and preview live in real-time.
+                {isEditing
+                  ? 'Update service descriptions, periodic visits, pricing, and terms for this draft quotation.'
+                  : 'Compile an official AMC quotation, add AC maintenance services, and preview live in real-time.'}
               </p>
             </div>
           </div>
@@ -379,15 +467,15 @@ export default function CreateAmcQuotationPage() {
           </Link>
           <button
             onClick={() => handleSaveQuotation('DRAFT')}
-            disabled={submitLoading}
-            className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
+            disabled={submitLoading || isReadOnly}
+            className="px-4 py-2.5 bg-surface-2-app hover:bg-border-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition cursor-pointer shadow-xs disabled:opacity-50"
           >
-            Save as Draft
+            {isEditing ? 'Save Changes (Draft)' : 'Save as Draft'}
           </button>
           <button
             onClick={() => handleSaveQuotation('SENT')}
-            disabled={submitLoading}
-            className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
+            disabled={submitLoading || isReadOnly}
+            className="px-5 py-2.5 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>{submitLoading ? 'Saving...' : 'Finalize & Issue Quotation'}</span>
@@ -417,6 +505,23 @@ export default function CreateAmcQuotationPage() {
           <button onClick={() => setSuccessMsg(null)}>
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {isReadOnly && (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs rounded-xl flex items-center justify-between font-medium">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              <strong>Read-Only Notice:</strong> This quotation is marked as <strong>{existingQuotation.status}</strong>. Only <strong>Draft</strong> quotations can be edited.
+            </span>
+          </div>
+          <Link
+            href={`/dashboard/amc/quotations/${editId}`}
+            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shrink-0"
+          >
+            View Document
+          </Link>
         </div>
       )}
 

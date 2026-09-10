@@ -30,6 +30,7 @@ const createQuotationSchema = z.object({
   taxRateBps: z.number().min(0).default(0),
   termsAndConditions: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
+  status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED_TO_CONTRACT']).optional(),
 });
 
 const updateQuotationSchema = createQuotationSchema.partial();
@@ -101,10 +102,10 @@ export async function createQuotation(req: Request, res: Response, next: NextFun
 
     const customer = await Customer.findOne({ _id: validated.customerId, businessId, active: true });
     if (!customer) {
-      return next(new AppError('Associated customer not found', 404, 'CUSTOMER_NOT_FOUND'));
+      return next(new AppError('Customer not found', 404, 'CUSTOMER_NOT_FOUND'));
     }
 
-    // Auto-generate quotation number if not explicitly specified
+    // Auto-generate quotation number if not supplied
     let quotationNumber = validated.quotationNumber?.trim();
     if (!quotationNumber) {
       const seq = await InvoiceSequence.findOneAndUpdate(
@@ -143,7 +144,7 @@ export async function createQuotation(req: Request, res: Response, next: NextFun
       validUntil: validated.validUntil
         ? new Date(validated.validUntil)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      status: 'DRAFT',
+      status: validated.status || 'DRAFT',
       active: true,
     });
 
@@ -171,12 +172,12 @@ export async function updateQuotation(req: Request, res: Response, next: NextFun
       return next(new AppError('Quotation not found', 404, 'QUOTATION_NOT_FOUND'));
     }
 
-    if (quotation.status === 'CONVERTED_TO_CONTRACT') {
+    if (quotation.status !== 'DRAFT') {
       return next(
         new AppError(
-          'Cannot edit a quotation that has already been converted to an active AMC Contract',
+          'Only draft quotations can be edited. Finalized or active contract quotations are locked.',
           400,
-          'QUOTATION_ALREADY_CONVERTED'
+          'ONLY_DRAFTS_CAN_BE_EDITED'
         )
       );
     }

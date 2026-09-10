@@ -320,7 +320,7 @@ export default function AmcManagementPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-2 sm:p-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs">
         <div>
@@ -702,38 +702,47 @@ export default function AmcManagementPage() {
             </Link>
           </div>
 
-          <div className="bg-surface-app border border-border-app rounded-2xl overflow-hidden shadow-xs">
+          <div className="bg-surface-app border border-border-app rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-2-app border-b border-border-app text-text-secondary uppercase tracking-wider font-bold">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-surface-2-app border-b border-border-app text-xs font-semibold text-text-muted uppercase tracking-wider">
                   <tr>
-                    <th className="py-3 px-4">Quotation No.</th>
-                    <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Date</th>
-                    <th className="py-3 px-4">Items</th>
-                    <th className="py-3 px-4">Total Amount</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
+                    <th className="py-3 px-6">Quotation No.</th>
+                    <th className="py-3 px-6">Customer</th>
+                    <th className="py-3 px-6">Type</th>
+                    <th className="py-3 px-6">Date</th>
+                    <th className="py-3 px-6">Items</th>
+                    <th className="py-3 px-6">Total Amount</th>
+                    <th className="py-3 px-6">Status</th>
+                    <th className="py-3 px-6 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y border-border-app">
+                <tbody className="divide-y divide-border-app text-sm">
                   {quotations.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-text-secondary">
-                        No AMC quotations recorded yet. Click &quot;Create Quotation&quot; to compile your first quotation.
+                      <td colSpan={8} className="py-12 text-center text-text-secondary">
+                        <p className="text-base font-medium text-text-primary mb-1">No AMC quotations found</p>
+                        <p className="text-xs text-text-secondary">
+                          Click &quot;Create Quotation&quot; to compile your first quotation.
+                        </p>
                       </td>
                     </tr>
                   ) : (
                     quotations.map((q) => (
-                      <tr key={q._id} className="hover:bg-surface-2-app/50 transition">
-                        <td className="py-3.5 px-4 font-black text-primary-700">
-                          {q.quotationNumber}
+                      <tr key={q._id} className="hover:bg-surface-2-app/30 transition">
+                        <td className="py-4 px-6">
+                          <Link
+                            href={q.status === 'DRAFT' ? `/dashboard/amc/quotations/create?edit=${q._id}` : `/dashboard/amc/quotations/${q._id}`}
+                            className="font-bold text-primary-700 hover:underline cursor-pointer"
+                            title="Open Quotation"
+                          >
+                            {q.quotationNumber}
+                          </Link>
                         </td>
-                        <td className="py-3.5 px-4 font-bold text-text-primary">
+                        <td className="py-4 px-6 text-text-primary font-medium">
                           {q.customerId?.name || 'Unknown Client'}
                         </td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-4 px-6">
                           <span
                             className={`px-2.5 py-0.5 rounded-md font-bold text-[10px] ${
                               q.quotationType === 'COMPREHENSIVE'
@@ -746,57 +755,65 @@ export default function AmcManagementPage() {
                               : 'Non-Comprehensive AMC'}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-text-secondary">
-                          {new Date(q.quotationDate).toLocaleDateString()}
+                        <td className="py-4 px-6 text-text-secondary text-xs">
+                          {new Date(q.quotationDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                         </td>
-                        <td className="py-3.5 px-4 text-text-secondary font-medium">
+                        <td className="py-4 px-6 text-text-secondary font-medium text-xs">
                           {q.items?.length || 0} line items
                         </td>
-                        <td className="py-3.5 px-4 font-black text-text-primary">
-                          ₹ {(q.grandTotal || 0).toLocaleString('en-IN')}
+                        <td className="py-4 px-6 text-text-primary font-bold">
+                          ₹{(q.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              q.status === 'CONVERTED_TO_CONTRACT'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : q.status === 'ACCEPTED'
-                                ? 'bg-blue-100 text-blue-800'
-                                : q.status === 'SENT'
-                                ? 'bg-indigo-100 text-indigo-800'
-                                : q.status === 'DRAFT'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-neutral-200 text-neutral-700'
-                            }`}
-                          >
-                            {q.status === 'CONVERTED_TO_CONTRACT'
-                              ? 'Active Contract'
-                              : q.status === 'SENT'
-                              ? 'Finalized'
-                              : q.status === 'DRAFT'
-                              ? 'Draft'
-                              : q.status}
-                          </span>
+                        <td className="py-4 px-6">
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-1">
+                            {q.status === 'DRAFT' ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-2-app text-text-secondary border border-border-app">
+                                Draft
+                              </span>
+                            ) : q.status === 'CONVERTED_TO_CONTRACT' ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                Active Contract
+                              </span>
+                            ) : q.status === 'SENT' ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-success-soft/60 text-success-app border border-success-app/20">
+                                Finalized
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                {q.status}
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-3.5 px-4 text-right space-x-2">
-                          <button
-                            onClick={() => downloadQuotationPdf(q._id)}
-                            className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app rounded-lg text-text-secondary text-[11px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
-                            title="Download PDF in JRE Format"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>PDF</span>
-                          </button>
-
-                          {q.status !== 'CONVERTED_TO_CONTRACT' && (
-                            <button
-                              onClick={() => setConvertingQuotation(q)}
-                              className="px-2.5 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
+                        <td className="py-4 px-6 text-right">
+                          <div className="inline-flex items-center justify-end gap-2">
+                            <Link
+                              href={q.status === 'DRAFT' ? `/dashboard/amc/quotations/create?edit=${q._id}` : `/dashboard/amc/quotations/${q._id}`}
+                              className="px-3 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary cursor-pointer transition inline-flex items-center gap-1"
+                              title="Open Quotation"
                             >
-                              <span>Convert to AMC</span>
-                              <ArrowRight className="w-3 h-3" />
+                              Open
+                            </Link>
+
+                            <button
+                              onClick={() => downloadQuotationPdf(q._id)}
+                              className="px-2.5 py-1 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-semibold text-text-secondary cursor-pointer transition inline-flex items-center gap-1"
+                              title="Download PDF"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>PDF</span>
                             </button>
-                          )}
+
+                            {q.status !== 'CONVERTED_TO_CONTRACT' && (
+                              <button
+                                onClick={() => setConvertingQuotation(q)}
+                                className="px-3 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
+                              >
+                                <span>Convert to AMC</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
