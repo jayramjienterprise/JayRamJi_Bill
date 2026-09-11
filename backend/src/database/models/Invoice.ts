@@ -51,6 +51,7 @@ export interface IInvoice extends Document {
   };
   amountInWords: string;
   paymentTerms: string | null;
+  termsAndConditions: string[];
   notes: string | null;
   draftPaymentDetails?: any;
   paymentSummary: {
@@ -157,6 +158,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     },
     amountInWords: { type: String, default: '' },
     paymentTerms: { type: String, default: null },
+    termsAndConditions: { type: [String], default: [] },
     notes: { type: String, default: null },
     draftPaymentDetails: { type: Schema.Types.Mixed, default: null },
     paymentSummary: {

@@ -23,10 +23,12 @@ import {
   updateQuotationStatus,
   generateQuotationPdf,
   deleteQuotation,
+  convertQuotationToInvoice,
 } from './quotation.controller';
 import {
   listContracts,
   getContract,
+  generateContractPdf,
   createContract,
   convertQuotationToContract,
   updateContractStatus,
@@ -37,6 +39,8 @@ import {
 import {
   listVisits,
   getVisit,
+  createServiceVisit,
+  updateVisitStatus,
   generateContractVisits,
   assignTechnician,
   completeVisitJobCard,
@@ -83,6 +87,7 @@ router.post('/quotations', createQuotation);
 router.patch('/quotations/:id', updateQuotation);
 router.patch('/quotations/:id/status', updateQuotationStatus);
 router.post('/quotations/:quotationId/convert', convertQuotationToContract);
+router.post('/quotations/:id/convert-to-invoice', convertQuotationToInvoice);
 router.delete('/quotations/:id', deleteQuotation);
 
 // ----------------------------------------------------
@@ -90,6 +95,7 @@ router.delete('/quotations/:id', deleteQuotation);
 // ----------------------------------------------------
 router.get('/contracts', listContracts);
 router.get('/contracts/:id', getContract);
+router.get('/contracts/:id/pdf', generateContractPdf);
 router.post('/contracts', createContract);
 router.patch('/contracts/:id/status', updateContractStatus);
 router.patch('/contracts/:id/payment', updateContractPayment);
@@ -102,11 +108,13 @@ router.post('/contracts/:contractId/generate-visits', generateContractVisits);
 // 5. AMC Service Visits & Job-Cards Endpoints
 // ----------------------------------------------------
 router.get('/visits', listVisits);
+router.post('/visits', createServiceVisit);
 router.get('/technicians', listTechnicians);
 router.post('/technicians', createTechnician);
 router.patch('/technicians/:id', updateTechnician);
 router.delete('/technicians/:id', deleteTechnician);
 router.get('/visits/:id', getVisit);
+router.patch('/visits/:id/status', updateVisitStatus);
 router.patch('/visits/:id/assign', assignTechnician);
 router.post('/visits/:id/complete-jobcard', completeVisitJobCard);
 router.post('/visits/:id/supplementary-quotation', createSupplementaryQuotationFromVisit);

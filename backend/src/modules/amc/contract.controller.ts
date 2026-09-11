@@ -7,6 +7,11 @@ import { AmcQuotation } from '../../database/models/AmcQuotation';
 import { Customer } from '../../database/models/Customer';
 import { CustomerAcEquipment } from '../../database/models/CustomerAcEquipment';
 import { InvoiceSequence } from '../../database/models/InvoiceSequence';
+import { Business } from '../../database/models/Business';
+import { Asset } from '../../database/models/Asset';
+import { PaymentAccount } from '../../database/models/PaymentAccount';
+import { DocumentGenerationService } from '../../services/DocumentGenerationService';
+import { AmcContractRenderData } from '../../services/AmcRenderService';
 import { AppError } from '../../middleware/errorHandler';
 
 const coveredUnitSchema = z.object({
@@ -34,6 +39,8 @@ const createContractSchema = z.object({
     finalAmount: z.number().min(0),
     paidAmount: z.number().min(0).default(0),
   }),
+  paymentScheduleType: z.enum(['LUMP_SUM', 'HALF_YEARLY', 'QUARTERLY', 'CUSTOM']).optional().default('LUMP_SUM'),
+  customInstallments: z.any().optional(),
   activationTrigger: z.enum(['ADMIN_APPROVAL', 'PAYMENT_RECEIVED', 'ADVANCE_RECEIVED']).default('ADMIN_APPROVAL'),
   notes: z.string().nullable().optional(),
   customPlanSnapshot: z.any().optional(), // Allow custom override if not using planId
@@ -55,6 +62,70 @@ async function getNextContractNumber(businessId: any, prefix = 'AMC-2526'): Prom
     }
   }
   return contractNumber;
+}
+
+export function generateMilestoneInstallments(
+  scheduleType: 'LUMP_SUM' | 'HALF_YEARLY' | 'QUARTERLY' | 'CUSTOM',
+  finalAmount: number,
+  startDate: Date,
+  paidAmount: number = 0
+) {
+  const installments: any[] = [];
+  const start = new Date(startDate);
+
+  if (scheduleType === 'HALF_YEARLY') {
+    const half = Math.round(finalAmount / 2);
+    const secondHalf = finalAmount - half;
+    const due1 = new Date(start);
+    const due2 = new Date(start);
+    due2.setMonth(due2.getMonth() + 6);
+
+    installments.push({
+      installmentNumber: 1,
+      title: 'Half-Yearly Installment 1 of 2',
+      dueDate: due1,
+      amount: half,
+      status: paidAmount >= half ? 'PAID' : (due1 < new Date() ? 'OVERDUE' : 'PENDING'),
+      paidAt: paidAmount >= half ? new Date() : null,
+    });
+    installments.push({
+      installmentNumber: 2,
+      title: 'Half-Yearly Installment 2 of 2',
+      dueDate: due2,
+      amount: secondHalf,
+      status: paidAmount >= finalAmount ? 'PAID' : (due2 < new Date() ? 'OVERDUE' : 'PENDING'),
+      paidAt: paidAmount >= finalAmount ? new Date() : null,
+    });
+  } else if (scheduleType === 'QUARTERLY') {
+    const qAmount = Math.round(finalAmount / 4);
+    for (let i = 1; i <= 4; i++) {
+      const amt = i === 4 ? finalAmount - (qAmount * 3) : qAmount;
+      const due = new Date(start);
+      due.setMonth(due.getMonth() + (i - 1) * 3);
+      const threshold = qAmount * i;
+
+      installments.push({
+        installmentNumber: i,
+        title: `Quarterly Installment ${i} of 4`,
+        dueDate: due,
+        amount: amt,
+        status: paidAmount >= threshold ? 'PAID' : (due < new Date() ? 'OVERDUE' : 'PENDING'),
+        paidAt: paidAmount >= threshold ? new Date() : null,
+      });
+    }
+  } else {
+    // LUMP_SUM or default
+    installments.push({
+      installmentNumber: 1,
+      title: 'Full Annual Contract Payment',
+      dueDate: start,
+      amount: finalAmount,
+      status: paidAmount >= finalAmount ? 'PAID' : (start < new Date() ? 'OVERDUE' : 'PENDING'),
+      paidAt: paidAmount >= finalAmount ? new Date() : null,
+    });
+  }
+
+  return installments;
 }
 
 export async function listContracts(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -80,9 +151,19 @@ export async function listContracts(req: Request, res: Response, next: NextFunct
       query.endDate = { $gte: now, $lte: futureDate };
     }
 
-    if (search && typeof search === 'string') {
+    if (search && typeof search === 'string' && search.trim()) {
       const searchRegex = new RegExp(search.trim(), 'i');
-      query.$or = [{ contractNumber: searchRegex }, { notes: searchRegex }];
+      const matchingCustomers = await Customer.find({
+        businessId,
+        $or: [{ name: searchRegex }, { companyName: searchRegex }, { phone: searchRegex }],
+      }).select('_id');
+      const customerIds = matchingCustomers.map((c) => c._id);
+
+      query.$or = [
+        { contractNumber: searchRegex },
+        { notes: searchRegex },
+        { customerId: { $in: customerIds } },
+      ];
     }
 
     const contracts = await AmcContract.find(query)
@@ -256,6 +337,11 @@ export async function createContract(req: Request, res: Response, next: NextFunc
       };
     });
 
+    const scheduleType = validated.paymentScheduleType || 'LUMP_SUM';
+    const installments = validated.customInstallments && Array.isArray(validated.customInstallments)
+      ? validated.customInstallments
+      : generateMilestoneInstallments(scheduleType, finalAmount, new Date(validated.startDate), paidAmount);
+
     const contract = await AmcContract.create({
       businessId,
       contractNumber,
@@ -267,6 +353,9 @@ export async function createContract(req: Request, res: Response, next: NextFunc
       planSnapshot,
       financials: validated.financials,
       paymentStatus,
+      paymentScheduleType: scheduleType,
+      installments,
+      paymentRecords: [],
       activationTrigger: validated.activationTrigger,
       status: initialStatus,
       quotationId: validated.quotationId ? validated.quotationId : null,
@@ -364,6 +453,7 @@ export async function convertQuotationToContract(req: Request, res: Response, ne
         finalAmount: quotation.grandTotal,
         paidAmount: 0,
       },
+      paymentScheduleType: req.body.paymentScheduleType || 'LUMP_SUM',
       activationTrigger: activationTrigger || 'ADMIN_APPROVAL',
       notes: `Converted from Quotation #${quotation.quotationNumber}`,
     };
@@ -504,34 +594,124 @@ export async function updateContractPayment(req: Request, res: Response, next: N
   try {
     const businessId = req.businessId;
     const { id } = req.params;
-    const { paymentStatus, paidAmount } = req.body;
+    const {
+      paymentStatus,
+      paidAmount,
+      paymentScheduleType,
+      installments: customInstallments,
+      // Payment Record fields:
+      paymentMethod,
+      paymentAccountId,
+      referenceNumber,
+      chequeDetails,
+      proof,
+      notes,
+      installmentIndex,
+      isNewPaymentRecord,
+    } = req.body;
 
     const contract = await AmcContract.findOne({ _id: id, businessId });
     if (!contract) {
       return next(new AppError('Contract not found', 404, 'CONTRACT_NOT_FOUND'));
     }
 
-    if (paymentStatus) {
-      contract.paymentStatus = paymentStatus;
+    // 1. Update Schedule Configuration if requested
+    if (paymentScheduleType && paymentScheduleType !== contract.paymentScheduleType) {
+      contract.paymentScheduleType = paymentScheduleType;
+      if (customInstallments && Array.isArray(customInstallments)) {
+        contract.installments = customInstallments as any;
+      } else {
+        contract.installments = generateMilestoneInstallments(
+          paymentScheduleType,
+          contract.financials.finalAmount || 0,
+          contract.startDate,
+          contract.financials.paidAmount || 0
+        ) as any;
+      }
+    } else if (customInstallments && Array.isArray(customInstallments)) {
+      contract.installments = customInstallments as any;
     }
 
-    if (paidAmount !== undefined && !isNaN(Number(paidAmount))) {
+    // 2. Process New Payment Transaction Receipt (if paymentMethod or receipt amount provided)
+    const receiptAmount = paidAmount !== undefined ? Number(paidAmount) : (req.body.amount !== undefined ? Number(req.body.amount) : null);
+
+    if (isNewPaymentRecord && receiptAmount !== null && receiptAmount > 0) {
+      let paymentAccountSnapshot: any = null;
+      if (paymentAccountId) {
+        const acc = await PaymentAccount.findOne({ _id: paymentAccountId, businessId });
+        if (acc) {
+          paymentAccountSnapshot = {
+            name: acc.name,
+            type: acc.type,
+            displayName: acc.displayName,
+            bankName: acc.bankName || null,
+            maskedAccountNumber: acc.maskedAccountNumber || null,
+            ifsc: acc.ifsc || null,
+            upiId: acc.upiId || null,
+          };
+        }
+      }
+
+      const paymentRecord: any = {
+        amount: receiptAmount,
+        paidAt: req.body.paidAt ? new Date(req.body.paidAt) : new Date(),
+        method: paymentMethod || 'CASH',
+        paymentAccountId: paymentAccountId || null,
+        paymentAccountSnapshot,
+        referenceNumber: referenceNumber || null,
+        chequeDetails: chequeDetails || null,
+        proof: proof || null,
+        notes: notes || null,
+      };
+
+      if (!contract.paymentRecords) {
+        contract.paymentRecords = [];
+      }
+      contract.paymentRecords.push(paymentRecord);
+
+      // Increase total paid amount
+      const updatedTotalPaid = (contract.financials.paidAmount || 0) + receiptAmount;
+      contract.financials.paidAmount = updatedTotalPaid;
+
+      // Update installment milestone status
+      if (installmentIndex !== undefined && contract.installments && contract.installments[installmentIndex]) {
+        contract.installments[installmentIndex].status = 'PAID';
+        contract.installments[installmentIndex].paidAt = new Date();
+        contract.installments[installmentIndex].paymentRecordIndex = contract.paymentRecords.length - 1;
+      } else if (contract.installments && contract.installments.length > 0) {
+        // Auto mark milestones
+        let runningPaid = updatedTotalPaid;
+        contract.installments.forEach((inst) => {
+          if (runningPaid >= inst.amount) {
+            inst.status = 'PAID';
+            if (!inst.paidAt) inst.paidAt = new Date();
+            runningPaid -= inst.amount;
+          } else {
+            inst.status = new Date(inst.dueDate) < new Date() ? 'OVERDUE' : 'PENDING';
+          }
+        });
+      }
+    } else if (paidAmount !== undefined && !isNaN(Number(paidAmount)) && !isNewPaymentRecord) {
+      // Direct adjustment of total paid amount
       const newPaid = Number(paidAmount);
       contract.financials.paidAmount = newPaid;
-      const finalAmt = contract.financials.finalAmount || 0;
-
-      if (newPaid >= finalAmt && finalAmt > 0) {
-        contract.paymentStatus = 'PAID';
-      } else if (newPaid > 0) {
-        contract.paymentStatus = 'PARTIALLY_PAID';
-      } else {
-        contract.paymentStatus = 'UNPAID';
-      }
     }
 
-    // Auto-activate contract if advance/payment was the gating trigger
+    // 3. Compute overall contract payment status
+    const finalAmt = contract.financials.finalAmount || 0;
+    const currentPaid = contract.financials.paidAmount || 0;
+
+    if (currentPaid >= finalAmt && finalAmt > 0) {
+      contract.paymentStatus = 'PAID';
+    } else if (currentPaid > 0) {
+      contract.paymentStatus = 'PARTIALLY_PAID';
+    } else {
+      contract.paymentStatus = paymentStatus || 'UNPAID';
+    }
+
+    // 4. Auto-activate contract if advance/payment received
     if (contract.paymentStatus === 'PAID' || contract.paymentStatus === 'PARTIALLY_PAID') {
-      if (contract.status === 'PENDING_PAYMENT') {
+      if (contract.status === 'PENDING_PAYMENT' || contract.status === 'PENDING_APPROVAL') {
         contract.status = 'ACTIVE';
       }
     }
@@ -545,10 +725,105 @@ export async function updateContractPayment(req: Request, res: Response, next: N
     res.status(200).json({
       success: true,
       data: populated,
-      message: `Payment updated for Contract #${contract.contractNumber}. Status: ${contract.paymentStatus}.`,
+      message: `Payment successfully recorded for Contract #${contract.contractNumber}. Status: ${contract.paymentStatus}.`,
     });
   } catch (error) {
     next(error);
   }
 }
+
+/**
+ * Generate official PDF for AMC Contract Agreement
+ */
+export async function generateContractPdf(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+
+    const contract = await AmcContract.findOne({ _id: id, businessId, active: true })
+      .populate('customerId')
+      .populate('coveredUnits.acEquipmentId');
+
+    if (!contract) {
+      return next(new AppError('AMC Contract not found', 404, 'CONTRACT_NOT_FOUND'));
+    }
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return next(new AppError('Business profile not found', 404, 'BUSINESS_NOT_FOUND'));
+    }
+
+    const activeAssets = await Asset.find({ businessId, active: true });
+    const logo = activeAssets.find((a) => a.type === 'LOGO');
+    const stamp = activeAssets.find((a) => a.type === 'STAMP');
+    const signature = activeAssets.find((a) => a.type === 'SIGNATURE');
+
+    const customer: any = contract.customerId;
+
+    const coveredUnitsData = contract.coveredUnits.map((u: any, idx: number) => {
+      const eq = u.acEquipmentId || {};
+      return {
+        serialNumber: idx + 1,
+        brand: u.unitBrand || eq.brand || 'Air Conditioner',
+        model: u.unitModel || eq.modelNumber || '',
+        tonnage: u.unitTonnage || eq.tonnage || '1.5 Ton',
+        serial: u.unitSerial || eq.serialNumber || 'N/A',
+        location: u.unitLocation || eq.installationLocation || 'Premises',
+      };
+    });
+
+    const renderData: AmcContractRenderData = {
+      contract: {
+        id: contract._id.toString(),
+        contractNumber: contract.contractNumber,
+        contractType: contract.contractType,
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        status: contract.status,
+        paymentStatus: contract.paymentStatus,
+        financials: {
+          contractAmount: contract.financials?.contractAmount || 0,
+          discount: contract.financials?.discount || 0,
+          taxAmount: contract.financials?.taxAmount || 0,
+          finalAmount: contract.financials?.finalAmount || 0,
+          paidAmount: contract.financials?.paidAmount || 0,
+        },
+        planSnapshot: contract.planSnapshot,
+        coveredUnits: coveredUnitsData,
+      },
+      business: {
+        name: business.name,
+        displayName: business.displayName || business.name,
+        legalName: business.legalName,
+        address: business.address as any,
+        contact: business.contact,
+        taxProfile: business.taxProfile,
+        bankDetails: (business as any).bankDetails,
+      },
+      customer: {
+        name: customer?.name || 'Valued Customer',
+        address: customer?.address,
+        contact: customer?.contact,
+        taxProfile: customer?.taxProfile,
+      },
+      assets: {
+        logo: logo ? { secureUrl: logo.secureUrl } : null,
+        stamp: stamp ? { secureUrl: stamp.secureUrl } : null,
+        signature: signature ? { secureUrl: signature.secureUrl } : null,
+      },
+    };
+
+    const { pdfBuffer } = await DocumentGenerationService.generateAmcContractBuffers(renderData);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="Contract-${contract.contractNumber}.pdf"`
+    );
+    res.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
 

@@ -24,6 +24,7 @@ export interface InvoicePaperProps {
     invoiceNumber: string | null;
     invoiceDate: string | Date;
     paymentTerms: string | null;
+    termsAndConditions?: string[] | null;
     amountInWords: string;
   };
   business: {
@@ -379,6 +380,16 @@ export default function InvoicePaper({
                     <p><span className="font-bold text-black">IFSC Code:</span> {business.bankDetails?.ifsc || '-'}</p>
                     <p><span className="font-bold text-black">PAN NO:</span> {business.taxProfile?.pan || '-'}</p>
                   </div>
+                  {Array.isArray(invoice.termsAndConditions) && invoice.termsAndConditions.length > 0 && (
+                    <div className="mt-2 pt-1.5 border-t border-black/30 text-[7pt] text-black leading-tight">
+                      <p className="font-bold underline text-black mb-0.5 uppercase tracking-wide">Terms & Conditions:</p>
+                      <ol className="list-decimal pl-3 space-y-0.5 font-medium">
+                        {invoice.termsAndConditions.map((term: string, idx: number) => (
+                          <li key={idx}>{term}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
                 </td>
 
                 {/* Column 3: First breakdown label */}

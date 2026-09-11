@@ -24,6 +24,7 @@ import {
   X,
   Clock,
   Check,
+  Receipt,
 } from 'lucide-react';
 
 export default function CreateAmcQuotationPage() {
@@ -53,6 +54,7 @@ export default function CreateAmcQuotationPage() {
   const [productSearch, setProductSearch] = useState('');
 
   // Form Inputs
+  const [quoteCategory, setQuoteCategory] = useState<'AMC' | 'GENERAL'>('AMC');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [quotationDate, setQuotationDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -67,26 +69,59 @@ export default function CreateAmcQuotationPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [existingQuotation, setExistingQuotation] = useState<any | null>(null);
 
-  // Read edit query param
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const editParam = params.get('edit');
-      if (editParam) {
-        setEditId(editParam);
-        setIsEditing(true);
-      }
-    }
-  }, []);
+  // Standard terms constants
+  const GENERAL_TERMS = [
+    'This quotation is valid for 30 days from issuance date.',
+    'Payment Terms: 100% against delivery / completion of work.',
+    'Goods once sold will not be taken back without prior authorization.',
+    'Warranty on spare parts/units as per original manufacturer policy.',
+    'Taxes extra as applicable at current rates.',
+  ];
 
-  // Terms & Conditions list
-  const [termsList, setTermsList] = useState<string[]>([
+  const AMC_NON_COMP_TERMS = [
     'This AMC quotation is valid for 1 Year from issuance date.',
     'Non-Comprehensive AMC: Only scheduled routine maintenance & inspection labour are included. Spare parts & gas are chargeable.',
     'Payment Terms: 10 Days from Invoice date.',
     'Emergency breakdown calls will be attended to within 24 to 48 hours.',
     'AC installation or relocation charges include up to 10 feet of standard piping.',
-  ]);
+  ];
+
+  const AMC_COMP_TERMS = [
+    'This AMC quotation is valid for 30 days from issuance date.',
+    'Comprehensive AMC: Scheduled periodic maintenance and eligible functional components are covered.',
+    'Routine emergency breakdown calls included at zero technician labour fee.',
+    'Payment Terms: 10 Days from Invoice date.',
+    'External accidental damages or piping ruptures are excluded from standard coverage.',
+  ];
+
+  // Read edit and category query params
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const editParam = params.get('edit');
+      const catParam = params.get('category');
+      if (editParam) {
+        setEditId(editParam);
+        setIsEditing(true);
+      } else if (catParam?.toLowerCase() === 'general') {
+        setQuoteCategory('GENERAL');
+        setTermsList(GENERAL_TERMS);
+        setItems([
+          {
+            serialNumber: 1,
+            description: 'Split AC Installation / Servicing',
+            period: '',
+            quantity: 1,
+            unitPrice: 1500,
+            amount: 1500,
+          },
+        ]);
+      }
+    }
+  }, []);
+
+  // Terms & Conditions list
+  const [termsList, setTermsList] = useState<string[]>(AMC_NON_COMP_TERMS);
 
   // Line items
   const [items, setItems] = useState<AmcQuotationPaperItem[]>([
@@ -116,8 +151,13 @@ export default function CreateAmcQuotationPage() {
           if (quote.quotationDate) {
             setQuotationDate(new Date(quote.quotationDate).toISOString().split('T')[0]);
           }
-          if (quote.quotationType) {
-            setAmcType(quote.quotationType);
+          if (quote.quotationType === 'GENERAL') {
+            setQuoteCategory('GENERAL');
+          } else {
+            setQuoteCategory('AMC');
+            if (quote.quotationType) {
+              setAmcType(quote.quotationType);
+            }
           }
           if (quote.paymentTerms) {
             setPaymentTerms(quote.paymentTerms);
@@ -223,24 +263,34 @@ export default function CreateAmcQuotationPage() {
 
   // Adjust terms when toggling AMC Type
   useEffect(() => {
+    if (quoteCategory === 'GENERAL') return;
     if (amcType === 'COMPREHENSIVE') {
-      setTermsList([
-        'This AMC quotation is valid for 30 days from issuance date.',
-        'Comprehensive AMC: Scheduled periodic maintenance and eligible functional components are covered.',
-        'Routine emergency breakdown calls included at zero technician labour fee.',
-        'Payment Terms: ' + paymentTerms,
-        'External accidental damages or piping ruptures are excluded from standard coverage.',
-      ]);
+      setTermsList(AMC_COMP_TERMS);
     } else {
-      setTermsList([
-        'This AMC quotation is valid for 30 days from issuance date.',
-        'Non-Comprehensive AMC: Only scheduled routine maintenance & inspection labour are included. Spare parts & gas are chargeable.',
-        'Payment Terms: ' + paymentTerms,
-        'Emergency breakdown calls will be attended to within 24 to 48 hours.',
-        'AC installation or relocation charges include up to 10 feet of standard piping.',
-      ]);
+      setTermsList(AMC_NON_COMP_TERMS);
     }
-  }, [amcType]);
+  }, [amcType, quoteCategory]);
+
+  function handleCategoryChange(cat: 'AMC' | 'GENERAL') {
+    setQuoteCategory(cat);
+    if (cat === 'GENERAL') {
+      setTermsList(GENERAL_TERMS);
+      setItems((prev) =>
+        prev.map((it) => ({
+          ...it,
+          period: '',
+        }))
+      );
+    } else {
+      setTermsList(amcType === 'COMPREHENSIVE' ? AMC_COMP_TERMS : AMC_NON_COMP_TERMS);
+      setItems((prev) =>
+        prev.map((it) => ({
+          ...it,
+          period: it.period || 'Quarterly',
+        }))
+      );
+    }
+  }
 
   // Auto-fit Live A4 Paper scaling
   useEffect(() => {
@@ -293,7 +343,7 @@ export default function CreateAmcQuotationPage() {
         {
           serialNumber: 1,
           description: p.name,
-          period: 'Quarterly',
+          period: quoteCategory === 'GENERAL' ? '' : 'Quarterly',
           quantity: 1,
           unitPrice,
           amount: unitPrice,
@@ -305,7 +355,7 @@ export default function CreateAmcQuotationPage() {
     const newItem: AmcQuotationPaperItem = {
       serialNumber: items.length + 1,
       description: p.name,
-      period: 'Quarterly',
+      period: quoteCategory === 'GENERAL' ? '' : 'Quarterly',
       quantity: 1,
       unitPrice,
       amount: unitPrice,
@@ -319,7 +369,7 @@ export default function CreateAmcQuotationPage() {
       {
         serialNumber: items.length + 1,
         description: '',
-        period: 'Monthly',
+        period: quoteCategory === 'GENERAL' ? '' : 'Monthly',
         quantity: 1,
         unitPrice: 0,
         amount: 0,
@@ -417,7 +467,7 @@ export default function CreateAmcQuotationPage() {
         quotationNumber: quotationNumber.trim() || undefined,
         quotationDate,
         paymentTerms,
-        quotationType: amcType,
+        quotationType: quoteCategory === 'GENERAL' ? 'GENERAL' : amcType,
         items: items.map((it, idx) => ({
           serialNumber: idx + 1,
           description: it.description.trim(),
@@ -495,11 +545,17 @@ export default function CreateAmcQuotationPage() {
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary-700" />
                 <h1 className="text-xl font-black tracking-tight text-text-primary">
-                  {isEditing ? `Edit AMC Quotation: ${quotationNumber}` : 'Create AMC Quotation'}
+                  {isEditing
+                    ? `Edit ${quoteCategory === 'GENERAL' ? 'Quotation' : 'AMC Quotation'}: ${quotationNumber}`
+                    : quoteCategory === 'GENERAL'
+                    ? 'Create General Quotation / Estimate'
+                    : 'Create AMC Quotation'}
                 </h1>
               </div>
               <p className="text-xs text-text-secondary mt-0.5">
-                {isEditing
+                {quoteCategory === 'GENERAL'
+                  ? 'Draft a sales, equipment, repair or one-off service quotation that can be directly converted into a Tax Invoice.'
+                  : isEditing
                   ? 'Update service descriptions, periodic visits, pricing, and terms for this draft quotation.'
                   : 'Compile an official AMC quotation, add AC maintenance services, and preview live in real-time.'}
               </p>
@@ -582,6 +638,34 @@ export default function CreateAmcQuotationPage() {
             expandPreview ? 'hidden lg:block lg:col-span-5' : 'lg:col-span-7'
           } space-y-5`}
         >
+          {/* Category Selector Tab Buttons */}
+          <div className="bg-surface-app border border-border-app p-2 rounded-2xl shadow-xs flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleCategoryChange('AMC')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                quoteCategory === 'AMC'
+                  ? 'bg-primary-700 text-white shadow-xs'
+                  : 'bg-surface-2-app text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>AMC Service Contract Quotation</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCategoryChange('GENERAL')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                quoteCategory === 'GENERAL'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-surface-2-app text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <Receipt className="w-4 h-4" />
+              <span>General Quotation / Estimate</span>
+            </button>
+          </div>
+
           {/* 1. Customer & Metadata Card */}
           <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -639,7 +723,7 @@ export default function CreateAmcQuotationPage() {
                     value={quotationNumber}
                     onChange={(e) => setQuotationNumber(e.target.value)}
                     className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-black focus:outline-none"
-                    placeholder="JRE-Q-2526-0001"
+                    placeholder={quoteCategory === 'GENERAL' ? 'JRE-EST-2526-0001' : 'JRE-Q-2526-0001'}
                     required
                   />
                   <span className="absolute right-3 top-2.5 text-[10px] text-emerald-600 font-bold">
@@ -649,33 +733,47 @@ export default function CreateAmcQuotationPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-text-secondary mb-1">
-                  AMC CONTRACT TYPE *
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAmcType('NON_COMPREHENSIVE')}
-                    className={`p-2 rounded-xl text-xs font-bold text-center border transition cursor-pointer ${
-                      amcType === 'NON_COMPREHENSIVE'
-                        ? 'bg-blue-50 border-blue-500 text-blue-700'
-                        : 'bg-surface-2-app border-border-app text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    Non-Comprehensive
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAmcType('COMPREHENSIVE')}
-                    className={`p-2 rounded-xl text-xs font-bold text-center border transition cursor-pointer ${
-                      amcType === 'COMPREHENSIVE'
-                        ? 'bg-purple-50 border-purple-500 text-purple-700'
-                        : 'bg-surface-2-app border-border-app text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    Comprehensive
-                  </button>
-                </div>
+                {quoteCategory === 'GENERAL' ? (
+                  <div>
+                    <label className="block text-xs font-bold text-text-secondary mb-1">
+                      QUOTATION TYPE
+                    </label>
+                    <div className="p-2 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-1.5 h-[38px]">
+                      <Receipt className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="truncate">General Estimate (Converts to Invoice)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-text-secondary mb-1">
+                      AMC CONTRACT TYPE *
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAmcType('NON_COMPREHENSIVE')}
+                        className={`p-2 rounded-xl text-xs font-bold text-center border transition cursor-pointer ${
+                          amcType === 'NON_COMPREHENSIVE'
+                            ? 'bg-blue-50 border-blue-500 text-blue-700'
+                            : 'bg-surface-2-app border-border-app text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        Non-Comprehensive
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAmcType('COMPREHENSIVE')}
+                        className={`p-2 rounded-xl text-xs font-bold text-center border transition cursor-pointer ${
+                          amcType === 'COMPREHENSIVE'
+                            ? 'bg-purple-50 border-purple-500 text-purple-700'
+                            : 'bg-surface-2-app border-border-app text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        Comprehensive
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -726,11 +824,11 @@ export default function CreateAmcQuotationPage() {
             </div>
           </div>
 
-          {/* 3. AMC Services & Line Items Table */}
+          {/* 3. Items Table */}
           <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black text-text-primary uppercase tracking-wider">
-                AMC Services & Items
+                {quoteCategory === 'GENERAL' ? 'Quotation / Estimate Items' : 'AMC Services & Items'}
               </h3>
               <button
                 type="button"
@@ -751,45 +849,53 @@ export default function CreateAmcQuotationPage() {
                   <div className="flex gap-2 items-center">
                     <input
                       type="text"
-                      placeholder="Service Description (e.g. AC Water Servicing)"
+                      placeholder={quoteCategory === 'GENERAL' ? 'Item / Work Description (e.g. Split AC Installation)' : 'Service Description (e.g. AC Water Servicing)'}
                       value={item.description}
                       onChange={(e) => handleUpdateItem(idx, 'description', e.target.value)}
                       className="flex-1 bg-surface-app border border-border-app rounded-lg p-2 text-xs font-medium focus:outline-none"
                       required
                     />
 
-                    <select
-                      value={item.period || 'Quarterly'}
-                      onChange={(e) => handleUpdateItem(idx, 'period', e.target.value)}
-                      className="w-28 bg-surface-app border border-border-app rounded-lg p-2 text-xs font-medium focus:outline-none"
-                    >
-                      <option value="Monthly">Monthly</option>
-                      <option value="Quarterly">Quarterly</option>
-                      <option value="Bi-Monthly">Bi-Monthly</option>
-                      <option value="Half-Yearly">Half-Yearly</option>
-                      <option value="Annual">Annual</option>
-                      <option value="On-Demand">On-Demand</option>
-                    </select>
+                    {quoteCategory === 'AMC' && (
+                      <select
+                        value={item.period || 'Quarterly'}
+                        onChange={(e) => handleUpdateItem(idx, 'period', e.target.value)}
+                        className="w-28 bg-surface-app border border-border-app rounded-lg p-2 text-xs font-medium focus:outline-none"
+                      >
+                        <option value="Monthly">Monthly</option>
+                        <option value="Quarterly">Quarterly</option>
+                        <option value="Bi-Monthly">Bi-Monthly</option>
+                        <option value="Half-Yearly">Half-Yearly</option>
+                        <option value="Annual">Annual</option>
+                        <option value="On-Demand">On-Demand</option>
+                      </select>
+                    )}
 
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="Qty"
-                      value={item.quantity}
-                      onChange={(e) => handleUpdateItem(idx, 'quantity', e.target.value)}
-                      className="w-14 bg-surface-app border border-border-app rounded-lg p-2 text-xs text-center font-bold focus:outline-none"
-                      required
-                    />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-text-secondary font-bold hidden sm:inline">QTY:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Qty"
+                        value={item.quantity}
+                        onChange={(e) => handleUpdateItem(idx, 'quantity', e.target.value)}
+                        className="w-14 bg-surface-app border border-border-app rounded-lg p-2 text-xs text-center font-bold focus:outline-none"
+                        required
+                      />
+                    </div>
 
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="Rate"
-                      value={item.unitPrice}
-                      onChange={(e) => handleUpdateItem(idx, 'unitPrice', e.target.value)}
-                      className="w-20 bg-surface-app border border-border-app rounded-lg p-2 text-xs text-right font-medium focus:outline-none"
-                      required
-                    />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-text-secondary font-bold hidden sm:inline">RATE:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="Rate"
+                        value={item.unitPrice}
+                        onChange={(e) => handleUpdateItem(idx, 'unitPrice', e.target.value)}
+                        className="w-20 bg-surface-app border border-border-app rounded-lg p-2 text-xs text-right font-medium focus:outline-none"
+                        required
+                      />
+                    </div>
 
                     <div className="w-20 text-right font-black text-xs text-text-primary px-1">
                       ₹{item.amount.toLocaleString('en-IN')}
@@ -1005,7 +1111,7 @@ export default function CreateAmcQuotationPage() {
                   quotationDate,
                   paymentTerms,
                   validUntil: null,
-                  quotationType: amcType,
+                  quotationType: quoteCategory === 'GENERAL' ? 'GENERAL' : amcType,
                   amountInWords,
                   termsAndConditions: termsList,
                 }}

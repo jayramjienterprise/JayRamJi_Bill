@@ -5,6 +5,7 @@ export interface InvoiceRenderData {
     invoiceDate: Date | string;
     amountInWords: string;
     paymentTerms: string | null;
+    termsAndConditions?: string[] | null;
     notes: string | null;
   };
   business: {
@@ -172,6 +173,14 @@ export class InvoiceRenderService {
             <div><span style="font-weight: bold;">IFSC Code:</span> ${business.bankDetails?.ifsc || '-'}</div>
             <div><span style="font-weight: bold;">PAN NO:</span> ${business.taxProfile?.pan || '-'}</div>
           </div>
+          ${Array.isArray((invoice as any).termsAndConditions) && (invoice as any).termsAndConditions.length > 0 ? `
+            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #666; font-size: 7pt; text-transform: none; line-height: 1.25;">
+              <span style="font-weight: bold; display: block; margin-bottom: 2px; text-transform: uppercase;">Terms & Conditions:-</span>
+              <ol style="margin: 0; padding-left: 14px;">
+                ${(invoice as any).termsAndConditions.map((t: string) => `<li style="margin-bottom: 1px;">${t}</li>`).join('')}
+              </ol>
+            </div>
+          ` : ''}
         </td>
         <td style="border: 1px solid black; padding: 6px; text-align: left; font-size: 8.5pt; font-weight: 600;">
           ${breakdownRows[0].label}

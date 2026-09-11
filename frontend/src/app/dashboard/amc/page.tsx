@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api/client';
 import {
   ShieldCheck,
@@ -31,11 +32,17 @@ import {
   MessageCircle,
   Power,
   AlertTriangle,
+  CreditCard,
+  Receipt,
+  FileCheck,
 } from 'lucide-react';
 import VisitsTab from './components/VisitsTab';
 import EntitlementModal from './components/EntitlementModal';
+import ContractPaymentModal from './components/ContractPaymentModal';
+import LogBreakdownVisitModal from './components/LogBreakdownVisitModal';
 
 export default function AmcManagementPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'contracts' | 'visits' | 'quotations' | 'equipment' | 'plans'>('contracts');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -53,8 +60,11 @@ export default function AmcManagementPage() {
 
   // Filters
   const [contractStatusFilter, setContractStatusFilter] = useState('ALL');
+  const [contractCustomerFilter, setContractCustomerFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [expiringOnly, setExpiringOnly] = useState(false);
+  const [isLogBreakdownModalOpen, setIsLogBreakdownModalOpen] = useState(false);
+  const [breakdownPreselectedContract, setBreakdownPreselectedContract] = useState<any | null>(null);
 
   // Tab-specific search & filter states
   const [quotationSearchQuery, setQuotationSearchQuery] = useState('');
@@ -76,6 +86,7 @@ export default function AmcManagementPage() {
   const [selectedHistoryEquipment, setSelectedHistoryEquipment] = useState<any | null>(null);
   const [equipmentHistoryList, setEquipmentHistoryList] = useState<any[]>([]);
   const [entitlementModalData, setEntitlementModalData] = useState<any | null>(null);
+  const [paymentModalContract, setPaymentModalContract] = useState<any | null>(null);
 
   // Edit Equipment Modal state
   const [editingEquipment, setEditingEquipment] = useState<any | null>(null);
@@ -155,7 +166,7 @@ export default function AmcManagementPage() {
 
   useEffect(() => {
     fetchInitialData();
-  }, [activeTab, contractStatusFilter, expiringOnly]);
+  }, [activeTab, contractStatusFilter, expiringOnly, contractCustomerFilter]);
 
   function extractArray(res: any): any[] {
     if (Array.isArray(res)) return res;
@@ -170,6 +181,8 @@ export default function AmcManagementPage() {
       if (activeTab === 'contracts') {
         let url = `/amc/contracts?status=${contractStatusFilter}`;
         if (expiringOnly) url += '&expiringDays=30';
+        if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
+        if (contractCustomerFilter !== 'ALL') url += `&customerId=${contractCustomerFilter}`;
         const res: any = await apiClient.get(url);
         setContracts(extractArray(res));
       } else if (activeTab === 'visits') {
@@ -206,7 +219,8 @@ export default function AmcManagementPage() {
       setTechnicians(extractArray(techRes));
       setVisits(extractArray(visitRes));
       setQuotations(extractArray(quoteRes));
-      if (activeTab === 'contracts') {
+      // Only set contracts from contractRes if activeTab is not contracts (so activeTab=contracts preserves filters)
+      if (activeTab !== 'contracts') {
         setContracts(extractArray(contractRes));
       }
     } catch (err: any) {
@@ -291,16 +305,42 @@ export default function AmcManagementPage() {
     e.preventDefault();
     if (!convertingQuotation) return;
     try {
-      await apiClient.post(`/amc/quotations/${convertingQuotation._id}/convert`, {
+      const res: any = await apiClient.post(`/amc/quotations/${convertingQuotation._id}/convert`, {
         planId: contractForm.planId || undefined,
         activationTrigger: 'ADMIN_APPROVAL',
       });
-      setSuccessMsg(`Quotation #${convertingQuotation.quotationNumber} successfully converted to AMC Contract!`);
+      const newContractId = res?.data?._id || res?.data?.id;
       setConvertingQuotation(null);
-      setActiveTab('contracts');
-      fetchInitialData();
+      if (newContractId) {
+        router.push(`/dashboard/amc/contracts/${newContractId}`);
+      } else {
+        setSuccessMsg(`Quotation #${convertingQuotation.quotationNumber} successfully converted to AMC Contract!`);
+        setActiveTab('contracts');
+        fetchInitialData();
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to convert quotation to contract');
+    }
+  }
+
+  async function handleConvertQuotationToInvoice(quotationId: string, quotationNumber: string) {
+    if (!confirm(`Convert Quotation #${quotationNumber} into an official Tax Invoice?`)) return;
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      const res: any = await apiClient.post(`/amc/quotations/${quotationId}/convert-to-invoice`, {});
+      const newInvoiceId = res?.data?._id || res?.data?.id || res?._id || res?.id;
+      setSuccessMsg(`Quotation #${quotationNumber} successfully converted to Tax Invoice!`);
+      setTimeout(() => {
+        if (newInvoiceId) {
+          router.push(`/dashboard/invoices/detail/${newInvoiceId}`);
+        } else {
+          router.push('/dashboard/invoices');
+        }
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to convert quotation to invoice');
+      setLoading(false);
     }
   }
 
@@ -453,9 +493,86 @@ export default function AmcManagementPage() {
     }
   }
 
-  function handleShareContractWhatsApp(c: any) {
-    const text = `*AMC Contract Details - Jay Ramji Enterprise*\n\nContract No: *${c.contractNumber}*\nCustomer: *${c.customerId?.name || 'Valued Client'}*\nContract Type: *${c.contractType}*\nPeriod: ${new Date(c.startDate).toLocaleDateString()} to ${new Date(c.endDate).toLocaleDateString()}\nCovered Units: ${c.coveredUnits?.length || 0} AC Units\nTotal Contract Amount: Rs. ${(c.financials?.finalAmount || 0).toLocaleString('en-IN')}\nPayment Status: ${c.paymentStatus}\nContract Status: ${c.status}`;
-    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  async function handleUpdateContractStatus(contractId: string, newStatus: string) {
+    try {
+      await apiClient.patch(`/amc/contracts/${contractId}/status`, { status: newStatus });
+      setSuccessMsg(`Contract status updated to ${newStatus.replace('_', ' ')}.`);
+      if (selectedContractDetails && selectedContractDetails._id === contractId) {
+        setSelectedContractDetails({ ...selectedContractDetails, status: newStatus });
+      }
+      fetchInitialData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update contract status');
+    }
+  }
+
+  async function handleShareContractWhatsApp(c: any) {
+    try {
+      setSuccessMsg('Preparing contract agreement PDF for WhatsApp...');
+      const baseUrl = apiClient.getBaseUrl();
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const storedBusinessId = localStorage.getItem('x-business-id');
+        if (storedBusinessId) headers['x-business-id'] = storedBusinessId;
+      }
+      const response = await fetch(`${baseUrl}/amc/contracts/${c._id}/pdf`, {
+        credentials: 'include',
+        headers,
+      });
+      if (!response.ok) {
+        throw new Error('Failed to generate contract PDF for WhatsApp');
+      }
+      const blob = await response.blob();
+      const fileName = `Contract-${c.contractNumber || 'Agreement'}.pdf`;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      // 1. Mobile native share (strictly PDF file)
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Contract #${c.contractNumber || 'Agreement'}`,
+          });
+          return;
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') return;
+        }
+      }
+
+      // 2. Download file to device
+      const fileUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(fileUrl);
+
+      const rawPhone = c.customerId?.contact?.phone || c.customerId?.phone || '';
+      const cleanDigits = String(rawPhone).replace(/\D/g, '');
+      const phoneDigits = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+
+      if (isMobile) {
+        setSuccessMsg('Contract PDF downloaded! Opening WhatsApp...');
+        const mobileUrl = phoneDigits ? `https://api.whatsapp.com/send?phone=${phoneDigits}` : 'whatsapp://send';
+        setTimeout(() => {
+          window.location.href = mobileUrl;
+        }, 400);
+      } else {
+        setSuccessMsg('Contract PDF downloaded! Attach and send directly in WhatsApp.');
+        const webUrl = phoneDigits ? `https://web.whatsapp.com/send?phone=${phoneDigits}` : 'https://web.whatsapp.com';
+        window.open(webUrl, '_blank');
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setErrorMsg(err.message || 'Failed to prepare contract PDF');
+      }
+    }
   }
 
   // Plan Management Handlers
@@ -702,44 +819,101 @@ export default function AmcManagementPage() {
       {activeTab === 'contracts' && (
         <div className="space-y-4">
           {/* Filter Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3.5 rounded-xl">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-text-secondary">Status:</span>
-              <select
-                value={contractStatusFilter}
-                onChange={(e) => setContractStatusFilter(e.target.value)}
-                className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-semibold text-text-primary"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="ACTIVE">Active</option>
-                <option value="PENDING_APPROVAL">Pending Approval</option>
-                <option value="PENDING_PAYMENT">Pending Payment</option>
-                <option value="EXPIRED">Expired</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-app border border-border-app p-3 rounded-xl shadow-xs text-xs">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="font-bold text-text-secondary">Filters:</span>
+              </div>
 
+              {/* Status Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Status:</span>
+                <select
+                  value={contractStatusFilter}
+                  onChange={(e) => setContractStatusFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-semibold text-text-primary focus:outline-none"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PENDING_APPROVAL">Pending Approval</option>
+                  <option value="PENDING_PAYMENT">Pending Payment</option>
+                  <option value="EXPIRED">Expired</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+              </div>
+
+              {/* Customer Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-secondary">Customer:</span>
+                <select
+                  value={contractCustomerFilter}
+                  onChange={(e) => setContractCustomerFilter(e.target.value)}
+                  className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none max-w-[160px] truncate"
+                >
+                  <option value="ALL">All Clients</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name} {c.companyName ? `(${c.companyName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Expiring Toggle */}
               <button
                 type="button"
                 onClick={() => setExpiringOnly(!expiringOnly)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
                   expiringOnly
-                    ? 'bg-amber-500 text-white'
+                    ? 'bg-amber-500 text-white shadow-xs'
                     : 'bg-surface-2-app border border-border-app text-text-secondary hover:text-text-primary'
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
                 <span>Expiring Soon (30d)</span>
               </button>
+
+              {(contractStatusFilter !== 'ALL' || contractCustomerFilter !== 'ALL' || expiringOnly || searchQuery.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContractStatusFilter('ALL');
+                    setContractCustomerFilter('ALL');
+                    setExpiringOnly(false);
+                    setSearchQuery('');
+                  }}
+                  className="text-xs text-red-600 hover:underline font-bold px-2 py-1 cursor-pointer"
+                >
+                  Reset
+                </button>
+              )}
             </div>
 
-            <button
-              type="button"
-              onClick={fetchInitialData}
-              className="p-1.5 hover:bg-surface-2-app rounded-lg text-text-secondary cursor-pointer"
-              title="Refresh Contracts"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                <input
+                  type="text"
+                  placeholder="Search contract #, customer..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') fetchInitialData();
+                  }}
+                  className="bg-surface-2-app border border-border-app rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary placeholder:text-text-secondary w-52 focus:w-64 transition-all focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchInitialData}
+                className="p-1.5 hover:bg-surface-2-app rounded-lg text-text-secondary cursor-pointer border border-border-app"
+                title="Search / Refresh Contracts"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {/* Contracts Table */}
@@ -834,13 +1008,31 @@ export default function AmcManagementPage() {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                            <button
-                              onClick={() => openContractDetails(c)}
-                              className="px-2.5 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-[11px] font-bold transition cursor-pointer shadow-xs inline-flex items-center gap-1"
-                              title="Open Contract & Manage Payment / Details"
+                            <Link
+                              href={`/dashboard/amc/contracts/${c._id}`}
+                              className="px-2.5 py-1 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-lg text-[11px] font-bold transition cursor-pointer shadow-xs inline-flex items-center gap-1"
+                              title="View Official Contract Agreement Document Preview"
                             >
                               <Eye className="w-3 h-3" />
-                              <span>Open</span>
+                              <span>Preview</span>
+                            </Link>
+
+                            <button
+                              onClick={() => setPaymentModalContract(c)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer shadow-xs inline-flex items-center gap-1"
+                              title="Record Payment / Manage Milestones"
+                            >
+                              <CreditCard className="w-3 h-3" />
+                              <span>Pay</span>
+                            </button>
+
+                            <button
+                              onClick={() => openContractDetails(c)}
+                              className="px-2.5 py-1 bg-surface-2-app hover:bg-border-app text-text-primary rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
+                              title="Manage Contract, Financials & Payment"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>Manage</span>
                             </button>
 
                             <button
@@ -860,24 +1052,54 @@ export default function AmcManagementPage() {
                             </button>
 
                             {c.status === 'ACTIVE' && (
-                              <button
-                                onClick={() => handleGenerateVisits(c._id, c.contractNumber)}
-                                className="px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
-                                title="Auto-Generate Periodic Service Visits for Covered Fleet"
-                              >
-                                Generate Visits
-                              </button>
+                              <>
+                                {c.visitsGenerated ? (
+                                  <span
+                                    className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-default"
+                                    title="Routine service visits for this contract period have already been generated."
+                                  >
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Visits Generated</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleGenerateVisits(c._id, c.contractNumber)}
+                                    className="px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                                    title="Auto-Generate Periodic Service Visits for Covered Fleet (One-time)"
+                                  >
+                                    Generate Visits
+                                  </button>
+                                )}
+
+                                <button
+                                  onClick={() => {
+                                    setBreakdownPreselectedContract(c);
+                                    setIsLogBreakdownModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
+                                  title="Log an emergency breakdown repair visit ticket for this contract"
+                                >
+                                  <Wrench className="w-3 h-3 text-amber-600" />
+                                  <span>+ Breakdown</span>
+                                </button>
+                              </>
                             )}
 
-                            {!c.renewedByContractId && (
-                              <button
-                                onClick={() => handleRenewContract(c._id, c.contractNumber)}
-                                className="px-2.5 py-1 bg-primary-900/10 hover:bg-primary-900/20 text-primary-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
-                                title="1-Click Non-Destructive Renewal"
-                              >
-                                Renew
-                              </button>
-                            )}
+                            {(() => {
+                              const daysUntilExpiry = c.endDate
+                                ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                                : 999;
+                              const canRenew = !c.renewedByContractId && (daysUntilExpiry <= 30 || c.status === 'EXPIRED');
+                              return canRenew ? (
+                                <button
+                                  onClick={() => handleRenewContract(c._id, c.contractNumber)}
+                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                                  title="Renew contract (within 30 days of expiry)"
+                                >
+                                  Renew
+                                </button>
+                              ) : null;
+                            })()}
                           </td>
                         </tr>
                       );
@@ -898,6 +1120,7 @@ export default function AmcManagementPage() {
           visits={visits}
           technicians={technicians}
           products={products}
+          contracts={contracts}
           onRefresh={fetchInitialData}
           apiClient={apiClient}
           setSuccessMsg={setSuccessMsg}
@@ -945,6 +1168,7 @@ export default function AmcManagementPage() {
                   <option value="DRAFT">Draft</option>
                   <option value="SENT">Finalized</option>
                   <option value="CONVERTED_TO_CONTRACT">Active Contract</option>
+                  <option value="CONVERTED_TO_INVOICE">Converted to Invoice</option>
                 </select>
               </div>
 
@@ -956,6 +1180,7 @@ export default function AmcManagementPage() {
                   className="bg-surface-2-app border border-border-app rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary focus:outline-none"
                 >
                   <option value="ALL">All Types</option>
+                  <option value="GENERAL">General Estimate</option>
                   <option value="COMPREHENSIVE">Comprehensive AMC</option>
                   <option value="NON_COMPREHENSIVE">Non-Comprehensive AMC</option>
                 </select>
@@ -1019,12 +1244,16 @@ export default function AmcManagementPage() {
                         <td className="py-4 px-6">
                           <span
                             className={`px-2.5 py-0.5 rounded-md font-bold text-[10px] ${
-                              q.quotationType === 'COMPREHENSIVE'
+                              q.quotationType === 'GENERAL'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : q.quotationType === 'COMPREHENSIVE'
                                 ? 'bg-purple-100 text-purple-800'
                                 : 'bg-blue-100 text-blue-800'
                             }`}
                           >
-                            {q.quotationType === 'COMPREHENSIVE'
+                            {q.quotationType === 'GENERAL'
+                              ? 'General Estimate'
+                              : q.quotationType === 'COMPREHENSIVE'
                               ? 'Comprehensive AMC'
                               : 'Non-Comprehensive AMC'}
                           </span>
@@ -1044,8 +1273,12 @@ export default function AmcManagementPage() {
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-2-app text-text-secondary border border-border-app">
                                 Draft
                               </span>
-                            ) : q.status === 'CONVERTED_TO_CONTRACT' ? (
+                            ) : q.status === 'CONVERTED_TO_INVOICE' ? (
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                Converted to Invoice
+                              </span>
+                            ) : q.status === 'CONVERTED_TO_CONTRACT' ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
                                 Active Contract
                               </span>
                             ) : q.status === 'SENT' ? (
@@ -1078,15 +1311,35 @@ export default function AmcManagementPage() {
                               <span>PDF</span>
                             </button>
 
-                            {q.status !== 'CONVERTED_TO_CONTRACT' && (
-                              <button
-                                onClick={() => setConvertingQuotation(q)}
-                                className="px-3 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
+                            {q.status === 'CONVERTED_TO_INVOICE' && q.convertedInvoiceId ? (
+                              <Link
+                                href={`/dashboard/invoices/detail/${q.convertedInvoiceId}`}
+                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-xs font-bold text-emerald-800 cursor-pointer transition inline-flex items-center gap-1"
+                                title="View converted invoice"
                               >
-                                <span>Convert to AMC</span>
-                                <ArrowRight className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                                <FileCheck className="w-3.5 h-3.5" />
+                                <span>Invoice</span>
+                              </Link>
+                            ) : q.status !== 'CONVERTED_TO_CONTRACT' && q.status !== 'CONVERTED_TO_INVOICE' ? (
+                              q.quotationType === 'GENERAL' ? (
+                                <button
+                                  onClick={() => handleConvertQuotationToInvoice(q._id, q.quotationNumber)}
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
+                                  title="Convert directly to Tax Invoice"
+                                >
+                                  <Receipt className="w-3.5 h-3.5" />
+                                  <span>Convert to Invoice</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setConvertingQuotation(q)}
+                                  className="px-3 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
+                                >
+                                  <span>Convert to AMC</span>
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              )
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -2378,12 +2631,49 @@ export default function AmcManagementPage() {
                   {selectedContractDetails.customerId?.contact?.phone && ` • ${selectedContractDetails.customerId.contact.phone}`}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedContractDetails(null)}
-                className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/dashboard/amc/contracts/${selectedContractDetails._id}`}
+                  className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View Agreement Document</span>
+                </Link>
+                <button
+                  onClick={() => setSelectedContractDetails(null)}
+                  className="p-1.5 text-text-secondary hover:text-text-primary rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contract Status Control & 1-Click Approval */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface-2-app rounded-xl border border-border-app">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-text-secondary">Contract Status:</span>
+                <select
+                  value={selectedContractDetails.status}
+                  onChange={(e) => handleUpdateContractStatus(selectedContractDetails._id, e.target.value)}
+                  className="bg-surface-app border border-border-app rounded-lg px-2 py-1 text-xs font-bold text-text-primary focus:outline-hidden cursor-pointer"
+                >
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="PENDING_APPROVAL">PENDING APPROVAL</option>
+                  <option value="PENDING_PAYMENT">PENDING PAYMENT</option>
+                  <option value="SUSPENDED">SUSPENDED</option>
+                  <option value="TERMINATED">TERMINATED</option>
+                </select>
+              </div>
+              {(selectedContractDetails.status === 'PENDING_APPROVAL' || selectedContractDetails.status === 'PENDING_PAYMENT' || selectedContractDetails.status === 'DRAFT') && (
+                <button
+                  type="button"
+                  onClick={() => handleUpdateContractStatus(selectedContractDetails._id, 'ACTIVE')}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Approve & Activate Contract
+                </button>
+              )}
             </div>
 
             {/* Coverage Period & Fleet Summary */}
@@ -2442,21 +2732,32 @@ export default function AmcManagementPage() {
 
             {/* Financials & Payment Editor */}
             <div className="bg-surface-2-app/60 border border-border-app p-4 rounded-xl space-y-3">
-              <div className="flex justify-between items-center">
-                <h4 className="text-xs font-black text-text-primary uppercase tracking-wider">
-                  Financials &amp; Payment Status
-                </h4>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full font-bold text-xs ${
-                    selectedContractDetails.paymentStatus === 'PAID'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : selectedContractDetails.paymentStatus === 'PARTIALLY_PAID'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-rose-100 text-rose-800'
-                  }`}
+              <div className="flex flex-wrap justify-between items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-black text-text-primary uppercase tracking-wider">
+                    Financials &amp; Payment Status
+                  </h4>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full font-bold text-xs ${
+                      selectedContractDetails.paymentStatus === 'PAID'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : selectedContractDetails.paymentStatus === 'PARTIALLY_PAID'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {selectedContractDetails.paymentStatus}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalContract(selectedContractDetails)}
+                  className="px-3 py-1.5 bg-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer hover:opacity-90 transition"
                 >
-                  {selectedContractDetails.paymentStatus}
-                </span>
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Record Payment &amp; Milestones
+                </button>
               </div>
 
               <div className="grid grid-cols-3 gap-3 text-xs">
@@ -2736,6 +3037,39 @@ export default function AmcManagementPage() {
           onClose={() => setEntitlementModalData(null)}
         />
       )}
+      {paymentModalContract && (
+        <ContractPaymentModal
+          contract={paymentModalContract}
+          isOpen={!!paymentModalContract}
+          onClose={() => setPaymentModalContract(null)}
+          onPaymentSuccess={(updated) => {
+            setPaymentModalContract(null);
+            fetchInitialData();
+            if (selectedContractDetails && selectedContractDetails._id === updated._id) {
+              setSelectedContractDetails(updated);
+            }
+          }}
+        />
+      )}
+
+      {/* Log Breakdown Visit Modal */}
+      <LogBreakdownVisitModal
+        isOpen={isLogBreakdownModalOpen}
+        onClose={() => {
+          setIsLogBreakdownModalOpen(false);
+          setBreakdownPreselectedContract(null);
+        }}
+        onSuccess={() => {
+          fetchInitialData();
+          setActiveTab('visits');
+        }}
+        apiClient={apiClient}
+        contracts={contracts}
+        technicians={technicians}
+        preSelectedContract={breakdownPreselectedContract}
+        setSuccessMsg={setSuccessMsg}
+        setErrorMsg={setErrorMsg}
+      />
     </div>
   );
 }

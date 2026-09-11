@@ -334,7 +334,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             {/* Quick Actions in Top Bar */}
-            <div className="flex items-center shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href="/dashboard/amc/quotations/create?category=general"
+                className="px-2.5 sm:px-3 py-1.5 bg-surface-app hover:bg-surface-2-app text-text-primary border border-border-app rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer shrink-0"
+                title="Create Quotation / Estimate"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0 text-text-secondary" />
+                <span className="hidden xs:inline sm:inline">Create Quotation</span>
+              </Link>
               <Link
                 href="/dashboard/invoices/create"
                 className="px-2.5 sm:px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer shrink-0"

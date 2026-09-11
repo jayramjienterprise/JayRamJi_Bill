@@ -83,7 +83,11 @@ export async function listVisits(req: Request, res: Response, next: NextFunction
     const visits = await AmcServiceVisit.find(query)
       .populate('acEquipmentId', 'brand tonnage modelNumber serialNumber installationLocation')
       .populate('technicianId', 'name email phone')
-      .populate('contractId', 'contractNumber contractType customerId')
+      .populate({
+        path: 'contractId',
+        select: 'contractNumber contractType customerId',
+        populate: { path: 'customerId', select: 'name companyName phone contact' },
+      })
       .populate('sparesUsed.productId', 'name uom defaultPriceMinor')
       .sort({ scheduledDate: 1 });
 
@@ -104,7 +108,10 @@ export async function getVisit(req: Request, res: Response, next: NextFunction):
     const visit = await AmcServiceVisit.findOne({ _id: id, businessId, active: true })
       .populate('acEquipmentId')
       .populate('technicianId', 'name email phone')
-      .populate('contractId')
+      .populate({
+        path: 'contractId',
+        populate: { path: 'customerId', select: 'name companyName phone contact' },
+      })
       .populate('sparesUsed.productId')
       .populate('additionalWorkRequest.quotationId');
 
@@ -134,6 +141,22 @@ export async function generateContractVisits(req: Request, res: Response, next: 
       return next(new AppError('Contract not found', 404, 'CONTRACT_NOT_FOUND'));
     }
 
+    // Guard: Check if visits have already been generated for this contract
+    const existingVisitsCount = await AmcServiceVisit.countDocuments({
+      contractId: contract._id,
+      businessId,
+      active: true,
+    });
+    if (existingVisitsCount > 0 || contract.visitsGenerated) {
+      return next(
+        new AppError(
+          `Service visits have already been generated for Contract #${contract.contractNumber} (${existingVisitsCount} visits exist). You can log breakdown or additional visits on demand.`,
+          400,
+          'VISITS_ALREADY_GENERATED'
+        )
+      );
+    }
+
     const entitlements = contract.planSnapshot.entitlements || [];
     const coveredUnits = contract.coveredUnits || [];
 
@@ -147,8 +170,14 @@ export async function generateContractVisits(req: Request, res: Response, next: 
     const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
 
     for (const ent of entitlements) {
-      // Calculate scheduling intervals
+      // Breakdown repairs and on-demand calls are NOT pre-scheduled! They are logged on-demand.
+      if (ent.serviceType === 'BREAKDOWN_REPAIR' || (ent as any).scheduling === 'ON_DEMAND') {
+        continue;
+      }
+
+      // Calculate scheduling intervals for routine maintenance visits
       const count = ent.quantity;
+      if (!count || count <= 0) continue;
       const intervalDays = Math.floor(totalDays / (count + 1));
 
       if (ent.entitlementScope === 'PER_EQUIPMENT') {
@@ -172,7 +201,7 @@ export async function generateContractVisits(req: Request, res: Response, next: 
           }
         }
       } else {
-        // PER_CONTRACT scope (e.g. general inspection or breakdown calls)
+        // PER_CONTRACT scope (e.g. general inspection)
         for (let i = 1; i <= count; i++) {
           const scheduledDate = new Date(start.getTime() + i * intervalDays * 24 * 60 * 60 * 1000);
           const visitNumber = await getNextVisitNumber(businessId);
@@ -181,7 +210,7 @@ export async function generateContractVisits(req: Request, res: Response, next: 
             businessId,
             visitNumber,
             contractId: contract._id,
-            acEquipmentId: coveredUnits[0].acEquipmentId, // Assign to primary unit as placeholder
+            acEquipmentId: coveredUnits[0].acEquipmentId,
             serviceType: ent.serviceType,
             scheduledDate,
             status: 'SCHEDULED',
@@ -193,10 +222,174 @@ export async function generateContractVisits(req: Request, res: Response, next: 
       }
     }
 
+    contract.visitsGenerated = true;
+    await contract.save();
+
     res.status(201).json({
       success: true,
       data: createdVisits,
-      message: `Generated ${createdVisits.length} scheduled service visits based on plan entitlements`,
+      message: `Generated ${createdVisits.length} scheduled routine service visits based on plan entitlements`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Creates an ad-hoc or emergency breakdown service visit ticket for an active AMC contract
+ */
+export async function createServiceVisit(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const {
+      contractId,
+      acEquipmentId,
+      serviceType = 'BREAKDOWN_REPAIR',
+      scheduledDate = new Date(),
+      technicianId,
+      complaintDescription,
+      priority = 'NORMAL',
+    } = req.body;
+
+    if (!contractId) {
+      return next(new AppError('Contract ID is required', 400, 'CONTRACT_ID_REQUIRED'));
+    }
+
+    const contract = await AmcContract.findOne({ _id: contractId, businessId, active: true })
+      .populate('customerId')
+      .populate('coveredUnits.acEquipmentId');
+    if (!contract) {
+      return next(new AppError('Contract not found', 404, 'CONTRACT_NOT_FOUND'));
+    }
+
+    if (contract.status !== 'ACTIVE') {
+      return next(
+        new AppError(
+          `Contract #${contract.contractNumber} is currently ${contract.status}. Only ACTIVE contracts can receive service visits.`,
+          400,
+          'CONTRACT_NOT_ACTIVE'
+        )
+      );
+    }
+
+    // Determine equipment: use provided acEquipmentId or fallback to first covered unit
+    let targetEquipmentId = acEquipmentId;
+    if (!targetEquipmentId && contract.coveredUnits.length > 0) {
+      targetEquipmentId = contract.coveredUnits[0].acEquipmentId;
+    }
+    if (!targetEquipmentId) {
+      return next(new AppError('Please select a covered AC unit for this visit', 400, 'EQUIPMENT_REQUIRED'));
+    }
+
+    // Validate technician if provided
+    let techObjectId = null;
+    let initialStatus: 'ASSIGNED' | 'SCHEDULED' = 'SCHEDULED';
+    if (technicianId) {
+      const techUser = await User.findById(technicianId);
+      if (techUser) {
+        techObjectId = techUser._id;
+        initialStatus = 'ASSIGNED';
+      }
+    }
+
+    // Check breakdown entitlement quota if this is a breakdown visit
+    let isBillableExtra = false;
+    if (serviceType === 'BREAKDOWN_REPAIR') {
+      const breakdownEntitlement = contract.planSnapshot.entitlements.find(
+        (e: any) => e.serviceType === 'BREAKDOWN_REPAIR'
+      );
+      const allowedBreakdowns = breakdownEntitlement?.quantity || 0;
+      const usedBreakdowns = await AmcServiceVisit.countDocuments({
+        contractId: contract._id,
+        serviceType: 'BREAKDOWN_REPAIR',
+        status: { $in: ['COMPLETED', 'IN_PROGRESS', 'ASSIGNED', 'SCHEDULED'] },
+        active: true,
+      });
+
+      if (usedBreakdowns >= allowedBreakdowns) {
+        isBillableExtra = true;
+      }
+    }
+
+    const visitNumber = await getNextVisitNumber(businessId);
+    const visit = await AmcServiceVisit.create({
+      businessId,
+      visitNumber,
+      contractId: contract._id,
+      acEquipmentId: targetEquipmentId,
+      serviceType,
+      scheduledDate: new Date(scheduledDate),
+      technicianId: techObjectId,
+      status: initialStatus,
+      isBillableExtra,
+      complaintDescription: complaintDescription ? complaintDescription.trim() : null,
+      priority: priority || 'NORMAL',
+      active: true,
+    });
+
+    const populatedVisit = await AmcServiceVisit.findById(visit._id)
+      .populate({
+        path: 'contractId',
+        select: 'contractNumber contractType startDate endDate customerId',
+        populate: { path: 'customerId', select: 'name contact address' },
+      })
+      .populate('acEquipmentId', 'brand tonnage modelNumber serialNumber installationLocation')
+      .populate('technicianId', 'name email phone');
+
+    res.status(201).json({
+      success: true,
+      data: populatedVisit,
+      message: `Service visit #${visitNumber} created successfully`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Updates status of a service visit (e.g. CANCELLED, RESCHEDULED)
+ */
+export async function updateVisitStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+    const { status, scheduledDate, notes } = req.body;
+
+    const visit = await AmcServiceVisit.findOne({ _id: id, businessId, active: true });
+    if (!visit) {
+      return next(new AppError('Service visit ticket not found', 404, 'VISIT_NOT_FOUND'));
+    }
+
+    if (status) {
+      if (!['SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'RESCHEDULED'].includes(status)) {
+        return next(new AppError('Invalid visit status', 400, 'INVALID_STATUS'));
+      }
+      visit.status = status;
+    }
+
+    if (scheduledDate) {
+      visit.scheduledDate = new Date(scheduledDate);
+    }
+
+    if (notes) {
+      visit.customerRemarks = notes;
+    }
+
+    await visit.save();
+
+    const populated = await AmcServiceVisit.findById(visit._id)
+      .populate('acEquipmentId', 'brand tonnage modelNumber serialNumber installationLocation')
+      .populate('technicianId', 'name email phone')
+      .populate({
+        path: 'contractId',
+        select: 'contractNumber contractType customerId',
+        populate: { path: 'customerId', select: 'name companyName phone contact' },
+      });
+
+    res.status(200).json({
+      success: true,
+      data: populated || visit,
+      message: `Visit #${visit.visitNumber} status updated to ${visit.status}`,
     });
   } catch (error) {
     next(error);

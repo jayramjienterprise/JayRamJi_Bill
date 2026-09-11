@@ -149,7 +149,9 @@ export default function AmcQuotationPaper({
       ? 'Comprehensive AMC'
       : quotation.quotationType === 'NON_COMPREHENSIVE'
         ? 'Non-Comprehensive AMC'
-        : (quotation.quotationType || 'AMC');
+        : quotation.quotationType === 'STANDARD' || quotation.quotationType === 'GENERAL'
+          ? ''
+          : (quotation.quotationType || '');
 
   const DEFAULT_ROWS = 10;
   const emptyRowsCount = Math.max(0, DEFAULT_ROWS - displayItems.length);
@@ -408,7 +410,7 @@ export default function AmcQuotationPaper({
             <tr>
               <th
                 style={{
-                  width: '8%',
+                  width: hasPeriod ? '6%' : '7%',
                   textAlign: 'center',
                   backgroundColor: '#f6e0d0',
                   borderBottom: '1px solid black',
@@ -422,7 +424,7 @@ export default function AmcQuotationPaper({
               </th>
               <th
                 style={{
-                  width: '54%',
+                  width: hasPeriod ? '44%' : '55%',
                   textAlign: 'left',
                   backgroundColor: '#f6e0d0',
                   borderBottom: '1px solid black',
@@ -434,7 +436,7 @@ export default function AmcQuotationPaper({
               >
                 DESCRIPTION OF GOODS
               </th>
-              {hasPeriod ? (
+              {hasPeriod && (
                 <th
                   style={{
                     width: '14%',
@@ -449,22 +451,21 @@ export default function AmcQuotationPaper({
                 >
                   PERIOD
                 </th>
-              ) : (
-                <th
-                  style={{
-                    width: '10%',
-                    textAlign: 'right',
-                    backgroundColor: '#f6e0d0',
-                    borderBottom: '1px solid black',
-                    borderRight: '1px solid black',
-                    padding: '5px 6px',
-                    fontWeight: 'bold',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  QTY
-                </th>
               )}
+              <th
+                style={{
+                  width: '10%',
+                  textAlign: 'right',
+                  backgroundColor: '#f6e0d0',
+                  borderBottom: '1px solid black',
+                  borderRight: '1px solid black',
+                  padding: '5px 6px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                QTY
+              </th>
               <th
                 style={{
                   width: '12%',
@@ -481,7 +482,7 @@ export default function AmcQuotationPaper({
               </th>
               <th
                 style={{
-                  width: '16%',
+                  width: hasPeriod ? '14%' : '16%',
                   textAlign: 'right',
                   backgroundColor: '#f6e0d0',
                   borderBottom: '1px solid black',
@@ -520,7 +521,7 @@ export default function AmcQuotationPaper({
                   >
                     {it.description}
                   </td>
-                  {hasPeriod ? (
+                  {hasPeriod && (
                     <td
                       style={{
                         textAlign: 'center',
@@ -531,18 +532,18 @@ export default function AmcQuotationPaper({
                     >
                       {it.period || 'Annual'}
                     </td>
-                  ) : (
-                    <td
-                      style={{
-                        textAlign: 'right',
-                        borderRight: '1px solid black',
-                        borderBottom: '1px solid black',
-                        padding: '4px 6px',
-                      }}
-                    >
-                      {Number(it.quantity || 0).toFixed(2)}
-                    </td>
                   )}
+                  <td
+                    style={{
+                      textAlign: 'right',
+                      borderRight: '1px solid black',
+                      borderBottom: '1px solid black',
+                      padding: '4px 6px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {Number(it.quantity || 0)}
+                  </td>
                   <td
                     style={{
                       textAlign: 'right',
@@ -578,6 +579,9 @@ export default function AmcQuotationPaper({
                     &nbsp;
                   </td>
                   <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
+                  {hasPeriod && (
+                    <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
+                  )}
                   <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
                   <td style={{ borderRight: '1px solid black', borderBottom: '1px solid black' }}>&nbsp;</td>
                   <td style={{ borderBottom: '1px solid black' }}>&nbsp;</td>
@@ -588,7 +592,7 @@ export default function AmcQuotationPaper({
             {/* Subtotal Row */}
             <tr style={{ backgroundColor: '#fafbfc', fontWeight: 'bold', borderTop: '1.5px solid black' }}>
               <td
-                colSpan={2}
+                colSpan={hasPeriod ? 3 : 2}
                 style={{
                   textAlign: 'center',
                   borderRight: '1px solid black',
@@ -598,13 +602,9 @@ export default function AmcQuotationPaper({
               >
                 Total
               </td>
-              {hasPeriod ? (
-                <td style={{ borderRight: '1px solid black' }}></td>
-              ) : (
-                <td style={{ textAlign: 'right', borderRight: '1px solid black', padding: '4px 6px' }}>
-                  {displayItems.reduce((s, it) => s + (it.quantity || 0), 0).toFixed(2)}
-                </td>
-              )}
+              <td style={{ textAlign: 'right', borderRight: '1px solid black', padding: '4px 6px' }}>
+                {displayItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0)}
+              </td>
               <td style={{ borderRight: '1px solid black' }}></td>
               <td style={{ textAlign: 'right', fontSize: '9.5pt', padding: '4px 6px' }}>
                 ₹ {formatCurrency(totals.subtotal || totals.grandTotal)}

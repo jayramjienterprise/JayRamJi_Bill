@@ -123,12 +123,21 @@ export default function InvoicesPage() {
             Search, filter, and access historical finalized invoices, original snapshots, and PDF copies.
           </p>
         </div>
-        <Link
-          href="/dashboard/invoices/create"
-          className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-sm font-semibold shadow-sm transition text-center cursor-pointer"
-        >
-          + Create Invoice
-        </Link>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Link
+            href="/dashboard/amc/quotations/create?category=general"
+            className="px-4 py-2 bg-surface-2-app hover:bg-border-app border border-border-app text-text-primary rounded-lg text-sm font-semibold shadow-xs transition text-center cursor-pointer"
+            title="Create a simple quotation or estimate that can be later converted into an invoice"
+          >
+            + Create Quotation
+          </Link>
+          <Link
+            href="/dashboard/invoices/create"
+            className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-sm font-semibold shadow-sm transition text-center cursor-pointer"
+          >
+            + Create Invoice
+          </Link>
+        </div>
       </div>
 
       {successMsg && (
@@ -287,11 +296,28 @@ export default function InvoicesPage() {
             <p className="text-sm text-text-secondary">Loading digital bill book...</p>
           </div>
         ) : invoices.length === 0 ? (
-          <div className="text-center py-12 px-4">
-            <p className="text-base font-medium text-text-primary mb-2">No invoices found</p>
-            <p className="text-xs text-text-secondary max-w-sm mx-auto">
-              Finalized invoices will appear here after you create your first bill.
-            </p>
+          <div className="text-center py-12 px-4 space-y-4">
+            <div>
+              <p className="text-base font-medium text-text-primary mb-1">No invoices found</p>
+              <p className="text-xs text-text-secondary max-w-sm mx-auto">
+                Finalized invoices will appear here after you create your first bill or convert a quotation.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3">
+              <Link
+                href="/dashboard/amc/quotations/create?category=general"
+                className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <span>📑</span>
+                <span>+ Create Quotation</span>
+              </Link>
+              <Link
+                href="/dashboard/invoices/create"
+                className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <span>+ Create Invoice</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <>

@@ -63,6 +63,7 @@ const CreateInvoiceSchema = z.object({
   defaultTaxRateBps: z.number().nonnegative(),
   discount: DiscountSchema.optional(),
   paymentTerms: z.string().nullable().optional(),
+  termsAndConditions: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
   paymentStatus: z.enum(['PAID', 'UNPAID', 'PARTIAL']).optional(),
   payment: z.any().optional(),
@@ -178,6 +179,7 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       defaultTaxRateBps,
       discount,
       paymentTerms,
+      termsAndConditions,
       notes,
       paymentStatus,
       payment,
@@ -277,6 +279,7 @@ export async function createInvoiceDraft(req: Request, res: Response, next: Next
       totals: calcResult.totals,
       amountInWords: calcResult.amountInWords,
       paymentTerms: paymentTerms || business.invoiceSettings?.defaultPaymentTerms || null,
+      termsAndConditions: termsAndConditions || [],
       notes: notes || null,
       draftPaymentDetails: paymentInput || null,
       paymentSummary: {
@@ -350,6 +353,9 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
     }
     if (updates.paymentTerms !== undefined) {
       invoice.paymentTerms = updates.paymentTerms;
+    }
+    if (updates.termsAndConditions !== undefined) {
+      invoice.termsAndConditions = updates.termsAndConditions;
     }
     if (updates.notes !== undefined) {
       invoice.notes = updates.notes;
@@ -757,6 +763,7 @@ async function triggerBackgroundDocGen(businessId: string, invoiceId: string) {
         invoiceDate: invoice.invoiceDate,
         amountInWords: invoice.amountInWords,
         paymentTerms: invoice.paymentTerms,
+        termsAndConditions: invoice.termsAndConditions || [],
         notes: invoice.notes,
       },
       business: invoice.businessSnapshot,
@@ -1559,6 +1566,7 @@ export async function downloadInvoiceFile(req: Request, res: Response, next: Nex
         invoiceDate: invoice.invoiceDate,
         amountInWords: invoice.amountInWords,
         paymentTerms: invoice.paymentTerms,
+        termsAndConditions: invoice.termsAndConditions || [],
         notes: invoice.notes,
       },
       business: businessData,

@@ -23,11 +23,13 @@ import {
   Mail,
 } from 'lucide-react';
 import JobCardModal from './JobCardModal';
+import LogBreakdownVisitModal from './LogBreakdownVisitModal';
 
 interface VisitsTabProps {
   visits: any[];
   technicians: any[];
   products: any[];
+  contracts?: any[];
   onRefresh: () => void;
   apiClient: any;
   setSuccessMsg: (msg: string) => void;
@@ -38,6 +40,7 @@ export default function VisitsTab({
   visits,
   technicians,
   products,
+  contracts = [],
   onRefresh,
   apiClient,
   setSuccessMsg,
@@ -64,12 +67,18 @@ export default function VisitsTab({
 
   // Add Technician Modal state
   const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
+  const [isLogBreakdownModalOpen, setIsLogBreakdownModalOpen] = useState(false);
   const [techForm, setTechForm] = useState({
     name: '',
     phone: '',
     email: '',
     specialization: '',
   });
+
+  // Cancel Visit Modal state
+  const [visitToCancel, setVisitToCancel] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   // Filtering
   const filteredVisits = visits.filter((v) => {
@@ -82,12 +91,20 @@ export default function VisitsTab({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const numMatch = v.visitNumber?.toLowerCase().includes(q);
-      const custMatch = v.customerId?.name?.toLowerCase().includes(q);
-      const companyMatch = v.customerId?.companyName?.toLowerCase().includes(q);
+      const cust = v.customerId || v.contractId?.customerId;
+      const custMatch =
+        cust?.name?.toLowerCase().includes(q) ||
+        cust?.companyName?.toLowerCase().includes(q) ||
+        cust?.phone?.includes(q);
       const contractMatch = v.contractId?.contractNumber?.toLowerCase().includes(q);
       const techMatch = v.technicianId?.name?.toLowerCase().includes(q);
-      const locMatch = v.equipmentId?.installationLocation?.toLowerCase().includes(q);
-      return numMatch || custMatch || companyMatch || contractMatch || techMatch || locMatch;
+      const equip = v.acEquipmentId || v.equipmentId;
+      const locMatch =
+        equip?.installationLocation?.toLowerCase().includes(q) ||
+        equip?.brand?.toLowerCase().includes(q) ||
+        equip?.modelNumber?.toLowerCase().includes(q);
+      const complaintMatch = v.complaintDescription?.toLowerCase().includes(q);
+      return numMatch || custMatch || contractMatch || techMatch || locMatch || complaintMatch;
     }
     return true;
   });
@@ -152,6 +169,32 @@ export default function VisitsTab({
       setErrorMsg(err.message || 'Failed to generate supplementary quotation');
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function confirmAndCancelVisit() {
+    if (!visitToCancel) return;
+    setCancelling(true);
+    try {
+      await apiClient.patch(`/amc/visits/${visitToCancel._id}/status`, {
+        status: 'CANCELLED',
+        notes: cancelReason.trim() || undefined,
+      });
+
+      // Optimistically update status in memory
+      if (Array.isArray(visits)) {
+        const item = visits.find((x: any) => x._id === visitToCancel._id);
+        if (item) item.status = 'CANCELLED';
+      }
+
+      setSuccessMsg(`Visit #${visitToCancel.visitNumber} has been successfully CANCELLED`);
+      setVisitToCancel(null);
+      setCancelReason('');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to cancel visit');
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -247,6 +290,17 @@ export default function VisitsTab({
               <span>Calendar View</span>
             </button>
           </div>
+
+          {/* Log Breakdown / Ad-Hoc Visit Button */}
+          <button
+            type="button"
+            onClick={() => setIsLogBreakdownModalOpen(true)}
+            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Log an emergency breakdown repair or ad-hoc service visit"
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            <span>+ Log Breakdown Visit</span>
+          </button>
 
           {/* Add Technician Button */}
           <button
@@ -518,6 +572,14 @@ export default function VisitsTab({
                       (v.sparesUsed || []).some((s: any) => !s.isCoveredByAmc) ||
                       (v.additionalWorkRecommendations || []).length > 0;
 
+                    const cust = v.customerId || v.contractId?.customerId;
+                    const custName = cust?.name || cust?.companyName || 'Customer';
+                    const equip = v.acEquipmentId || v.equipmentId;
+                    const equipBrand = equip?.brand || '';
+                    const equipTonnage = equip?.tonnage ? `${equip.tonnage} Ton` : '';
+                    const equipTitle = [equipBrand, equipTonnage].filter(Boolean).join(' ') || 'AC Unit';
+                    const equipLoc = equip?.installationLocation || 'Location not specified';
+
                     return (
                       <tr key={v._id} className="hover:bg-surface-2-app/50 transition">
                         <td className="py-3.5 px-4 font-black text-primary-700">
@@ -537,10 +599,31 @@ export default function VisitsTab({
                           >
                             {v.serviceType.replace('_', ' ')}
                           </span>
+                          {v.priority && (
+                            <span
+                              className={`block mt-0.5 text-[9.5px] font-black uppercase tracking-wider ${
+                                v.priority === 'EMERGENCY'
+                                  ? 'text-red-700 font-black'
+                                  : v.priority === 'HIGH'
+                                  ? 'text-amber-700 font-bold'
+                                  : 'text-neutral-500'
+                              }`}
+                            >
+                              [{v.priority}]
+                            </span>
+                          )}
+                          {v.complaintDescription && (
+                            <span
+                              className="block text-[10px] text-text-secondary truncate max-w-[180px] mt-0.5 italic"
+                              title={v.complaintDescription}
+                            >
+                              "{v.complaintDescription}"
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4">
                           <span className="font-bold text-text-primary block">
-                            {v.customerId?.name || 'Customer'}
+                            {custName}
                           </span>
                           <span className="text-[10px] text-text-secondary">
                             #{v.contractId?.contractNumber || 'Contract'}
@@ -548,10 +631,10 @@ export default function VisitsTab({
                         </td>
                         <td className="py-3.5 px-4">
                           <span className="font-medium text-text-primary block">
-                            {v.equipmentId?.brand} {v.equipmentId?.tonnage}
+                            {equipTitle}
                           </span>
                           <span className="text-[10px] text-text-secondary">
-                            {v.equipmentId?.installationLocation || 'Location'}
+                            {equipLoc}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-text-secondary">
@@ -580,6 +663,8 @@ export default function VisitsTab({
                                 ? 'bg-amber-100 text-amber-800'
                                 : v.status === 'ASSIGNED'
                                 ? 'bg-blue-100 text-blue-800'
+                                : v.status === 'CANCELLED'
+                                ? 'bg-rose-100 text-rose-800'
                                 : 'bg-neutral-100 text-neutral-800'
                             }`}
                           >
@@ -589,7 +674,7 @@ export default function VisitsTab({
                         <td className="py-3.5 px-4 text-right">
                           <div className="inline-flex items-center gap-1.5">
                             {/* Assign Technician Button */}
-                            {v.status !== 'COMPLETED' && (
+                            {v.status !== 'COMPLETED' && v.status !== 'CANCELLED' && (
                               <button
                                 onClick={() => {
                                   setSelectedVisitForAssign(v);
@@ -608,7 +693,7 @@ export default function VisitsTab({
                             )}
 
                             {/* Job Card Execution Button */}
-                            {v.status !== 'COMPLETED' && (
+                            {v.status !== 'COMPLETED' && v.status !== 'CANCELLED' && (
                               <button
                                 onClick={() => setSelectedVisitForJobCard(v)}
                                 className="px-2.5 py-1 bg-primary-700 hover:bg-primary-800 text-white rounded-lg font-bold text-[11px] transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
@@ -642,6 +727,28 @@ export default function VisitsTab({
                                 <ShieldAlert className="w-3 h-3" />
                                 <span>Quote Uncovered</span>
                               </button>
+                            )}
+
+                            {/* Cancel Scheduled Visit Button */}
+                            {v.status !== 'COMPLETED' && v.status !== 'CANCELLED' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVisitToCancel(v);
+                                  setCancelReason('');
+                                }}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
+                                title="Cancel this scheduled visit ticket"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Cancel</span>
+                              </button>
+                            )}
+
+                            {v.status === 'CANCELLED' && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200">
+                                Ticket Cancelled
+                              </span>
                             )}
                           </div>
                         </td>
@@ -941,6 +1048,109 @@ export default function VisitsTab({
                 className="px-4 py-2 bg-surface-2-app hover:bg-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Breakdown Visit Modal */}
+      <LogBreakdownVisitModal
+        isOpen={isLogBreakdownModalOpen}
+        onClose={() => setIsLogBreakdownModalOpen(false)}
+        onSuccess={() => {
+          onRefresh();
+        }}
+        apiClient={apiClient}
+        contracts={contracts}
+        technicians={technicians}
+        setSuccessMsg={setSuccessMsg}
+        setErrorMsg={setErrorMsg}
+      />
+
+      {/* Confirmation Modal: Cancel Service Visit Ticket */}
+      {visitToCancel && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface-app border border-border-app rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-border-app">
+              <div className="flex items-center gap-2.5 text-rose-600">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <h3 className="text-sm font-black text-text-primary">
+                  Cancel Service Visit #{visitToCancel.visitNumber}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisitToCancel(null)}
+                className="text-text-secondary hover:text-text-primary cursor-pointer p-1 rounded-lg hover:bg-surface-2-app"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary">
+              Are you sure you want to cancel this scheduled service visit ticket? This action updates the status to <strong>CANCELLED</strong>.
+            </p>
+
+            <div className="bg-surface-2-app p-3 rounded-xl border border-border-app space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Service Type:</span>
+                <span className="font-bold text-text-primary">{visitToCancel.serviceType?.replace('_', ' ')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Contract:</span>
+                <span className="font-bold text-text-primary">#{visitToCancel.contractId?.contractNumber || 'AMC'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Customer:</span>
+                <span className="font-bold text-text-primary">
+                  {(visitToCancel.customerId?.name || visitToCancel.contractId?.customerId?.name) || 'Customer'}
+                </span>
+              </div>
+              {visitToCancel.technicianId?.name && (
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Assigned Technician:</span>
+                  <span className="font-medium text-text-primary">{visitToCancel.technicianId.name}</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-text-primary block mb-1">
+                Reason for Cancellation (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Customer rescheduled, problem resolved, unit out of service..."
+                className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary focus:outline-none placeholder:text-text-secondary/70"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-border-app">
+              <button
+                type="button"
+                onClick={() => setVisitToCancel(null)}
+                disabled={cancelling}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-secondary rounded-xl text-xs font-bold cursor-pointer transition"
+              >
+                Keep Active
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndCancelVisit}
+                disabled={cancelling}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {cancelling ? (
+                  <span>Cancelling...</span>
+                ) : (
+                  <>
+                    <X className="w-3.5 h-3.5" />
+                    <span>Yes, Cancel Visit</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

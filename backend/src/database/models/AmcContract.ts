@@ -42,6 +42,47 @@ export interface IAmcContractPlanSnapshot {
   termsAndConditions: string[];
 }
 
+export interface IAmcPaymentRecord {
+  amount: number;
+  paidAt: Date;
+  method: 'CASH' | 'UPI' | 'QR_CODE' | 'BANK_TRANSFER' | 'CHEQUE';
+  paymentAccountId?: Types.ObjectId | null;
+  paymentAccountSnapshot?: {
+    name: string;
+    type: string;
+    displayName: string;
+    bankName?: string | null;
+    maskedAccountNumber?: string | null;
+    ifsc?: string | null;
+    upiId?: string | null;
+  } | null;
+  referenceNumber?: string | null;
+  chequeDetails?: {
+    chequeNumber?: string | null;
+    chequeDate?: Date | null;
+    bankName?: string | null;
+    status?: 'RECEIVED' | 'DEPOSITED' | 'CLEARED' | 'BOUNCED';
+  } | null;
+  proof?: {
+    publicId?: string | null;
+    secureUrl?: string | null;
+    format?: string | null;
+    fileType?: string | null;
+    uploadedAt?: Date | null;
+  } | null;
+  notes?: string | null;
+}
+
+export interface IAmcPaymentInstallment {
+  installmentNumber: number;
+  title: string;
+  dueDate: Date;
+  amount: number;
+  status: 'PENDING' | 'PAID' | 'OVERDUE';
+  paidAt?: Date | null;
+  paymentRecordIndex?: number | null;
+}
+
 export interface IAmcContract extends Document {
   businessId: Types.ObjectId;
   contractNumber: string; // e.g. 'AMC-2526-001'
@@ -62,6 +103,9 @@ export interface IAmcContract extends Document {
     paidAmount: number;
   };
   paymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+  paymentScheduleType?: 'LUMP_SUM' | 'HALF_YEARLY' | 'QUARTERLY' | 'CUSTOM';
+  installments?: IAmcPaymentInstallment[];
+  paymentRecords?: IAmcPaymentRecord[];
   activationTrigger: 'ADMIN_APPROVAL' | 'PAYMENT_RECEIVED' | 'ADVANCE_RECEIVED';
   status:
     | 'DRAFT'
@@ -74,6 +118,7 @@ export interface IAmcContract extends Document {
     | 'SUSPENDED';
   notes?: string | null;
   pdfUrl?: string | null;
+  visitsGenerated?: boolean;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -136,6 +181,66 @@ const AmcContractPlanSnapshotSchema = new Schema<IAmcContractPlanSnapshot>(
     termsAndConditions: { type: [String], default: [] },
   },
   { _id: false }
+);
+
+const AmcPaymentRecordSchema = new Schema<IAmcPaymentRecord>(
+  {
+    amount: { type: Number, required: true },
+    paidAt: { type: Date, required: true, default: Date.now },
+    method: {
+      type: String,
+      required: true,
+      enum: ['CASH', 'UPI', 'QR_CODE', 'BANK_TRANSFER', 'CHEQUE'],
+      default: 'CASH',
+    },
+    paymentAccountId: { type: Schema.Types.ObjectId, ref: 'PaymentAccount', default: null },
+    paymentAccountSnapshot: {
+      name: { type: String, default: null },
+      type: { type: String, default: null },
+      displayName: { type: String, default: null },
+      bankName: { type: String, default: null },
+      maskedAccountNumber: { type: String, default: null },
+      ifsc: { type: String, default: null },
+      upiId: { type: String, default: null },
+    },
+    referenceNumber: { type: String, default: null },
+    chequeDetails: {
+      chequeNumber: { type: String, default: null },
+      chequeDate: { type: Date, default: null },
+      bankName: { type: String, default: null },
+      status: {
+        type: String,
+        enum: ['RECEIVED', 'DEPOSITED', 'CLEARED', 'BOUNCED'],
+        default: 'RECEIVED',
+      },
+    },
+    proof: {
+      publicId: { type: String, default: null },
+      secureUrl: { type: String, default: null },
+      format: { type: String, default: null },
+      fileType: { type: String, default: null },
+      uploadedAt: { type: Date, default: null },
+    },
+    notes: { type: String, default: null },
+  },
+  { _id: true, timestamps: true }
+);
+
+const AmcPaymentInstallmentSchema = new Schema<IAmcPaymentInstallment>(
+  {
+    installmentNumber: { type: Number, required: true },
+    title: { type: String, required: true },
+    dueDate: { type: Date, required: true },
+    amount: { type: Number, required: true },
+    status: {
+      type: String,
+      enum: ['PENDING', 'PAID', 'OVERDUE'],
+      default: 'PENDING',
+    },
+    paidAt: { type: Date, default: null },
+    paymentRecordIndex: { type: Number, default: null },
+  },
+  { _id: true }
 );
 
 const AmcContractSchema = new Schema<IAmcContract>(
@@ -211,6 +316,19 @@ const AmcContractSchema = new Schema<IAmcContract>(
       enum: ['UNPAID', 'PARTIALLY_PAID', 'PAID'],
       default: 'UNPAID',
     },
+    paymentScheduleType: {
+      type: String,
+      enum: ['LUMP_SUM', 'HALF_YEARLY', 'QUARTERLY', 'CUSTOM'],
+      default: 'LUMP_SUM',
+    },
+    installments: {
+      type: [AmcPaymentInstallmentSchema],
+      default: [],
+    },
+    paymentRecords: {
+      type: [AmcPaymentRecordSchema],
+      default: [],
+    },
     activationTrigger: {
       type: String,
       required: true,
@@ -240,6 +358,10 @@ const AmcContractSchema = new Schema<IAmcContract>(
     pdfUrl: {
       type: String,
       default: null,
+    },
+    visitsGenerated: {
+      type: Boolean,
+      default: false,
     },
     active: {
       type: Boolean,

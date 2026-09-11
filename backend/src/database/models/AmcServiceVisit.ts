@@ -61,6 +61,8 @@ export interface IAmcServiceVisit extends Document {
   gasCustomerCharge: number;
   sparesUsed: IAmcVisitSpareUsed[];
   additionalWorkRequest: IAmcVisitAdditionalWork;
+  complaintDescription?: string | null;
+  priority?: 'NORMAL' | 'HIGH' | 'EMERGENCY' | null;
   workPerformed?: string | null;
   technicianNotes?: string | null;
   customerRemarks?: string | null;
@@ -233,6 +235,15 @@ const AmcServiceVisitSchema = new Schema<IAmcServiceVisit>(
         quotationId: null,
         invoiceId: null,
       }),
+    },
+    complaintDescription: {
+      type: String,
+      default: null,
+    },
+    priority: {
+      type: String,
+      enum: ['NORMAL', 'HIGH', 'EMERGENCY'],
+      default: 'NORMAL',
     },
     workPerformed: {
       type: String,

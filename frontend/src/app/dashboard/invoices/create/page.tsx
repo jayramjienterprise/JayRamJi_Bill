@@ -48,6 +48,12 @@ export default function CreateInvoicePage() {
   });
   const [items, setItems] = useState<ItemInput[]>([]);
   const [taxOption, setTaxOption] = useState<'NONE' | 'EXCLUSIVE_18' | 'INCLUSIVE_18'>('NONE');
+  const [termsAndConditions, setTermsAndConditions] = useState<string[]>([
+    'Goods once sold will not be taken back.',
+    'Interest @ 18% p.a. will be charged if the bill is not paid within the due date.',
+    'Subject to local jurisdiction only.',
+  ]);
+  const [newTermInput, setNewTermInput] = useState('');
 
   // Payment Details states
   const [paymentStatus, setPaymentStatus] = useState<'UNPAID' | 'PAID' | 'PARTIAL'>('UNPAID');
@@ -551,6 +557,7 @@ export default function CreateInvoicePage() {
       discount: { type: 'NONE', value: 0 },
       paymentTerms: undefined,
       notes: undefined,
+      termsAndConditions,
       paymentStatus,
       payment: paymentPayload,
       customInvoiceNumber: customInvoiceNumber.trim(),
@@ -597,6 +604,7 @@ export default function CreateInvoicePage() {
           invoiceDate: invoiceDate || new Date(),
           paymentTerms: business?.invoiceSettings?.defaultPaymentTerms || 'Within 15 days clear payment',
           amountInWords: amountInWords || 'Zero Rupees Only',
+          termsAndConditions: termsAndConditions,
         }}
         business={business as any}
         customer={selectedCustomer || { name: 'Customer Name', address: { line1: 'Customer Address' } }}
@@ -1286,6 +1294,84 @@ export default function CreateInvoicePage() {
 
                 </div>
               )}
+            </div>
+
+            {/* Terms & Conditions */}
+            <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-border-light pb-2">
+                <div>
+                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
+                    Terms & Conditions
+                  </h3>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Terms printed on this invoice and saved with the record.
+                  </p>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-2-app text-text-secondary border border-border-app">
+                  {termsAndConditions.length} {termsAndConditions.length === 1 ? 'Term' : 'Terms'}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {termsAndConditions.map((term, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start justify-between gap-3 p-2.5 bg-surface-2-app/60 border border-border-app rounded-lg text-xs"
+                  >
+                    <div className="flex items-start gap-2 flex-1 min-w-0">
+                      <span className="font-bold text-text-muted text-[11px] shrink-0 mt-0.5">
+                        {index + 1}.
+                      </span>
+                      <span className="text-text-primary break-words">{term}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTermsAndConditions(termsAndConditions.filter((_, i) => i !== index))}
+                      className="text-danger-app hover:text-danger-app/80 text-[11px] font-bold shrink-0 px-1.5 py-0.5 hover:bg-danger-app/10 rounded transition cursor-pointer"
+                      title="Remove Term"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {termsAndConditions.length === 0 && (
+                  <p className="text-xs text-text-muted italic py-1">
+                    No custom terms added.
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <input
+                    type="text"
+                    placeholder="Add a new term or condition..."
+                    value={newTermInput}
+                    onChange={(e) => setNewTermInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newTermInput.trim()) {
+                          setTermsAndConditions([...termsAndConditions, newTermInput.trim()]);
+                          setNewTermInput('');
+                        }
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newTermInput.trim()) {
+                        setTermsAndConditions([...termsAndConditions, newTermInput.trim()]);
+                        setNewTermInput('');
+                      }
+                    }}
+                    className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary transition cursor-pointer"
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Calculations Summary & Save/Generate buttons */}

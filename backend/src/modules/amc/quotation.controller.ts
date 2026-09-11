@@ -4,8 +4,10 @@ import { AmcQuotation } from '../../database/models/AmcQuotation';
 import { Customer } from '../../database/models/Customer';
 import { Business } from '../../database/models/Business';
 import { Asset } from '../../database/models/Asset';
+import { Invoice } from '../../database/models/Invoice';
 import { InvoiceSequence } from '../../database/models/InvoiceSequence';
 import { DocumentGenerationService } from '../../services/DocumentGenerationService';
+import { InvoiceCalculationService } from '../../services/InvoiceCalculationService';
 import { AmcQuotationRenderData } from '../../services/AmcRenderService';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -24,13 +26,13 @@ const createQuotationSchema = z.object({
   quotationDate: z.string().optional(),
   validUntil: z.string().optional(),
   paymentTerms: z.string().default('10 Days from the Invoice date'),
-  quotationType: z.enum(['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD']).default('NON_COMPREHENSIVE'),
+  quotationType: z.enum(['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD', 'GENERAL']).default('NON_COMPREHENSIVE'),
   items: z.array(quotationItemSchema).min(1, 'At least one line item is required'),
   discount: z.number().min(0).default(0),
   taxRateBps: z.number().min(0).default(0),
   termsAndConditions: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
-  status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED_TO_CONTRACT']).optional(),
+  status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED_TO_CONTRACT', 'CONVERTED_TO_INVOICE']).optional(),
 });
 
 const updateQuotationSchema = createQuotationSchema.partial();
@@ -365,6 +367,125 @@ export async function deleteQuotation(req: Request, res: Response, next: NextFun
     res.status(200).json({
       success: true,
       message: `Quotation #${quotation.quotationNumber} deleted successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Convert Simple / General (or any) Quotation to an official Invoice Draft
+ */
+export async function convertQuotationToInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    const { id } = req.params;
+
+    const quotation = await AmcQuotation.findOne({ _id: id, businessId, active: true });
+    if (!quotation) {
+      return next(new AppError('Quotation not found', 404, 'QUOTATION_NOT_FOUND'));
+    }
+
+    if (quotation.status === 'CONVERTED_TO_INVOICE' && quotation.convertedInvoiceId) {
+      return next(new AppError('This quotation has already been converted to an invoice', 400, 'ALREADY_CONVERTED'));
+    }
+
+    // 1. Fetch Customer details
+    const customer = await Customer.findOne({ _id: quotation.customerId, businessId, active: true });
+    if (!customer) {
+      return next(new AppError('Customer associated with this quotation not found or inactive', 404, 'CUSTOMER_NOT_FOUND'));
+    }
+
+    // 2. Fetch Business details
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return next(new AppError('Business context not found', 404, 'BUSINESS_NOT_FOUND'));
+    }
+
+    // 3. Prepare items for InvoiceCalculationService
+    const taxMode = quotation.taxRateBps && quotation.taxRateBps > 0 ? 'EXCLUSIVE' : 'NONE';
+    const defaultTaxRateBps = quotation.taxRateBps || 0;
+
+    const inputItems = quotation.items.map((it) => ({
+      productId: null,
+      type: 'SERVICE' as const,
+      description: it.description,
+      uom: 'PCS',
+      quantity: Number(it.quantity || 1),
+      unitPriceMinor: Math.round(Number(it.unitPrice || 0) * 100),
+      section: 'ITEM' as const,
+    }));
+
+    const calcResult = InvoiceCalculationService.calculate({
+      items: inputItems,
+      taxMode,
+      defaultTaxRateBps,
+      discount: {
+        type: quotation.discount > 0 ? 'FIXED' : 'NONE',
+        value: Math.round(Number(quotation.discount || 0) * 100),
+      },
+    });
+
+    // 4. Freeze snapshots
+    const customerSnapshot = {
+      name: customer.name,
+      phone: customer.contact?.phone || (customer as any).phone || null,
+      email: customer.contact?.email || (customer as any).email || null,
+      address: customer.address || null,
+      taxProfile: customer.taxProfile || null,
+    };
+
+    const businessSnapshot = {
+      name: business.name,
+      displayName: business.displayName || business.name,
+      address: business.address,
+      phone: business.contact?.phone,
+      email: business.contact?.email,
+      gstin: business.taxProfile?.gstin,
+      pan: business.taxProfile?.pan,
+    };
+
+    // 5. Create Draft Invoice
+    const userId = req.user?._id || (req.user as any)?.id || (quotation as any).createdBy;
+    const invoice = await Invoice.create({
+      businessId,
+      customerId: customer._id,
+      invoiceNumber: null,
+      invoiceDate: new Date(),
+      status: 'DRAFT',
+      currency: 'INR',
+      customerSnapshot,
+      businessSnapshot,
+      assetSnapshot: {},
+      taxMode,
+      defaultTaxRateBps,
+      discount: {
+        type: quotation.discount > 0 ? 'FIXED' : 'NONE',
+        value: Math.round(Number(quotation.discount || 0) * 100),
+      },
+      items: calcResult.items,
+      totals: calcResult.totals,
+      amountInWords: calcResult.amountInWords,
+      paymentTerms: quotation.paymentTerms || '10 Days from the Invoice date',
+      termsAndConditions: Array.isArray(quotation.termsAndConditions) ? quotation.termsAndConditions : [],
+      notes: quotation.notes || `Generated from Quotation #${quotation.quotationNumber}`,
+      paymentSummary: {
+        paidAmountMinor: 0,
+        dueAmountMinor: calcResult.totals.grandTotalMinor,
+        status: 'UNPAID',
+      },
+      createdBy: userId,
+    });
+
+    // 6. Update Quotation status
+    quotation.status = 'CONVERTED_TO_INVOICE';
+    quotation.convertedInvoiceId = invoice._id as any;
+    await quotation.save();
+
+    res.status(201).json({
+      success: true,
+      data: invoice,
+      message: `Quotation #${quotation.quotationNumber} successfully converted to Invoice Draft`,
     });
   } catch (error) {
     next(error);

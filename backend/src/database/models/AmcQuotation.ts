@@ -16,7 +16,7 @@ export interface IAmcQuotation extends Document {
   quotationDate: Date;
   validUntil: Date;
   paymentTerms: string; // e.g. '10 Days from the Invoice date'
-  quotationType: 'COMPREHENSIVE' | 'NON_COMPREHENSIVE' | 'RATE_CARD' | 'PERIODIC_CONTRACT' | 'STANDARD';
+  quotationType: 'COMPREHENSIVE' | 'NON_COMPREHENSIVE' | 'RATE_CARD' | 'PERIODIC_CONTRACT' | 'STANDARD' | 'GENERAL';
   items: IAmcQuotationItem[];
   subtotal: number;
   discount: number;
@@ -24,8 +24,9 @@ export interface IAmcQuotation extends Document {
   taxAmount: number;
   grandTotal: number;
   termsAndConditions: string[];
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_CONTRACT';
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_CONTRACT' | 'CONVERTED_TO_INVOICE';
   convertedContractId?: Types.ObjectId | null;
+  convertedInvoiceId?: Types.ObjectId | null;
   notes?: string | null;
   pdfUrl?: string | null;
   snapshotUrl?: string | null;
@@ -83,7 +84,7 @@ const AmcQuotationSchema = new Schema<IAmcQuotation>(
     quotationType: {
       type: String,
       required: true,
-      enum: ['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD'],
+      enum: ['COMPREHENSIVE', 'NON_COMPREHENSIVE', 'RATE_CARD', 'PERIODIC_CONTRACT', 'STANDARD', 'GENERAL'],
       default: 'NON_COMPREHENSIVE',
     },
     items: {
@@ -126,13 +127,18 @@ const AmcQuotationSchema = new Schema<IAmcQuotation>(
     status: {
       type: String,
       required: true,
-      enum: ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED_TO_CONTRACT'],
+      enum: ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED_TO_CONTRACT', 'CONVERTED_TO_INVOICE'],
       default: 'DRAFT',
       index: true,
     },
     convertedContractId: {
       type: Schema.Types.ObjectId,
       ref: 'AmcContract',
+      default: null,
+    },
+    convertedInvoiceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Invoice',
       default: null,
     },
     notes: {

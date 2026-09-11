@@ -260,6 +260,7 @@ export default function InvoicePreviewPage({ params }: { params: Promise<{ id: s
               invoiceDate: invoice.invoiceDate,
               paymentTerms: invoice.paymentTerms,
               amountInWords: invoice.amountInWords,
+              termsAndConditions: (invoice as any).termsAndConditions || [],
             }}
             business={business}
             customer={customer}

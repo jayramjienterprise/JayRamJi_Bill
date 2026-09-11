@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   MessageCircle,
   Trash2,
+  Receipt,
+  FileCheck,
 } from 'lucide-react';
 
 export default function AmcQuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,6 +48,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
   const [scale, setScale] = useState(1);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showConvertModal, setShowConvertModal] = useState(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
@@ -273,13 +276,47 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
     try {
       setActionLoading(true);
       setErrorMsg(null);
-      await apiClient.post(`/amc/quotations/${id}/convert`, {});
-      setSuccessMsg('Quotation successfully converted to active AMC Contract!');
+      const res: any = await apiClient.post(`/amc/quotations/${id}/convert`, {});
+      const newContractId = res?.data?._id || res?.data?.id;
+      setSuccessMsg('Quotation converted! Opening contract agreement...');
       setTimeout(() => {
-        router.push('/dashboard/amc?tab=contracts');
-      }, 1200);
+        if (newContractId) {
+          router.push(`/dashboard/amc/contracts/${newContractId}`);
+        } else {
+          router.push('/dashboard/amc?tab=contracts');
+        }
+      }, 600);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to convert quotation to contract');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Open Convert to Invoice Confirmation Modal
+  function handleConvertToInvoice() {
+    setShowConvertModal(true);
+  }
+
+  // Execute Convert to Tax Invoice
+  async function handleExecuteConvertToInvoice() {
+    try {
+      setActionLoading(true);
+      setErrorMsg(null);
+      const res: any = await apiClient.post(`/amc/quotations/${id}/convert-to-invoice`, {});
+      const newInvoiceId = res?.data?._id || res?.data?.id || res?._id || res?.id;
+      setShowConvertModal(false);
+      setSuccessMsg('Quotation converted to Invoice! Opening invoice detail...');
+      setTimeout(() => {
+        if (newInvoiceId) {
+          router.push(`/dashboard/invoices/detail/${newInvoiceId}`);
+        } else {
+          router.push('/dashboard/invoices');
+        }
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to convert quotation to invoice');
+      setShowConvertModal(false);
     } finally {
       setActionLoading(false);
     }
@@ -334,7 +371,10 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
   }
 
   const isDraft = quotation.status === 'DRAFT';
-  const isConverted = quotation.status === 'CONVERTED_TO_CONTRACT';
+  const isConvertedToContract = quotation.status === 'CONVERTED_TO_CONTRACT';
+  const isConvertedToInvoice = quotation.status === 'CONVERTED_TO_INVOICE';
+  const isConverted = isConvertedToContract || isConvertedToInvoice;
+  const isGeneral = quotation.quotationType === 'GENERAL';
 
   return (
     <div className="space-y-6">
@@ -355,8 +395,10 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
               </h1>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                  isConverted
+                  isConvertedToInvoice
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : isConvertedToContract
+                    ? 'bg-purple-100 text-purple-800 border border-purple-300'
                     : quotation.status === 'SENT'
                     ? 'bg-success-soft/60 text-success-app border border-success-app/20'
                     : quotation.status === 'DRAFT'
@@ -364,8 +406,10 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
                     : 'bg-blue-100 text-blue-800 border border-blue-200'
                 }`}
               >
-                {isConverted
-                  ? 'Active Contract'
+                {isConvertedToInvoice
+                  ? 'Converted to Invoice'
+                  : isConvertedToContract
+                  ? 'Active AMC Contract'
                   : quotation.status === 'SENT'
                   ? 'Finalized'
                   : quotation.status === 'DRAFT'
@@ -375,12 +419,16 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
 
               <span
                 className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
-                  quotation.quotationType === 'COMPREHENSIVE'
+                  isGeneral
+                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                    : quotation.quotationType === 'COMPREHENSIVE'
                     ? 'bg-purple-100 text-purple-800'
                     : 'bg-blue-100 text-blue-800'
                 }`}
               >
-                {quotation.quotationType === 'COMPREHENSIVE'
+                {isGeneral
+                  ? 'General Estimate'
+                  : quotation.quotationType === 'COMPREHENSIVE'
                   ? 'Comprehensive AMC'
                   : 'Non-Comprehensive AMC'}
               </span>
@@ -460,8 +508,33 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
             <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy Link'}</span>
           </button>
 
-          {/* Convert to Contract */}
+          {/* If already converted to Invoice */}
+          {isConvertedToInvoice && quotation.convertedInvoiceId && (
+            <Link
+              href={`/dashboard/invoices/detail/${quotation.convertedInvoiceId}`}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="View Converted Tax Invoice"
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              <span>View Invoice</span>
+            </Link>
+          )}
+
+          {/* Convert to Invoice Button (Always available for unconverted quotations) */}
           {!isConverted && (
+            <button
+              onClick={handleConvertToInvoice}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Convert this quotation directly into an official Tax Invoice"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Convert to Invoice</span>
+            </button>
+          )}
+
+          {/* Convert to AMC Contract (Only for AMC quotations) */}
+          {!isConverted && !isGeneral && (
             <button
               onClick={handleConvertToContract}
               disabled={actionLoading}
@@ -622,6 +695,58 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
           </div>
         </div>
       </div>
+
+      {/* Convert to Invoice Confirmation Modal */}
+      {showConvertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs no-print">
+          <div className="bg-surface-app border border-border-app rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-100 rounded-xl text-emerald-700">
+                <Receipt className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-text-primary">
+                  Convert to Tax Invoice
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Quotation #{quotation.quotationNumber}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Are you sure you want to convert this quotation into an official Tax Invoice?
+              All line items, quantities, rates, and customer details will be transferred into a new draft invoice.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowConvertModal(false)}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-surface-2-app hover:bg-border-app text-text-secondary rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteConvertToInvoice}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {actionLoading ? (
+                  <span>Converting...</span>
+                ) : (
+                  <>
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>Confirm & Convert</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Print Styles */}
       <style jsx global>{`

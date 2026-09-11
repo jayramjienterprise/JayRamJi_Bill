@@ -1,7 +1,7 @@
 import fs from 'fs';
 import puppeteer from 'puppeteer';
 import { InvoiceRenderService, InvoiceRenderData } from './InvoiceRenderService';
-import { AmcRenderService, AmcQuotationRenderData } from './AmcRenderService';
+import { AmcRenderService, AmcQuotationRenderData, AmcContractRenderData } from './AmcRenderService';
 import { uploadBufferToCloudinary } from './cloudinary';
 
 function getBrowserLaunchOptions() {
@@ -139,6 +139,37 @@ export class DocumentGenerationService {
     renderData: AmcQuotationRenderData
   ): Promise<{ pngBuffer: Buffer; pdfBuffer: Buffer }> {
     const html = AmcRenderService.render(renderData);
+
+    const browser = await puppeteer.launch(getBrowserLaunchOptions());
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'load' });
+      await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+
+      const pngRawBuffer = await page.screenshot({
+        type: 'png',
+        fullPage: true,
+      });
+      const pngBuffer = Buffer.from(pngRawBuffer);
+
+      const pdfRawBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+      });
+      const pdfBuffer = Buffer.from(pdfRawBuffer);
+
+      return { pngBuffer, pdfBuffer };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  public static async generateAmcContractBuffers(
+    renderData: AmcContractRenderData
+  ): Promise<{ pngBuffer: Buffer; pdfBuffer: Buffer }> {
+    const html = AmcRenderService.renderContract(renderData);
 
     const browser = await puppeteer.launch(getBrowserLaunchOptions());
 

@@ -832,6 +832,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 invoiceDate: invoice.invoiceDate,
                 paymentTerms: invoice.paymentTerms,
                 amountInWords: invoice.amountInWords,
+                termsAndConditions: (invoice as any).termsAndConditions || [],
               }}
               business={{
                 name: businessObj?.name || '',
@@ -863,6 +864,25 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       </div>
+
+      {/* Terms & Conditions Section */}
+      {Array.isArray((invoice as any).termsAndConditions) && (invoice as any).termsAndConditions.length > 0 && (
+        <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-3">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary-700" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-text-primary">
+              Terms & Conditions ({(invoice as any).termsAndConditions.length})
+            </h3>
+          </div>
+          <ol className="list-decimal pl-5 space-y-1.5 text-xs text-text-secondary">
+            {(invoice as any).termsAndConditions.map((term: string, idx: number) => (
+              <li key={idx} className="font-medium text-text-primary">
+                {term}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {/* Payment History Log */}
       {!isDraft && paymentsList.length > 0 && (

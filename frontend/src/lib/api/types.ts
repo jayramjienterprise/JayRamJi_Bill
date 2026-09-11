@@ -150,6 +150,7 @@ export interface Invoice {
   };
   amountInWords: string;
   paymentTerms: string | null;
+  termsAndConditions?: string[];
   notes: string | null;
   paymentSummary: {
     paidAmountMinor: number;

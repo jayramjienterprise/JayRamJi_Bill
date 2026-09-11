@@ -101,6 +101,13 @@ export default function DashboardPage() {
             <span>Full Analytics</span>
           </Link>
           <Link
+            href="/dashboard/amc/quotations/create?category=general"
+            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            <FileText className="w-4 h-4 text-text-secondary" />
+            <span>Create Quotation</span>
+          </Link>
+          <Link
             href="/dashboard/invoices/create"
             className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-primary-700/20 cursor-pointer"
           >
@@ -493,8 +500,24 @@ export default function DashboardPage() {
         </div>
 
         {recentInvoices.length === 0 ? (
-          <div className="py-8 text-center text-text-muted text-xs">
-            No invoices created yet. Click "+ Create Invoice" to issue your first bill.
+          <div className="py-8 text-center text-text-muted text-xs space-y-3">
+            <p>No invoices created yet. Issue your first bill or create a quotation.</p>
+            <div className="flex items-center justify-center gap-2">
+              <Link
+                href="/dashboard/amc/quotations/create?category=general"
+                className="px-3 py-1.5 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <FileText className="w-3.5 h-3.5 text-text-secondary" />
+                <span>+ Create Quotation</span>
+              </Link>
+              <Link
+                href="/dashboard/invoices/create"
+                className="px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Create Invoice</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
