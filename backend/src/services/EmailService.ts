@@ -7,48 +7,66 @@ import { env } from '../config/env';
 class EmailService {
   private transporter: nodemailer.Transporter | null = null;
 
-  private getTransporter(): nodemailer.Transporter | null {
+  private createTransporter(options?: { port?: number; secure?: boolean; useService?: boolean }): nodemailer.Transporter | null {
     if (!env.EMAIL_USER || !env.EMAIL_PASS) {
       console.warn('⚠️ [EmailService] EMAIL_USER or EMAIL_PASS not configured. Email sending will be skipped.');
       return null;
     }
 
-    if (!this.transporter) {
-      const isSecure = env.EMAIL_SECURE ?? (env.EMAIL_PORT === 465);
-
-      this.transporter = nodemailer.createTransport({
-        host: env.EMAIL_HOST || 'smtp.gmail.com',
-        port: env.EMAIL_PORT || 465,
-        secure: isSecure,
-        // Connection pooling: Keeps connections alive and avoids 3-5s cold handshakes on every mail
-        pool: true,
-        maxConnections: 3,
-        maxMessages: 100,
-        rateDelta: 1000,
-        rateLimit: 5,
-        // Explicit timeouts to prevent hanging sockets
-        connectionTimeout: 10000, // 10s connection timeout
-        greetingTimeout: 5000,    // 5s server greeting timeout
-        socketTimeout: 15000,     // 15s socket inactivity timeout
-        dnsTimeout: 5000,         // 5s DNS resolution timeout
+    // If explicit service 'gmail' is requested or specified in env
+    if (options?.useService || (env.EMAIL_SERVICE && env.EMAIL_SERVICE.toLowerCase() === 'gmail')) {
+      return nodemailer.createTransport({
+        service: 'gmail',
         auth: {
           user: env.EMAIL_USER,
           pass: env.EMAIL_PASS,
         },
-        // Force IPv4 to prevent 3-5s IPv6 DNS resolution timeouts on cloud container platforms
-        family: 4,
-        tls: {
-          rejectUnauthorized: true,
-          minVersion: 'TLSv1.2',
-        },
-      } as any);
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
+      });
     }
 
+    const port = options?.port ?? (env.EMAIL_PORT || 587);
+    const secure = options?.secure ?? (port === 465 ? true : (env.EMAIL_SECURE ?? false));
+
+    return nodemailer.createTransport({
+      host: env.EMAIL_HOST || 'smtp.gmail.com',
+      port,
+      secure,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
+      dnsTimeout: 8000,
+      auth: {
+        user: env.EMAIL_USER,
+        pass: env.EMAIL_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2',
+      },
+    });
+  }
+
+  private getTransporter(): nodemailer.Transporter | null {
+    if (!this.transporter) {
+      this.transporter = this.createTransporter();
+    }
     return this.transporter;
   }
 
+  private createFallbackTransporter(): nodemailer.Transporter | null {
+    // If primary was port 465, fallback to 587 STARTTLS or service: 'gmail'
+    if (env.EMAIL_PORT === 465) {
+      return this.createTransporter({ port: 587, secure: false });
+    }
+    // Otherwise fallback to service: 'gmail'
+    return this.createTransporter({ useService: true });
+  }
+
   /**
-   * Pre-warms and verifies SMTP connection pool asynchronously on application startup
+   * Pre-warms and verifies SMTP connection asynchronously on application startup
    */
   async verifyConnection(): Promise<boolean> {
     const transporter = this.getTransporter();
@@ -56,10 +74,21 @@ class EmailService {
 
     try {
       await transporter.verify();
-      console.log('✅ [EmailService] SMTP connection pool verified and ready.');
+      console.log('✅ [EmailService] SMTP connection verified and ready.');
       return true;
     } catch (err: any) {
-      console.warn('⚠️ [EmailService] SMTP connection warm-up warning:', err.message);
+      console.warn(`⚠️ [EmailService] Primary SMTP connection attempt failed (${err.message}). Trying fallback transport...`);
+      try {
+        const fallback = this.createFallbackTransporter();
+        if (fallback) {
+          await fallback.verify();
+          this.transporter = fallback;
+          console.log('✅ [EmailService] Fallback SMTP connection verified and ready.');
+          return true;
+        }
+      } catch (fallbackErr: any) {
+        console.warn('⚠️ [EmailService] Fallback SMTP connection also failed:', fallbackErr.message);
+      }
       return false;
     }
   }
@@ -160,17 +189,31 @@ class EmailService {
 
     const textContent = `Jay Ramji Enterprise\n\nPassword Reset Request\n\n${greeting}\n\nWe received a request to reset the password for your account.\n\nReset Your Password:\n${resetUrl}\n\nThe link expires in 30 minutes.\n\nIf you did not request this reset, you can safely ignore this email.`;
 
+    const mailPayload = {
+      from: `"Jay Ramji Enterprise" <${env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: 'Reset your Jay Ramji Enterprise password',
+      text: textContent,
+      html: htmlContent,
+    };
+
     try {
-      await transporter.sendMail({
-        from: `"Jay Ramji Enterprise" <${env.EMAIL_USER}>`,
-        to: toEmail,
-        subject: 'Reset your Jay Ramji Enterprise password',
-        text: textContent,
-        html: htmlContent,
-      });
+      await transporter.sendMail(mailPayload);
+      console.log(`✅ [EmailService] Password reset email delivered successfully to ${toEmail}`);
       return true;
     } catch (err: any) {
-      console.error('❌ [EmailService] Failed to send password reset email via Gmail SMTP:', err.message);
+      console.warn(`⚠️ [EmailService] Primary send attempt failed (${err.message}). Trying fallback transport...`);
+      try {
+        const fallback = this.createFallbackTransporter();
+        if (fallback) {
+          await fallback.sendMail(mailPayload);
+          this.transporter = fallback;
+          console.log(`✅ [EmailService] Password reset email delivered via fallback transport to ${toEmail}`);
+          return true;
+        }
+      } catch (fallbackErr: any) {
+        console.error('❌ [EmailService] Both primary and fallback SMTP send attempts failed:', fallbackErr.message);
+      }
       return false;
     }
   }
