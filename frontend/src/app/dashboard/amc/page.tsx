@@ -245,7 +245,8 @@ export default function AmcManagementPage() {
   async function handleViewEntitlements(contractId: string) {
     try {
       const res: any = await apiClient.get(`/amc/contracts/${contractId}/entitlements`);
-      setEntitlementModalData(res.data);
+      const dataPayload = res?.contractNumber ? res : (res?.data || res);
+      setEntitlementModalData(dataPayload);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load entitlement audit');
     }
