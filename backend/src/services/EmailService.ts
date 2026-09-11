@@ -197,6 +197,12 @@ class EmailService {
       html: htmlContent,
     };
 
+    // If explicit EMAIL_RELAY_URL is provided, prioritize HTTPS relay to bypass cloud SMTP blocks
+    if (env.EMAIL_RELAY_URL) {
+      const relayed = await this.sendViaRelay(mailPayload);
+      if (relayed) return true;
+    }
+
     try {
       await transporter.sendMail(mailPayload);
       console.log(`✅ [EmailService] Password reset email delivered successfully to ${toEmail}`);
@@ -212,8 +218,57 @@ class EmailService {
           return true;
         }
       } catch (fallbackErr: any) {
-        console.error('❌ [EmailService] Both primary and fallback SMTP send attempts failed:', fallbackErr.message);
+        console.warn('⚠️ [EmailService] Fallback SMTP send failed:', fallbackErr.message);
       }
+
+      // If direct SMTP failed (e.g. Render blocks SMTP), attempt HTTPS relay via Vercel frontend endpoint
+      console.log('📡 [EmailService] Attempting HTTPS relay via frontend /api/send-email endpoint...');
+      const relayed = await this.sendViaRelay(mailPayload);
+      if (relayed) return true;
+
+      console.error('❌ [EmailService] All email delivery options (Direct SMTP, Fallback SMTP, and HTTPS Relay) failed.');
+      return false;
+    }
+  }
+
+  /**
+   * Dispatches email via secure HTTPS API route to bypass cloud container SMTP blocks (e.g. Render/AWS)
+   */
+  private async sendViaRelay(payload: { to: string; subject: string; text?: string; html?: string }): Promise<boolean> {
+    const relayUrl =
+      env.EMAIL_RELAY_URL ||
+      (env.FRONTEND_URL ? `${env.FRONTEND_URL.replace(/\/$/, '')}/api/send-email` : '');
+
+    if (!relayUrl) {
+      console.warn('⚠️ [EmailService] No EMAIL_RELAY_URL or FRONTEND_URL configured for HTTPS relay.');
+      return false;
+    }
+
+    try {
+      console.log(`📡 [EmailService] Relaying email via HTTPS to: ${relayUrl}`);
+      const res = await fetch(relayUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.INTERNAL_EMAIL_SECRET || env.JWT_SECRET}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`❌ [EmailService] Relay endpoint returned error ${res.status}:`, errText);
+        return false;
+      }
+
+      const json: any = await res.json();
+      if (json.success) {
+        console.log(`✅ [EmailService] Email dispatched via Vercel HTTPS relay successfully to ${payload.to}`);
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error('❌ [EmailService] HTTPS Relay request failed:', err.message);
       return false;
     }
   }

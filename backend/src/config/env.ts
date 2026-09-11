@@ -20,6 +20,8 @@ const envSchema = z.object({
   EMAIL_HOST: z.string().optional().default('smtp.gmail.com'),
   EMAIL_PORT: z.coerce.number().optional().default(587),
   EMAIL_SECURE: z.coerce.boolean().optional().default(false),
+  EMAIL_RELAY_URL: z.string().optional().default(''),
+  INTERNAL_EMAIL_SECRET: z.string().optional().default('jre_internal_email_secret_key_2026'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -44,6 +46,8 @@ if (!parsed.success) {
     EMAIL_HOST: process.env.EMAIL_HOST || 'smtp.gmail.com',
     EMAIL_PORT: Number(process.env.EMAIL_PORT) || 587,
     EMAIL_SECURE: process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === 'true' : false,
+    EMAIL_RELAY_URL: process.env.EMAIL_RELAY_URL || '',
+    INTERNAL_EMAIL_SECRET: process.env.INTERNAL_EMAIL_SECRET || 'jre_internal_email_secret_key_2026',
   };
 } else {
   validatedEnv = parsed.data;
