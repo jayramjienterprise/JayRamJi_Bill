@@ -2,7 +2,7 @@ import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './database/db';
 import { emailService } from './services/EmailService';
-
+// REAL-BOOT: server.ts initialized
 console.log('REAL-BOOT: server.ts started');
 console.log(`REAL-BOOT: PORT=${env.PORT} | NODE_ENV=${env.NODE_ENV}`);
 

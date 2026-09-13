@@ -19,6 +19,8 @@ import analyticsRouter from './modules/analytics/analytics.routes';
 import publicInvoiceRouter from './modules/invoice/public.routes';
 import uploadSessionRouter from './modules/upload-session/upload-session.routes';
 import amcRouter from './modules/amc/amc.routes';
+import purchaseRouter from './modules/purchase/purchase.routes';
+import vendorRouter from './modules/purchase/vendor.routes';
 
 const app: Express = express();
 
@@ -134,6 +136,8 @@ apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/public/invoices', publicInvoiceRouter);
 apiRouter.use('/amc', amcRouter);
+apiRouter.use('/purchases', purchaseRouter);
+apiRouter.use('/vendors', vendorRouter);
 
 // Support direct /api, same-domain proxy /api/backend/api, and /api/backend
 app.use('/api', apiRouter);

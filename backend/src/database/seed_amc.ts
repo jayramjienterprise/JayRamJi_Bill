@@ -43,7 +43,7 @@ export async function seedAmcData() {
 
   console.log(`🏢 Inserting AMC seed data for Business: ${business.name} (ID: ${business._id})`);
 
-  const passwordHash = await bcrypt.hash('password123', 10);
+  const passwordHash = await bcrypt.hash('JayRamJi@2026Secure!', 10);
 
   // 2. Create Technicians as Business Members
   const techniciansData = [

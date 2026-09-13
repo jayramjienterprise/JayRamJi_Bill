@@ -18,7 +18,7 @@ export async function seedDatabase() {
   }
 
   const saltRounds = 10;
-  const passwordHash = await bcrypt.hash('password123', saltRounds);
+  const passwordHash = await bcrypt.hash('JayRamJi@2026Secure!', saltRounds);
 
   // 1. Create or Update Primary Shopkeeper Admin User
   let user = await User.findOne({ email: 'shopkeeper@jayramji.com' });
@@ -674,7 +674,7 @@ export async function seedDatabase() {
   console.log('----------------------------------------------------');
   console.log('👤 Primary Login Credentials:');
   console.log('   Email:    shopkeeper@jayramji.com  (or admin@jayramji.com)');
-  console.log('   Password: password123');
+  console.log('   Password: JayRamJi@2026Secure!');
   console.log('🏢 Business: Jay Ramji Enterprise');
   console.log(`📊 Invoices Generated: 20 bills across past 12 months`);
   console.log('----------------------------------------------------');
