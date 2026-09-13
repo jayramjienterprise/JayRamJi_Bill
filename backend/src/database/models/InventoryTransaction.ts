@@ -10,9 +10,11 @@ export interface IInventoryTransaction extends Document {
     | 'DIRECT_SALE'
     | 'STOCK_INWARD'
     | 'STOCK_ADJUSTMENT'
-    | 'RETURN';
-  referenceType: 'AMC_SERVICE_VISIT' | 'INVOICE' | 'MANUAL_ADJUSTMENT';
-  referenceId?: Types.ObjectId | null; // e.g. visitId or invoiceId
+    | 'RETURN'
+    | 'PURCHASE_RECEIPT';
+  referenceType: 'AMC_SERVICE_VISIT' | 'INVOICE' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_RECEIPT' | 'PURCHASE';
+  referenceId?: Types.ObjectId | null; // e.g. visitId, invoiceId, or purchaseReceiptId
+  purchaseId?: Types.ObjectId | null;
   contractId?: Types.ObjectId | null; // linked AMC contract for profitability tracking
   unitCostPrice?: number | null;
   unitSellingPrice?: number | null;
@@ -49,16 +51,23 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
         'STOCK_INWARD',
         'STOCK_ADJUSTMENT',
         'RETURN',
+        'PURCHASE_RECEIPT',
       ],
       index: true,
     },
     referenceType: {
       type: String,
       required: true,
-      enum: ['AMC_SERVICE_VISIT', 'INVOICE', 'MANUAL_ADJUSTMENT'],
+      enum: ['AMC_SERVICE_VISIT', 'INVOICE', 'MANUAL_ADJUSTMENT', 'PURCHASE_RECEIPT', 'PURCHASE'],
     },
     referenceId: {
       type: Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    purchaseId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Purchase',
       default: null,
       index: true,
     },
