@@ -18,12 +18,14 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  PanelLeftClose,
+  ChevronDown,
   PanelLeft,
   Plus,
   ShieldCheck,
   UserCheck,
   Bell,
+  ShoppingBag,
+  Building2,
 } from 'lucide-react';
 
 interface BusinessItem {
@@ -59,6 +61,24 @@ export function useDashboard() {
   return context;
 }
 
+interface SubMenuItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  exact?: boolean;
+}
+
+interface NavGroup {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  subItems: SubMenuItem[];
+}
+
+type NavEntry =
+  | { type: 'single'; item: SubMenuItem }
+  | { type: 'group'; id: string; label: string; icon: React.ComponentType<{ className?: string }>; subItems: SubMenuItem[] };
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -68,6 +88,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Group expansion state
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    sales: true,
+    amc: true,
+    purchases: true,
+    settings: true,
+  });
+
+  // Flyout state when sidebar is collapsed
+  const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
 
   // Restore sidebar preference
   useEffect(() => {
@@ -83,11 +114,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       localStorage.setItem('jre_sidebar_collapsed', String(next));
       return next;
     });
+    setActiveFlyout(null);
   }
 
   // Close mobile drawer on route change
   useEffect(() => {
     setMobileMenuOpen(false);
+    setActiveFlyout(null);
   }, [pathname]);
 
   async function fetchSession() {
@@ -134,6 +167,86 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [activeBusinessId]);
 
+  // Hierarchical Navigation Structure
+  const navStructure: NavEntry[] = [
+    {
+      type: 'single',
+      item: { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+    },
+    {
+      type: 'group',
+      id: 'sales',
+      label: 'Sales & Invoicing',
+      icon: FileText,
+      subItems: [
+        { href: '/dashboard/invoices', label: 'Invoices', icon: FileText },
+        { href: '/dashboard/customers', label: 'Customers', icon: Users },
+        { href: '/dashboard/services', label: 'Products / Services', icon: Package },
+        { href: '/dashboard/analytics', label: 'Sales Analytics', icon: BarChart3 },
+      ],
+    },
+    {
+      type: 'group',
+      id: 'amc',
+      label: 'AMC Contracts',
+      icon: ShieldCheck,
+      subItems: [
+        { href: '/dashboard/amc', label: 'Contracts & Quotes', icon: ShieldCheck },
+        { href: '/dashboard/employees', label: 'Employees', icon: UserCheck },
+        { href: '/dashboard/notifications', label: 'Visit Alerts', icon: Bell },
+      ],
+    },
+    {
+      type: 'group',
+      id: 'purchases',
+      label: 'Purchases',
+      icon: ShoppingBag,
+      subItems: [
+        { href: '/dashboard/purchases', label: 'Purchases', icon: ShoppingBag, exact: true },
+        { href: '/dashboard/purchases/vendors', label: 'Vendors', icon: Building2 },
+        { href: '/dashboard/purchases/dashboard', label: 'Purchase Analytics', icon: BarChart3 },
+      ],
+    },
+    {
+      type: 'group',
+      id: 'settings',
+      label: 'Settings',
+      icon: Settings,
+      subItems: [
+        { href: '/dashboard/settings', label: 'Business Profile', icon: Settings, exact: true },
+        { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
+        { href: '/dashboard/branding', label: 'Branding', icon: Palette },
+      ],
+    },
+  ];
+
+  const isItemActive = (item: SubMenuItem) => {
+    if (item.exact) {
+      return pathname === item.href;
+    }
+    return pathname === item.href || pathname?.startsWith(`${item.href}/`);
+  };
+
+  const isGroupActive = (subItems: SubMenuItem[]) => {
+    return subItems.some((sub) => isItemActive(sub));
+  };
+
+  // Auto-expand group if current route is inside it
+  useEffect(() => {
+    navStructure.forEach((entry) => {
+      if (entry.type === 'group' && isGroupActive(entry.subItems)) {
+        setExpandedGroups((prev) => ({ ...prev, [entry.id]: true }));
+      }
+    });
+  }, [pathname]);
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }));
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex justify-center items-center min-h-screen bg-background-app">
@@ -145,19 +258,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-    { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
-    { href: '/dashboard/invoices', label: 'Invoices', icon: FileText },
-    { href: '/dashboard/amc', label: 'AMC Contracts', icon: ShieldCheck },
-    { href: '/dashboard/customers', label: 'Customers', icon: Users },
-    { href: '/dashboard/employees', label: 'Employees', icon: UserCheck },
-    { href: '/dashboard/notifications', label: 'Visit Alerts', icon: Bell },
-    { href: '/dashboard/services', label: 'Products / Services', icon: Package },
-    { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
-    { href: '/dashboard/branding', label: 'Branding', icon: Palette },
-    { href: '/dashboard/settings', label: 'Settings', icon: Settings, exact: true },
-  ];
+  const isExpanded = !sidebarCollapsed || mobileMenuOpen;
 
   return (
     <DashboardContext.Provider
@@ -184,7 +285,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Fixed Viewport Sidebar */}
         <aside
           className={`fixed md:static inset-y-0 left-0 z-50 bg-primary-900 text-white flex flex-col justify-between shrink-0 shadow-lg transition-all duration-200 ease-in-out ${
-            sidebarCollapsed ? 'md:w-[72px]' : 'md:w-[240px]'
+            sidebarCollapsed ? 'md:w-[72px]' : 'md:w-[245px]'
           } ${mobileMenuOpen ? 'w-[280px] translate-x-0' : '-translate-x-full md:translate-x-0'}`}
         >
           {/* Top Brand Section */}
@@ -194,7 +295,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="bg-primary-700 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold text-base shadow-sm shrink-0">
                   J
                 </div>
-                {(!sidebarCollapsed || mobileMenuOpen) && (
+                {isExpanded && (
                   <div className="min-w-0 transition-opacity">
                     <h1 className="font-bold text-sm leading-tight tracking-wide truncate">Jay Ramji Enterprise</h1>
                     <p className="text-[10px] text-primary-400 font-semibold tracking-wider uppercase mt-0.5">Billing System</p>
@@ -223,32 +324,153 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
 
-            {/* Nav Menu Scrollable Area */}
-            <nav className="p-2 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
-                const isExpanded = !sidebarCollapsed || mobileMenuOpen;
+            {/* Categorized Nav Menu Scrollable Area */}
+            <nav className="p-2.5 space-y-1.5 overflow-y-auto flex-1 custom-scrollbar">
+              {navStructure.map((entry) => {
+                if (entry.type === 'single') {
+                  const item = entry.item;
+                  const Icon = item.icon;
+                  const isActive = isItemActive(item);
 
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      title={!isExpanded ? item.label : undefined}
+                      className={`flex items-center rounded-xl text-xs font-semibold transition ${
+                        !isExpanded ? 'justify-center p-2.5' : 'space-x-3 px-3 py-2.5'
+                      } ${
+                        isActive
+                          ? 'bg-primary-800 text-white shadow-xs'
+                          : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary-400'}`} />
+                      {isExpanded && <span className="truncate">{item.label}</span>}
+                    </Link>
+                  );
+                }
+
+                // Group item with submenus
+                const group = entry;
+                const GroupIcon = group.icon;
+                const groupActive = isGroupActive(group.subItems);
+                const isOpen = expandedGroups[group.id];
+
+                if (!isExpanded) {
+                  // Collapsed Mini-Sidebar Mode: Icon with Flyout Popup
+                  return (
+                    <div
+                      key={group.id}
+                      className="relative"
+                      onMouseEnter={() => setActiveFlyout(group.id)}
+                      onMouseLeave={() => setActiveFlyout(null)}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveFlyout(activeFlyout === group.id ? null : group.id)}
+                        className={`w-full flex items-center justify-center p-2.5 rounded-xl text-xs transition relative cursor-pointer ${
+                          groupActive
+                            ? 'bg-primary-800 text-white shadow-xs'
+                            : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
+                        }`}
+                        title={group.label}
+                      >
+                        <GroupIcon className={`w-4 h-4 shrink-0 ${groupActive ? 'text-white' : 'text-primary-400'}`} />
+                        {groupActive && (
+                          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-primary-400" />
+                        )}
+                      </button>
+
+                      {/* Mini Sidebar Flyout Menu */}
+                      {activeFlyout === group.id && (
+                        <div className="absolute left-[54px] top-0 w-52 bg-primary-900 border border-primary-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                          <div className="px-2.5 py-1 border-b border-primary-800/80 mb-1 flex items-center justify-between">
+                            <span className="text-[10.5px] font-bold tracking-wider uppercase text-primary-300">
+                              {group.label}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            {group.subItems.map((sub) => {
+                              const subActive = isItemActive(sub);
+                              const SubIcon = sub.icon;
+                              return (
+                                <Link
+                                  key={sub.href}
+                                  href={sub.href}
+                                  onClick={() => {
+                                    setActiveFlyout(null);
+                                    setMobileMenuOpen(false);
+                                  }}
+                                  className={`flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                                    subActive
+                                      ? 'bg-primary-800 text-white font-semibold shadow-xs'
+                                      : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
+                                  }`}
+                                >
+                                  <SubIcon className={`w-3.5 h-3.5 shrink-0 ${subActive ? 'text-primary-300' : 'text-primary-400'}`} />
+                                  <span className="truncate">{sub.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Expanded Mode: Accordion Category with Submenu
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    title={!isExpanded ? item.label : undefined}
-                    className={`flex items-center rounded-xl text-xs font-semibold transition ${
-                      !isExpanded
-                        ? 'justify-center p-2.5'
-                        : 'space-x-3 px-3.5 py-2.5'
-                    } ${
-                      isActive
-                        ? 'bg-primary-800 text-white shadow-xs'
-                        : 'text-primary-300 hover:text-white hover:bg-primary-800/50'
-                    }`}
-                  >
-                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary-400'}`} />
-                    {isExpanded && <span className="truncate">{item.label}</span>}
-                  </Link>
+                  <div key={group.id} className="space-y-0.5">
+                    {/* Category Header Button */}
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                        groupActive
+                          ? 'text-white bg-primary-800/40'
+                          : 'text-primary-300 hover:text-white hover:bg-primary-800/30'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <GroupIcon className={`w-4 h-4 shrink-0 ${groupActive ? 'text-primary-300' : 'text-primary-400'}`} />
+                        <span className="truncate">{group.label}</span>
+                      </div>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 text-primary-400 transition-transform duration-200 ${
+                          isOpen ? 'rotate-0' : '-rotate-90'
+                        }`}
+                      />
+                    </button>
+
+                    {/* Submenu Items */}
+                    {isOpen && (
+                      <div className="ml-4 pl-2.5 border-l border-primary-800/80 space-y-0.5 mt-0.5">
+                        {group.subItems.map((sub) => {
+                          const subActive = isItemActive(sub);
+                          const SubIcon = sub.icon;
+
+                          return (
+                            <Link
+                              key={sub.href}
+                              href={sub.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={`flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium transition ${
+                                subActive
+                                  ? 'bg-primary-800 text-white font-semibold shadow-xs'
+                                  : 'text-primary-300 hover:text-white hover:bg-primary-800/40'
+                              }`}
+                            >
+                              <SubIcon className={`w-3.5 h-3.5 shrink-0 ${subActive ? 'text-primary-300' : 'text-primary-400'}`} />
+                              <span className="truncate">{sub.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </nav>
@@ -257,7 +479,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* User / Logout Area — Always pinned at bottom */}
           <div className="p-3 border-t border-primary-800 bg-primary-950/50 shrink-0">
             <div className={`flex items-center ${sidebarCollapsed && !mobileMenuOpen ? 'flex-col space-y-2 justify-center' : 'justify-between'}`}>
-              {!sidebarCollapsed || mobileMenuOpen ? (
+              {isExpanded ? (
                 <div className="min-w-0 pr-2">
                   <p className="text-xs font-bold truncate text-white">{user?.name}</p>
                   <p className="text-[10.5px] text-primary-400 truncate mt-0.5">{user?.email}</p>
@@ -277,7 +499,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className="p-2 text-primary-400 hover:text-danger-app hover:bg-primary-800/80 rounded-lg transition cursor-pointer flex items-center gap-2"
               >
                 <LogOut className="w-4 h-4 shrink-0" />
-                {(!sidebarCollapsed || mobileMenuOpen) && <span className="text-xs font-semibold">Logout</span>}
+                {isExpanded && <span className="text-xs font-semibold">Logout</span>}
               </button>
             </div>
           </div>

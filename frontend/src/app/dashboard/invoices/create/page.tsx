@@ -51,7 +51,6 @@ export default function CreateInvoicePage() {
   const [termsAndConditions, setTermsAndConditions] = useState<string[]>([
     'Goods once sold will not be taken back.',
     'Interest @ 18% p.a. will be charged if the bill is not paid within the due date.',
-    'Subject to local jurisdiction only.',
   ]);
   const [newTermInput, setNewTermInput] = useState('');
 

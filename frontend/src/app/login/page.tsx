@@ -52,6 +52,7 @@ export default function LoginPage() {
               Email Address
             </label>
             <input
+              id="login-email"
               type="email"
               required
               placeholder="operator@example.com"
@@ -74,6 +75,7 @@ export default function LoginPage() {
               </Link>
             </div>
             <input
+              id="login-password"
               type="password"
               required
               placeholder="••••••••"

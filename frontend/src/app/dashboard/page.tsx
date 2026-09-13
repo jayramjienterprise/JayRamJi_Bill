@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useDashboard } from './layout';
 import { apiClient } from '../../lib/api/client';
 import { DashboardOverview, RecentActivityItem } from '../../lib/api/types';
+import { purchasesApi } from '../../lib/api/purchases';
 import DateFilterBar, { DatePresetOption } from './components/DateFilterBar';
 import SalesOverviewChart from './components/SalesOverviewChart';
 import PaymentMethodsSummaryCard from './components/PaymentMethodsSummaryCard';
@@ -24,6 +25,13 @@ import {
   Activity,
   CreditCard,
   Building,
+  ShoppingBag,
+  Truck,
+  CheckCircle2,
+  Clock,
+  Building2,
+  DollarSign,
+  Receipt,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -32,6 +40,7 @@ export default function DashboardPage() {
 
   // State
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [purchaseData, setPurchaseData] = useState<any>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +57,7 @@ export default function DashboardPage() {
     setErrorMsg(null);
 
     try {
-      const [overviewData, invoicesData, activityData] = await Promise.all([
+      const [overviewData, invoicesData, activityData, purchaseDashboard] = await Promise.all([
         apiClient.getDashboardOverview({
           preset: preset !== 'CUSTOM' ? preset : undefined,
           from: preset === 'CUSTOM' ? from : undefined,
@@ -56,11 +65,13 @@ export default function DashboardPage() {
         }),
         apiClient.getRecentInvoices(6),
         apiClient.getRecentActivity(),
+        purchasesApi.getPurchaseDashboard().catch(() => null),
       ]);
 
       setOverview(overviewData);
       setRecentInvoices(invoicesData || []);
       setRecentActivity(activityData || []);
+      setPurchaseData(purchaseDashboard);
     } catch (err: any) {
       setErrorMsg(err.message || 'Unable to load dashboard data. Please try again.');
     } finally {
@@ -88,31 +99,38 @@ export default function DashboardPage() {
             Welcome, {user?.name || 'Jay Ramji Owner'}
           </h1>
           <p className="text-xs text-text-secondary mt-1">
-            Business overview, revenue performance, and recent activity.
+            Business overview, sales revenue, procurement expenses, and recent operations.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
           <Link
             href="/dashboard/analytics"
-            className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary hover:text-text-primary transition flex items-center gap-1.5 shadow-xs"
+            className="px-3 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary hover:text-text-primary transition flex items-center gap-1.5 shadow-xs"
           >
             <Activity className="w-4 h-4" />
-            <span>Full Analytics</span>
+            <span className="hidden sm:inline">Sales Analytics</span>
+          </Link>
+          <Link
+            href="/dashboard/purchases/new"
+            className="px-3.5 py-2 bg-surface-app hover:bg-surface-2-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            <ShoppingBag className="w-4 h-4 text-indigo-600" />
+            <span>+ New Purchase</span>
           </Link>
           <Link
             href="/dashboard/amc/quotations/create?category=general"
-            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            className="px-3.5 py-2 bg-surface-app hover:bg-surface-2-app border border-border-app text-text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <FileText className="w-4 h-4 text-text-secondary" />
-            <span>Create Quotation</span>
+            <span className="hidden sm:inline">+ Quotation</span>
           </Link>
           <Link
             href="/dashboard/invoices/create"
             className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-primary-700/20 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Create Invoice</span>
+            <span>+ Create Invoice</span>
           </Link>
         </div>
       </div>
@@ -143,7 +161,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 3. Top KPI Metric Grid */}
+      {/* 3. Top Sales & Revenue KPI Metric Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {/* KPI 1: Total Sales */}
         <div className="bg-surface-app border border-border-app rounded-xl p-4 shadow-xs space-y-2">
@@ -181,10 +199,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* KPI 3: Outstanding Dues */}
+        {/* KPI 3: Customer Outstanding Dues */}
         <div className="bg-surface-app border border-border-app rounded-xl p-4 shadow-xs space-y-2">
           <div className="flex items-center justify-between text-text-muted">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Outstanding Dues</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">Customer Dues</span>
             <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600">
               <AlertCircle className="w-4 h-4" />
             </div>
@@ -193,8 +211,8 @@ export default function DashboardPage() {
             <p className="text-xl font-black text-amber-600">
               ₹{((overview?.kpis.outstandingMinor || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </p>
-            <p className="text-[10px] text-text-muted mt-0.5" title="Current pending balance on finalized invoices">
-              Unpaid customer dues
+            <p className="text-[10px] text-text-muted mt-0.5" title="Current pending balance on finalized customer invoices">
+              Receivables from clients
             </p>
           </div>
         </div>
@@ -248,7 +266,113 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 4. Sales Overview Chart */}
+      {/* 4. Purchase & Procurement Analytics Section */}
+      <div className="bg-surface-app border border-border-app rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-light pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600">
+              <ShoppingBag className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-text-primary flex items-center gap-2">
+                <span>Purchase & Procurement Analytics</span>
+                <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold">
+                  Expenses & Stock
+                </span>
+              </h2>
+              <p className="text-[11px] text-text-muted">
+                Track products ordered, vendor bills, outstanding payables, and incoming inventory shipments.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href="/dashboard/purchases/vendors"
+              className="text-xs font-semibold text-text-secondary hover:text-text-primary px-3 py-1.5 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg transition flex items-center gap-1"
+            >
+              <Building2 className="w-3.5 h-3.5 text-text-muted" />
+              <span>Vendors ({purchaseData?.topVendors?.length || 0})</span>
+            </Link>
+            <Link
+              href="/dashboard/purchases/dashboard"
+              className="text-xs font-bold text-primary-700 hover:text-primary-800 px-3 py-1.5 bg-primary-700/10 hover:bg-primary-700/20 rounded-lg transition flex items-center gap-1"
+            >
+              <span>Full Purchase Analytics</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+
+        {/* Purchase Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Purchase KPI 1: Total Purchases */}
+          <div className="bg-surface-2-app/50 border border-border-app rounded-xl p-4 space-y-1.5 hover:border-indigo-300 transition">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Total Purchases</span>
+              <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+                <Receipt className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-xl font-black text-text-primary">
+              ₹{(purchaseData?.summary?.totalPurchased || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-[10.5px] text-text-muted">
+              {purchaseData?.summary?.totalCount || 0} total purchase orders
+            </p>
+          </div>
+
+          {/* Purchase KPI 2: Outstanding Payables (Vendor Dues) */}
+          <div className="bg-surface-2-app/50 border border-border-app rounded-xl p-4 space-y-1.5 hover:border-rose-300 transition">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600">Vendor Payables</span>
+              <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-xl font-black text-rose-600">
+              ₹{(purchaseData?.summary?.totalOutstanding || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-[10.5px] text-text-muted">
+              Outstanding vendor credit balance
+            </p>
+          </div>
+
+          {/* Purchase KPI 3: Total Paid to Vendors */}
+          <div className="bg-surface-2-app/50 border border-border-app rounded-xl p-4 space-y-1.5 hover:border-emerald-300 transition">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Paid to Vendors</span>
+              <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-xl font-black text-emerald-600">
+              ₹{(purchaseData?.summary?.totalPaid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-[10.5px] text-text-muted">
+              Settled purchase bills
+            </p>
+          </div>
+
+          {/* Purchase KPI 4: Pending Deliveries */}
+          <div className="bg-surface-2-app/50 border border-border-app rounded-xl p-4 space-y-1.5 hover:border-amber-300 transition">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Pending Deliveries</span>
+              <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
+                <Truck className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-xl font-black text-amber-600">
+              {purchaseData?.summary?.pendingDeliveriesCount || 0}
+            </p>
+            <p className="text-[10.5px] text-text-muted">
+              Orders awaiting physical receiving
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Sales & Payments Overview Chart */}
       <SalesOverviewChart
         series={overview?.salesOverviewSeries || []}
         title="Sales & Payments Progression"
@@ -256,23 +380,18 @@ export default function DashboardPage() {
         height={220}
       />
 
-      {/* 5. Middle Grid: Payment Methods & Outstanding Dues */}
+      {/* 6. Middle Grid: Customer Receivables vs Vendor Payables */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left (5 cols): Payment Methods Summary */}
-        <div className="lg:col-span-5">
-          <PaymentMethodsSummaryCard methods={overview?.paymentMethods || []} />
-        </div>
-
-        {/* Right (7 cols): Top Outstanding Invoices */}
-        <div className="lg:col-span-7 bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
+        {/* Left (6 cols): Customer Outstanding Invoices (Receivables) */}
+        <div className="lg:col-span-6 bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border-light pb-2">
             <div>
               <h3 className="font-bold text-text-primary text-sm flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4 text-amber-600" />
-                <span>Outstanding Invoices</span>
+                <span>Customer Invoices Due (Receivables)</span>
               </h3>
               <p className="text-[11px] text-text-muted mt-0.5">
-                Invoices awaiting full or partial payment collection.
+                Unpaid customer bills awaiting collection.
               </p>
             </div>
             <Link
@@ -286,16 +405,16 @@ export default function DashboardPage() {
 
           {(!overview?.outstandingInvoices || overview.outstandingInvoices.length === 0) ? (
             <div className="py-8 text-center text-text-muted text-xs">
-              All finalized invoices are fully paid. No outstanding dues!
+              All customer invoices are fully settled! No pending dues.
             </div>
           ) : (
             <div className="divide-y divide-border-light">
-              {overview.outstandingInvoices.map((inv) => (
+              {overview.outstandingInvoices.slice(0, 4).map((inv) => (
                 <div key={inv.id} className="py-2.5 flex items-center justify-between text-xs gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-mono font-bold text-text-primary">{inv.invoiceNumber}</span>
-                      <span className="truncate text-text-secondary max-w-[150px] sm:max-w-[200px]">
+                      <span className="truncate text-text-secondary max-w-[150px]">
                         {inv.customerName}
                       </span>
                     </div>
@@ -305,7 +424,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5 shrink-0">
                     <div className="text-right">
                       <span className="text-[10px] text-text-muted uppercase font-semibold block">Due</span>
                       <span className="font-black text-amber-600 text-xs">
@@ -314,7 +433,7 @@ export default function DashboardPage() {
                     </div>
                     <Link
                       href={`/dashboard/invoices/detail/${inv.id}`}
-                      className="px-2.5 py-1.5 bg-primary-700/10 hover:bg-primary-700/20 text-primary-700 font-bold rounded-lg text-xs transition cursor-pointer"
+                      className="px-2.5 py-1 bg-primary-700/10 hover:bg-primary-700/20 text-primary-700 font-bold rounded-lg text-xs transition cursor-pointer"
                     >
                       Collect
                     </Link>
@@ -324,9 +443,140 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {/* Right (6 cols): Outstanding Vendor Payables */}
+        <div className="lg:col-span-6 bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border-light pb-2">
+            <div>
+              <h3 className="font-bold text-text-primary text-sm flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-600" />
+                <span>Vendor Payables Due (Credit Bills)</span>
+              </h3>
+              <p className="text-[11px] text-text-muted mt-0.5">
+                Outstanding purchase bills to suppliers awaiting settlement.
+              </p>
+            </div>
+            <Link
+              href="/dashboard/purchases?paymentStatus=UNPAID"
+              className="text-xs font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1"
+            >
+              <span>View All</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {(!purchaseData?.outstandingPayables || purchaseData.outstandingPayables.length === 0) ? (
+            <div className="py-8 text-center text-text-muted text-xs">
+              All vendor bills are completely paid! No outstanding payables.
+            </div>
+          ) : (
+            <div className="divide-y divide-border-light">
+              {purchaseData.outstandingPayables.slice(0, 4).map((p: any) => (
+                <div key={p._id || p.id} className="py-2.5 flex items-center justify-between text-xs gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-text-primary">{p.purchaseNumber}</span>
+                      <span className="truncate text-text-secondary max-w-[150px]">
+                        {p.vendor?.name || p.vendorNameSnapshot || 'Vendor'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-text-muted">
+                      Total ₹{(p.totalAmount || 0).toLocaleString('en-IN')} • Date:{' '}
+                      {p.purchaseDate ? new Date(p.purchaseDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="text-right">
+                      <span className="text-[10px] text-text-muted uppercase font-semibold block">Payable</span>
+                      <span className="font-black text-rose-600 text-xs">
+                        ₹{(p.outstandingAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <Link
+                      href={`/dashboard/purchases/${p._id || p.id}`}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs transition border border-rose-200"
+                    >
+                      Pay Bill
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 6. Lower Grid: Top Customers & Best Selling Catalogue */}
+      {/* 7. Lower Grid: Payment Channels & Top Vendors */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left (5 cols): Payment Methods Breakdown */}
+        <div className="lg:col-span-5">
+          <PaymentMethodsSummaryCard methods={overview?.paymentMethods || []} />
+        </div>
+
+        {/* Right (7 cols): Top Suppliers & Vendors */}
+        <div className="lg:col-span-7 bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border-light pb-2">
+            <div>
+              <h3 className="font-bold text-text-primary text-sm flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-primary-700" />
+                <span>Top Suppliers & Vendors</span>
+              </h3>
+              <p className="text-[11px] text-text-muted mt-0.5">Highest volume spare parts & equipment vendors.</p>
+            </div>
+            <Link
+              href="/dashboard/purchases/vendors"
+              className="text-xs font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1"
+            >
+              <span>Manage Vendors</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {(!purchaseData?.topVendors || purchaseData.topVendors.length === 0) ? (
+            <div className="py-8 text-center text-text-muted text-xs">
+              No vendor purchase history recorded yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-text-muted font-bold border-b border-border-light text-[10.5px] uppercase">
+                    <th className="pb-2">Vendor Name</th>
+                    <th className="pb-2 text-center">Orders</th>
+                    <th className="pb-2 text-right">Total Purchased</th>
+                    <th className="pb-2 text-right">Balance Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-light">
+                  {purchaseData.topVendors.map((ven: any, idx: number) => (
+                    <tr key={ven.vendorId || idx} className="hover:bg-surface-2-app/40">
+                      <td className="py-2.5 font-bold text-text-primary truncate max-w-[170px]">
+                        <Link href={`/dashboard/purchases/vendors/${ven.vendorId}`} className="hover:underline text-primary-700">
+                          {ven.name}
+                        </Link>
+                      </td>
+                      <td className="py-2.5 text-center text-text-secondary font-semibold">{ven.totalPurchases}</td>
+                      <td className="py-2.5 text-right font-bold text-text-primary">
+                        ₹{(ven.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-2.5 text-right font-bold text-rose-600">
+                        {(ven.outstandingAmount || 0) > 0 ? (
+                          `₹${(ven.outstandingAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                        ) : (
+                          <span className="text-emerald-600 text-[11px] font-semibold">Settled</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 8. Lower Grid: Top Customers & Best Selling Catalogue */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Top Customers (6 cols) */}
         <div className="lg:col-span-6 bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
@@ -441,46 +691,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 7. Receiving Accounts Performance Summary */}
-      {overview?.paymentAccounts && overview.paymentAccounts.length > 0 && (
-        <div className="bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-3">
-          <div className="flex items-center justify-between border-b border-border-light pb-2">
-            <div>
-              <h3 className="font-bold text-text-primary text-sm flex items-center gap-1.5">
-                <Building className="w-4 h-4 text-primary-700" />
-                <span>Receiving Account Summary</span>
-              </h3>
-              <p className="text-[11px] text-text-muted mt-0.5">
-                Distribution of collections deposited into business accounts.
-              </p>
-            </div>
-            <Link
-              href="/dashboard/settings/payment-accounts"
-              className="text-xs font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1"
-            >
-              <span>Manage Accounts</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-            {overview.paymentAccounts.map((acc, idx) => (
-              <div key={acc.accountId || idx} className="bg-surface-2-app/60 border border-border-app p-3 rounded-xl space-y-1">
-                <p className="text-xs font-bold text-text-primary truncate">{acc.accountName}</p>
-                <div className="flex justify-between items-baseline">
-                  <span className="text-sm font-black text-emerald-600">
-                    ₹{(acc.amountReceivedMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[11px] font-semibold text-text-secondary">{acc.percentage}%</span>
-                </div>
-                <p className="text-[10px] text-text-muted">{acc.paymentCount} payments received</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 8. Recent Invoices Table */}
+      {/* 9. Recent Invoices Table */}
       <div className="bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-border-light pb-2">
           <div>
@@ -594,7 +805,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* 9. Recent Activity Timeline */}
+      {/* 10. Recent Activity Timeline */}
       {recentActivity.length > 0 && (
         <div className="bg-surface-app border border-border-app rounded-xl p-5 shadow-xs space-y-3">
           <h3 className="font-bold text-text-primary text-sm flex items-center gap-1.5 border-b border-border-light pb-2">
