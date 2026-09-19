@@ -24,6 +24,7 @@ const envSchema = z.object({
   INTERNAL_EMAIL_SECRET: z.string().optional().default('jre_internal_email_secret_key_2026'),
   NVIDIA_NIM_API_KEY: z.string().optional().default(''),
   NVIDIA_NIM_MODEL: z.string().optional().default('meta/llama-3.2-11b-vision-instruct'),
+  PURCHASE_DRAFT_TTL_HOURS: z.coerce.number().default(48),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -52,6 +53,7 @@ if (!parsed.success) {
     INTERNAL_EMAIL_SECRET: process.env.INTERNAL_EMAIL_SECRET || 'jre_internal_email_secret_key_2026',
     NVIDIA_NIM_API_KEY: process.env.NVIDIA_NIM_API_KEY || '',
     NVIDIA_NIM_MODEL: process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.2-11b-vision-instruct',
+    PURCHASE_DRAFT_TTL_HOURS: Number(process.env.PURCHASE_DRAFT_TTL_HOURS) || 48,
   };
 } else {
   validatedEnv = parsed.data;
