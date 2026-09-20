@@ -24,6 +24,17 @@ const purchaseItemInputSchema = z.object({
   taxRate: z.number().min(0).optional().default(0),
 });
 
+export const billAttachmentInputSchema = z.object({
+  fileName: z.string(),
+  fileUrl: z.string(),
+  mimeType: z.string().nullable().optional(),
+  fileSize: z.number().nullable().optional(),
+  publicId: z.string().nullable().optional(),
+  documentType: z.string().optional().default('PURCHASE_BILL'),
+  uploadedAt: z.date().or(z.string()).optional(),
+  uploadedBy: z.string().or(z.instanceof(Types.ObjectId)).optional(),
+});
+
 export const createPurchaseSchema = z.object({
   purchaseType: z.enum(['DIRECT_PURCHASE', 'ORDERED_PURCHASE']).default('DIRECT_PURCHASE'),
   vendorId: z.string().min(1, 'Vendor is required'),
@@ -34,6 +45,7 @@ export const createPurchaseSchema = z.object({
   status: z.enum(['DRAFT', 'CONFIRMED', 'CANCELLED']).default('CONFIRMED'),
   items: z.array(purchaseItemInputSchema).min(1, 'At least one product item is required'),
   notes: z.string().nullable().optional(),
+  billAttachments: z.array(billAttachmentInputSchema).optional().default([]),
   directReceivedFull: z.boolean().optional().default(false), // Convenience flag for direct purchase
   allowDuplicateInvoice: z.boolean().optional().default(false),
 });
@@ -245,105 +257,106 @@ export async function getPurchase(req: Request, res: Response, next: NextFunctio
 }
 
 /**
- * Create a new Purchase
+/**
+ * Core purchase creation logic shared across manual creation and scanner draft confirmation.
  */
-export async function createPurchase(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function executeCreatePurchaseCore(params: {
+  businessId: string | Types.ObjectId;
+  userId?: string | Types.ObjectId;
+  validated: z.infer<typeof createPurchaseSchema> & {
+    sourceDraftId?: Types.ObjectId | string | null;
+  };
+}): Promise<any> {
+  const { businessId, userId, validated } = params;
+
+  // 1. Verify vendor exists
+  const vendor = await Vendor.findOne({ _id: validated.vendorId, businessId, isActive: true });
+  if (!vendor) {
+    throw new AppError('Vendor not found or inactive', 404, 'VENDOR_NOT_FOUND');
+  }
+
+  // 2. Duplicate invoice number check
+  if (validated.vendorInvoiceNumber?.trim()) {
+    const existing = await Purchase.findOne({
+      businessId,
+      vendorId: validated.vendorId,
+      vendorInvoiceNumber: validated.vendorInvoiceNumber.trim(),
+      status: { $ne: 'CANCELLED' },
+    });
+
+    if (existing && !validated.allowDuplicateInvoice) {
+      throw new AppError(
+        `A purchase bill with invoice number "${validated.vendorInvoiceNumber}" already exists for ${vendor.name} (${existing.purchaseNumber}).`,
+        409,
+        'DUPLICATE_VENDOR_INVOICE'
+      );
+    }
+  }
+
+  // 3. Resolve products and build snapshot items
+  const productIds = validated.items.map((it) => it.productId);
+  const existingProducts = await Product.find({ _id: { $in: productIds }, businessId }).lean();
+  const productMap = new Map<string, any>();
+  existingProducts.forEach((prod) => productMap.set(prod._id.toString(), prod));
+
+  const processedItems: IPurchaseItem[] = [];
+  let subtotal = 0;
+  let totalDiscount = 0;
+  let totalTax = 0;
+  let grandTotal = 0;
+
+  for (const item of validated.items) {
+    const prod = productMap.get(item.productId);
+    if (!prod) {
+      throw new AppError(`Product with ID ${item.productId} not found`, 400, 'PRODUCT_NOT_FOUND');
+    }
+
+    // Snapshot product name and SKU
+    const productNameSnapshot = prod.name;
+    const skuSnapshot = prod.sku || item.sku || null;
+
+    const orderedQty = item.orderedQuantity;
+
+    // Financial calculations per line
+    const grossAmount = orderedQty * item.unitPurchasePrice;
+    const discountPercent = item.discountPercent || 0;
+    const discountAmt = item.discountAmount > 0 ? item.discountAmount : (grossAmount * discountPercent) / 100;
+    const taxable = Math.max(0, grossAmount - discountAmt);
+    const taxRate = item.taxRate || 0;
+    const taxAmt = (taxable * taxRate) / 100;
+    const lineTotal = Math.round((taxable + taxAmt) * 100) / 100;
+
+    subtotal += grossAmount;
+    totalDiscount += discountAmt;
+    totalTax += taxAmt;
+    grandTotal += lineTotal;
+
+    processedItems.push({
+      productId: prod._id,
+      productNameSnapshot,
+      skuSnapshot,
+      orderedQuantity: orderedQty,
+      receivedQuantity: 0,
+      remainingQuantity: orderedQty,
+      unitPurchasePrice: item.unitPurchasePrice,
+      discountPercent,
+      discountAmount: discountAmt,
+      taxRate,
+      taxAmount: taxAmt,
+      totalAmount: lineTotal,
+      receivingStatus: 'NOT_RECEIVED',
+    });
+  }
+
+  const purchaseNumber = await generatePurchaseNumber(businessId);
+
+  const paidAmount = 0;
+  const outstandingAmount = grandTotal;
+  const paymentStatus: PaymentStatus = 'UNPAID';
+
+  let purchase: any;
   try {
-    const businessId = req.businessId;
-    if (!businessId) {
-      return next(new AppError('Business context required', 400, 'BUSINESS_REQUIRED'));
-    }
-    const userId = (req as any).user?.id || (req as any).user?._id;
-    const validated = createPurchaseSchema.parse(req.body);
-
-    // 1. Verify vendor exists
-    const vendor = await Vendor.findOne({ _id: validated.vendorId, businessId, isActive: true });
-    if (!vendor) {
-      return next(new AppError('Vendor not found or inactive', 404, 'VENDOR_NOT_FOUND'));
-    }
-
-    // 2. Duplicate invoice number check
-    if (validated.vendorInvoiceNumber?.trim()) {
-      const existing = await Purchase.findOne({
-        businessId,
-        vendorId: validated.vendorId,
-        vendorInvoiceNumber: validated.vendorInvoiceNumber.trim(),
-        status: { $ne: 'CANCELLED' },
-      });
-
-      if (existing && !validated.allowDuplicateInvoice) {
-        return next(
-          new AppError(
-            `A purchase bill with invoice number "${validated.vendorInvoiceNumber}" already exists for ${vendor.name} (${existing.purchaseNumber}).`,
-            409,
-            'DUPLICATE_VENDOR_INVOICE'
-          )
-        );
-      }
-    }
-
-    // 3. Resolve products and build snapshot items
-    const productIds = validated.items.map((it) => it.productId);
-    const existingProducts = await Product.find({ _id: { $in: productIds }, businessId }).lean();
-    const productMap = new Map<string, any>();
-    existingProducts.forEach((prod) => productMap.set(prod._id.toString(), prod));
-
-    const processedItems: IPurchaseItem[] = [];
-    let subtotal = 0;
-    let totalDiscount = 0;
-    let totalTax = 0;
-    let grandTotal = 0;
-
-    for (const item of validated.items) {
-      const prod = productMap.get(item.productId);
-      if (!prod) {
-        return next(new AppError(`Product with ID ${item.productId} not found`, 400, 'PRODUCT_NOT_FOUND'));
-      }
-
-      // Snapshot product name and SKU
-      const productNameSnapshot = prod.name;
-      const skuSnapshot = prod.sku || item.sku || null;
-
-      const orderedQty = item.orderedQuantity;
-
-      // Financial calculations per line
-      const grossAmount = orderedQty * item.unitPurchasePrice;
-      const discountPercent = item.discountPercent || 0;
-      const discountAmt = item.discountAmount > 0 ? item.discountAmount : (grossAmount * discountPercent) / 100;
-      const taxable = Math.max(0, grossAmount - discountAmt);
-      const taxRate = item.taxRate || 0;
-      const taxAmt = (taxable * taxRate) / 100;
-      const lineTotal = Math.round((taxable + taxAmt) * 100) / 100;
-
-      subtotal += grossAmount;
-      totalDiscount += discountAmt;
-      totalTax += taxAmt;
-      grandTotal += lineTotal;
-
-      processedItems.push({
-        productId: prod._id,
-        productNameSnapshot,
-        skuSnapshot,
-        orderedQuantity: orderedQty,
-        receivedQuantity: 0,
-        remainingQuantity: orderedQty,
-        unitPurchasePrice: item.unitPurchasePrice,
-        discountPercent,
-        discountAmount: discountAmt,
-        taxRate,
-        taxAmount: taxAmt,
-        totalAmount: lineTotal,
-        receivingStatus: 'NOT_RECEIVED',
-      });
-    }
-
-    const purchaseNumber = await generatePurchaseNumber(businessId);
-
-    const paidAmount = 0;
-    const outstandingAmount = grandTotal;
-    const paymentStatus: PaymentStatus = 'UNPAID';
-
-    const purchase = await Purchase.create({
+    purchase = await Purchase.create({
       businessId,
       purchaseNumber,
       purchaseType: validated.purchaseType,
@@ -363,22 +376,52 @@ export async function createPurchase(req: Request, res: Response, next: NextFunc
       outstandingAmount,
       items: processedItems,
       notes: validated.notes?.trim() || null,
+      billAttachments: (validated as any).billAttachments || [],
+      sourceDraftId: validated.sourceDraftId ? new Types.ObjectId(validated.sourceDraftId) : null,
       createdBy: userId ? new Types.ObjectId(userId) : undefined,
     });
-
-    // If Direct Purchase with immediate physical receipt, execute receiving workflow
-    if (validated.purchaseType === 'DIRECT_PURCHASE' && validated.directReceivedFull) {
-      await processReceiving({
-        businessId,
-        purchase,
-        itemsToReceive: purchase.items.map((it: any) => ({
-          purchaseItemId: it._id,
-          quantityReceived: it.orderedQuantity,
-        })),
-        receivedBy: userId || purchase.createdBy,
-        notes: 'Initial direct purchase receipt',
-      });
+  } catch (err: any) {
+    if (err.code === 11000 && (err.keyPattern?.sourceDraftId || JSON.stringify(err.keyValue || {}).includes('sourceDraftId'))) {
+      throw new AppError('A purchase has already been created for this draft', 409, 'DUPLICATE_CONVERSION');
     }
+    throw err;
+  }
+
+  // If Direct Purchase with immediate physical receipt, execute receiving workflow
+  if (validated.purchaseType === 'DIRECT_PURCHASE' && validated.directReceivedFull) {
+    await processReceiving({
+      businessId,
+      purchase,
+      itemsToReceive: purchase.items.map((it: any) => ({
+        purchaseItemId: it._id,
+        quantityReceived: it.orderedQuantity,
+      })),
+      receivedBy: (userId || purchase.createdBy || businessId) as Types.ObjectId | string,
+      notes: 'Initial direct purchase receipt',
+      idempotencyKey: `DIRECT_RECEIPT_${purchase._id}`,
+    });
+  }
+
+  return purchase;
+}
+
+/**
+ * Create a new Purchase
+ */
+export async function createPurchase(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const businessId = req.businessId;
+    if (!businessId) {
+      return next(new AppError('Business context required', 400, 'BUSINESS_REQUIRED'));
+    }
+    const userId = (req as any).user?.id || (req as any).user?._id;
+    const validated = createPurchaseSchema.parse(req.body);
+
+    const purchase = await executeCreatePurchaseCore({
+      businessId,
+      userId,
+      validated,
+    });
 
     res.status(201).json({
       success: true,

@@ -17,6 +17,7 @@ export interface IPurchaseReceipt extends Document {
   items: IPurchaseReceiptItem[];
   deliveryChallanNumber: string | null;
   notes: string | null;
+  idempotencyKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -97,6 +98,12 @@ const PurchaseReceiptSchema = new Schema<IPurchaseReceipt>(
       type: String,
       default: null,
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -120,6 +127,11 @@ const PurchaseReceiptSchema = new Schema<IPurchaseReceipt>(
 
 PurchaseReceiptSchema.index({ businessId: 1, purchaseId: 1, createdAt: -1 });
 PurchaseReceiptSchema.index({ businessId: 1, receiptNumber: 1 }, { unique: true });
+// Phase 4.2: Unique index on idempotencyKey per purchase (allows multiple manual receipts with null idempotencyKey)
+PurchaseReceiptSchema.index(
+  { businessId: 1, purchaseId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 export const PurchaseReceipt = model<IPurchaseReceipt>('PurchaseReceipt', PurchaseReceiptSchema);
 export default PurchaseReceipt;

@@ -32,8 +32,13 @@ export interface IPurchaseItem {
 }
 
 export interface IBillAttachment {
+  _id?: Types.ObjectId;
   fileName: string;
   fileUrl: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  publicId?: string | null;
+  documentType?: string;
   uploadedAt: Date;
   uploadedBy?: Types.ObjectId;
 }
@@ -59,6 +64,7 @@ export interface IPurchase extends Document {
   items: IPurchaseItem[];
   notes: string | null;
   billAttachments: IBillAttachment[];
+  sourceDraftId?: Types.ObjectId | null;
   createdBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -141,6 +147,10 @@ const BillAttachmentSchema = new Schema<IBillAttachment>(
   {
     fileName: { type: String, required: true },
     fileUrl: { type: String, required: true },
+    mimeType: { type: String, default: null },
+    fileSize: { type: Number, default: null },
+    publicId: { type: String, default: null },
+    documentType: { type: String, default: 'PURCHASE_BILL' },
     uploadedAt: { type: Date, default: Date.now },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
@@ -260,6 +270,12 @@ const PurchaseSchema = new Schema<IPurchase>(
       type: [BillAttachmentSchema],
       default: [],
     },
+    sourceDraftId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PurchaseDraft',
+      default: null,
+      index: true,
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -291,6 +307,11 @@ PurchaseSchema.index({ businessId: 1, vendorId: 1, purchaseDate: -1 });
 PurchaseSchema.index({ businessId: 1, receivingStatus: 1 });
 PurchaseSchema.index({ businessId: 1, paymentStatus: 1 });
 PurchaseSchema.index({ businessId: 1, vendorId: 1, vendorInvoiceNumber: 1 });
+// Phase 4.1: Unique index on sourceDraftId per business (partial filter to allow nulls for manual purchases)
+PurchaseSchema.index(
+  { businessId: 1, sourceDraftId: 1 },
+  { unique: true, partialFilterExpression: { sourceDraftId: { $type: 'objectId' } } }
+);
 
 export const Purchase = model<IPurchase>('Purchase', PurchaseSchema);
 export default Purchase;

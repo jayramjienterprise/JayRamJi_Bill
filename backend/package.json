@@ -8,7 +8,7 @@
     "seed": "ts-node-dev --transpile-only src/database/seed.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -22,8 +22,11 @@
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
     "nodemailer": "^9.1.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-to-png-converter": "^4.2.1",
     "puppeteer": "^25.6.0",
     "qrcode": "^1.5.4",
+    "sharp": "^0.35.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -38,6 +41,7 @@
     "@types/node": "^22.2.0",
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
+    "@types/sharp": "^0.31.1",
     "@types/supertest": "^7.2.1",
     "jest": "^30.5.0",
     "supertest": "^7.2.2",

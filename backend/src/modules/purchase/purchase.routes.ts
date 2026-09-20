@@ -23,6 +23,7 @@ import {
   uploadPurchaseAttachment,
   deletePurchaseAttachment,
 } from './automation.controller';
+import { purchaseScannerController } from './scanner/purchaseScanner.controller';
 
 const router = Router();
 const upload = multer({
@@ -30,8 +31,35 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
+const scannerUpload = (req: any, res: any, next: any) => {
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'billFile', maxCount: 1 },
+  ])(req, res, (err: any) => {
+    if (err) return next(err);
+    if (req.files) {
+      req.file = req.files['file']?.[0] || req.files['billFile']?.[0];
+    }
+    next();
+  });
+};
+
 router.use(authenticate);
 router.use(requireBusiness);
+
+// Phase 3 — AI Purchase Bill Scanner -> PurchaseDraft Integration
+router.post('/scanner/draft', scannerUpload, (req, res, next) =>
+  purchaseScannerController.createDraftHandler(req, res, next)
+);
+router.get('/scanner/drafts/:draftId', (req, res, next) =>
+  purchaseScannerController.getDraftHandler(req, res, next)
+);
+router.patch('/scanner/drafts/:draftId', (req, res, next) =>
+  purchaseScannerController.patchDraftHandler(req, res, next)
+);
+router.post('/scanner/drafts/:draftId/confirm', (req, res, next) =>
+  purchaseScannerController.confirmDraftHandler(req, res, next)
+);
 
 // Dashboards & Automation (Declared before :purchaseId)
 router.get('/dashboard', getPurchaseDashboard);

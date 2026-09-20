@@ -81,8 +81,11 @@ export function reconcilePurchaseExtraction(
     subtotal: extraction.summary?.subtotal?.value ?? null,
     totalDiscount: extraction.summary?.totalDiscount?.value ?? null,
     taxableAmount: extraction.summary?.taxableAmount?.value ?? null,
+    cgstRate: (extraction.summary as any)?.cgstRate?.value ?? null,
     cgstAmount: extraction.summary?.cgstAmount?.value ?? null,
+    sgstRate: (extraction.summary as any)?.sgstRate?.value ?? null,
     sgstAmount: extraction.summary?.sgstAmount?.value ?? null,
+    igstRate: (extraction.summary as any)?.igstRate?.value ?? null,
     igstAmount: extraction.summary?.igstAmount?.value ?? null,
     cessAmount: extraction.summary?.cessAmount?.value ?? null,
     totalTax: extraction.summary?.totalTax?.value ?? null,
@@ -123,7 +126,14 @@ export function reconcilePurchaseExtraction(
   });
 
   // 5. Generate Summary-Level Discrepancy Breakdown
-  const summaryDiscrepancies = [
+  const summaryDiscrepancies: Array<{
+    fieldName: string;
+    printed: number | null;
+    calculated: number;
+    difference: number;
+    status: ValidationStatus;
+    hasDiscrepancy: boolean;
+  }> = [
     {
       fieldName: 'Subtotal',
       printed: totalsInput.subtotal,
@@ -132,8 +142,43 @@ export function reconcilePurchaseExtraction(
       status: validation.comparisons.subtotal.status,
       hasDiscrepancy: validation.comparisons.subtotal.status === 'MISMATCH',
     },
+  ];
+
+  if (validation.taxMode === 'INTRA_STATE' || totalsInput.cgstAmount !== null || totalsInput.sgstAmount !== null) {
+    summaryDiscrepancies.push(
+      {
+        fieldName: 'CGST',
+        printed: totalsInput.cgstAmount,
+        calculated: validation.calculated.cgstAmount,
+        difference: validation.comparisons.cgstAmount.difference,
+        status: validation.comparisons.cgstAmount.status,
+        hasDiscrepancy: validation.comparisons.cgstAmount.status === 'MISMATCH',
+      },
+      {
+        fieldName: 'SGST',
+        printed: totalsInput.sgstAmount,
+        calculated: validation.calculated.sgstAmount,
+        difference: validation.comparisons.sgstAmount.difference,
+        status: validation.comparisons.sgstAmount.status,
+        hasDiscrepancy: validation.comparisons.sgstAmount.status === 'MISMATCH',
+      }
+    );
+  }
+
+  if (validation.taxMode === 'INTER_STATE' || totalsInput.igstAmount !== null) {
+    summaryDiscrepancies.push({
+      fieldName: 'IGST',
+      printed: totalsInput.igstAmount,
+      calculated: validation.calculated.igstAmount,
+      difference: validation.comparisons.igstAmount.difference,
+      status: validation.comparisons.igstAmount.status,
+      hasDiscrepancy: validation.comparisons.igstAmount.status === 'MISMATCH',
+    });
+  }
+
+  summaryDiscrepancies.push(
     {
-      fieldName: 'Tax Total',
+      fieldName: 'Total GST',
       printed: totalsInput.totalTax,
       calculated: validation.calculated.totalTax,
       difference: validation.comparisons.totalTax.difference,
@@ -147,8 +192,8 @@ export function reconcilePurchaseExtraction(
       difference: validation.comparisons.grandTotal.difference,
       status: validation.comparisons.grandTotal.status,
       hasDiscrepancy: validation.comparisons.grandTotal.status === 'MISMATCH',
-    },
-  ];
+    }
+  );
 
   if (totalsInput.roundOff !== null && totalsInput.roundOff !== undefined && validation.comparisons.roundOff) {
     summaryDiscrepancies.push({
@@ -187,8 +232,12 @@ export function reconcilePurchaseExtraction(
     hasDiscrepancies,
     discrepancyNotes,
     calculatedSubtotal: validation.calculated.subtotal,
+    calculatedCgstAmount: validation.calculated.cgstAmount,
+    calculatedSgstAmount: validation.calculated.sgstAmount,
+    calculatedIgstAmount: validation.calculated.igstAmount,
     calculatedTaxTotal: validation.calculated.totalTax,
     calculatedGrandTotal: validation.calculated.grandTotal,
+    taxMode: validation.taxMode,
     invoiceValidation: validation,
     lineDiscrepancies,
     summaryDiscrepancies,

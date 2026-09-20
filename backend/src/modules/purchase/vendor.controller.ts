@@ -177,6 +177,42 @@ export async function createVendor(req: Request, res: Response, next: NextFuncti
     const businessId = req.businessId;
     const validated = vendorSchema.parse(req.body);
 
+    // Duplicate prevention: check if vendor with same GSTIN already exists for this business
+    if (validated.gstNumber) {
+      const existingByGst = await Vendor.findOne({
+        businessId,
+        gstNumber: validated.gstNumber.toUpperCase().trim(),
+      });
+      if (existingByGst) {
+        res.status(200).json({
+          success: true,
+          data: {
+            vendor: existingByGst,
+            alreadyExisted: true,
+          },
+          message: 'Vendor already exists in catalog',
+        });
+        return;
+      }
+    }
+
+    // Duplicate prevention: check exact normalized name match (case-insensitive)
+    const existingByName = await Vendor.findOne({
+      businessId,
+      name: { $regex: new RegExp(`^${validated.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    });
+    if (existingByName) {
+      res.status(200).json({
+        success: true,
+        data: {
+          vendor: existingByName,
+          alreadyExisted: true,
+        },
+        message: 'Vendor already exists in catalog',
+      });
+      return;
+    }
+
     let vendorCode = validated.vendorCode;
     if (!vendorCode) {
       const count = await Vendor.countDocuments({ businessId });

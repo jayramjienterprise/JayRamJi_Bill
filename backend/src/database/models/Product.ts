@@ -5,6 +5,8 @@ export interface IProduct extends Document {
   type: 'SERVICE' | 'PRODUCT';
   name: string;
   sku?: string | null;
+  barcode?: string | null;
+  hsnCode?: string | null;
   description: string | null;
   uom: string;
   defaultPriceMinor: number;
@@ -38,6 +40,18 @@ const ProductSchema = new Schema<IProduct>(
       index: true,
     },
     sku: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    barcode: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    hsnCode: {
       type: String,
       trim: true,
       default: null,

@@ -34,6 +34,16 @@ export interface ISupplierExtraction {
   email: IExtractedField<string>;
 }
 
+export interface IBuyerExtraction {
+  name: IExtractedField<string>;
+  address: IExtractedField<string>;
+  city: IExtractedField<string>;
+  state: IExtractedField<string>;
+  stateCode: IExtractedField<string>;
+  pincode: IExtractedField<string>;
+  gstin: IExtractedField<string>;
+}
+
 export interface IInvoiceMetaExtraction {
   invoiceNumber: IExtractedField<string>;
   invoiceDate: IExtractedField<string>; // YYYY-MM-DD
@@ -42,6 +52,8 @@ export interface IInvoiceMetaExtraction {
   ewayBillNumber: IExtractedField<string>;
   placeOfSupply: IExtractedField<string>;
   isReverseCharge: IExtractedField<boolean>;
+  alternativeDates?: string[];
+  dateConflict?: boolean;
 }
 
 export interface IProductMatchAlternative {
@@ -109,8 +121,11 @@ export interface ISummaryExtraction {
   subtotal: IExtractedField<number>;
   totalDiscount: IExtractedField<number>;
   taxableAmount: IExtractedField<number>;
+  cgstRate?: IExtractedField<number>;
   cgstAmount: IExtractedField<number>;
+  sgstRate?: IExtractedField<number>;
   sgstAmount: IExtractedField<number>;
+  igstRate?: IExtractedField<number>;
   igstAmount: IExtractedField<number>;
   cessAmount: IExtractedField<number>;
   totalTax: IExtractedField<number>;
@@ -137,6 +152,7 @@ export interface IAdditionalDetailsExtraction {
 
 export interface IPurchaseBillExtraction {
   supplier: ISupplierExtraction;
+  buyer?: IBuyerExtraction;
   invoice: IInvoiceMetaExtraction;
   items: IExtractedLineItem[];
   summary: ISummaryExtraction;
@@ -176,6 +192,10 @@ export interface IDraftReconciliation {
   calculatedSubtotal: number;
   calculatedTaxTotal: number;
   calculatedGrandTotal: number;
+  calculatedCgstAmount?: number;
+  calculatedSgstAmount?: number;
+  calculatedIgstAmount?: number;
+  taxMode?: 'INTRA_STATE' | 'INTER_STATE' | 'UNKNOWN';
 }
 
 export interface IPurchaseDraftOriginalFile {
@@ -186,6 +206,16 @@ export interface IPurchaseDraftOriginalFile {
   publicId: string;
   pageCount: number;
   previewImages: string[];
+  fileHash?: string | null;
+}
+
+export interface IUserCorrection {
+  field: string;
+  originalValue: any;
+  newValue: any;
+  changedAt: Date;
+  changedBy?: Types.ObjectId | null;
+  reason?: string | null;
 }
 
 export interface IPurchaseDraft extends Document {
@@ -195,12 +225,16 @@ export interface IPurchaseDraft extends Document {
   rawExtraction: IPurchaseBillExtraction; // Immutable original extraction from AI
   extraction: IPurchaseBillExtraction; // Working copy containing user updates/edits
   reconciliation: IDraftReconciliation;
+  vendorId?: Types.ObjectId | null;
   vendorMatch: IVendorMatchResult;
+  manualOverride?: boolean;
+  userCorrections?: IUserCorrection[];
   status: DraftStatus;
   idempotencyKey?: string | null;
   confirmedPurchaseId?: Types.ObjectId | null;
   confirmedAt?: Date | null;
   confirmedBy?: Types.ObjectId | null;
+  confirmationStartedAt?: Date | null;
   createdBy: Types.ObjectId;
   expiresAt: Date;
   createdAt: Date;
@@ -335,6 +369,15 @@ const PurchaseBillExtractionSchema = new Schema<IPurchaseBillExtraction>(
       phone: createExtractedFieldSubSchema(String),
       email: createExtractedFieldSubSchema(String),
     },
+    buyer: {
+      name: createExtractedFieldSubSchema(String),
+      address: createExtractedFieldSubSchema(String),
+      city: createExtractedFieldSubSchema(String),
+      state: createExtractedFieldSubSchema(String),
+      stateCode: createExtractedFieldSubSchema(String),
+      pincode: createExtractedFieldSubSchema(String),
+      gstin: createExtractedFieldSubSchema(String),
+    },
     invoice: {
       invoiceNumber: createExtractedFieldSubSchema(String),
       invoiceDate: createExtractedFieldSubSchema(String),
@@ -343,6 +386,8 @@ const PurchaseBillExtractionSchema = new Schema<IPurchaseBillExtraction>(
       ewayBillNumber: createExtractedFieldSubSchema(String),
       placeOfSupply: createExtractedFieldSubSchema(String),
       isReverseCharge: createExtractedFieldSubSchema(Boolean),
+      alternativeDates: { type: [String], default: [] },
+      dateConflict: { type: Boolean, default: false },
     },
     items: {
       type: [ExtractedLineItemSchema],
@@ -352,8 +397,11 @@ const PurchaseBillExtractionSchema = new Schema<IPurchaseBillExtraction>(
       subtotal: createExtractedFieldSubSchema(Number),
       totalDiscount: createExtractedFieldSubSchema(Number),
       taxableAmount: createExtractedFieldSubSchema(Number),
+      cgstRate: createExtractedFieldSubSchema(Number),
       cgstAmount: createExtractedFieldSubSchema(Number),
+      sgstRate: createExtractedFieldSubSchema(Number),
       sgstAmount: createExtractedFieldSubSchema(Number),
+      igstRate: createExtractedFieldSubSchema(Number),
       igstAmount: createExtractedFieldSubSchema(Number),
       cessAmount: createExtractedFieldSubSchema(Number),
       totalTax: createExtractedFieldSubSchema(Number),
@@ -440,6 +488,7 @@ const PurchaseDraftSchema = new Schema<IPurchaseDraft>(
       publicId: { type: String, required: true },
       pageCount: { type: Number, default: 1, min: 1 },
       previewImages: { type: [String], default: [] },
+      fileHash: { type: String, default: null },
     },
     rawExtraction: {
       type: PurchaseBillExtractionSchema,
@@ -456,6 +505,16 @@ const PurchaseDraftSchema = new Schema<IPurchaseDraft>(
       calculatedSubtotal: { type: Number, default: 0 },
       calculatedTaxTotal: { type: Number, default: 0 },
       calculatedGrandTotal: { type: Number, default: 0 },
+      calculatedCgstAmount: { type: Number, default: 0 },
+      calculatedSgstAmount: { type: Number, default: 0 },
+      calculatedIgstAmount: { type: Number, default: 0 },
+      taxMode: { type: String, default: null },
+    },
+    vendorId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Vendor',
+      default: null,
+      index: true,
     },
     vendorMatch: {
       type: VendorMatchSchema,
@@ -470,6 +529,20 @@ const PurchaseDraftSchema = new Schema<IPurchaseDraft>(
         alternatives: [],
       }),
     },
+    manualOverride: {
+      type: Boolean,
+      default: false,
+    },
+    userCorrections: [
+      {
+        field: { type: String, required: true },
+        originalValue: { type: Schema.Types.Mixed, default: null },
+        newValue: { type: Schema.Types.Mixed, default: null },
+        changedAt: { type: Date, default: Date.now },
+        changedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+        reason: { type: String, default: null },
+      },
+    ],
     status: {
       type: String,
       required: true,
@@ -494,6 +567,10 @@ const PurchaseDraftSchema = new Schema<IPurchaseDraft>(
     confirmedBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
+      default: null,
+    },
+    confirmationStartedAt: {
+      type: Date,
       default: null,
     },
     createdBy: {

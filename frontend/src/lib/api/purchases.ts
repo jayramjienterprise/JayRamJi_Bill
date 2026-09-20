@@ -5,6 +5,198 @@ export type PurchaseStatus = 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
 export type ReceivingStatus = 'NOT_RECEIVED' | 'PARTIALLY_RECEIVED' | 'RECEIVED';
 export type PaymentStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
 
+export type FieldStatus =
+  | 'EXTRACTED'
+  | 'VERIFIED'
+  | 'REVIEW_REQUIRED'
+  | 'MISSING'
+  | 'INVALID';
+
+export interface IExtractedField<T = any> {
+  value: T | null;
+  confidence: number;
+  status: FieldStatus;
+  bbox?: number[] | null;
+  warning?: string | null;
+}
+
+export interface IProductMatchAlternative {
+  productId: string;
+  productName: string;
+  sku: string | null;
+  score: number;
+}
+
+export interface IProductMatchResult {
+  productId: string | null;
+  productName: string | null;
+  sku: string | null;
+  uom: string | null;
+  currentStock: number | null;
+  lastPurchasePrice: number | null;
+  matchingMethod: string;
+  confidence: number;
+  isMatched: boolean;
+  status: FieldStatus;
+  alternatives?: IProductMatchAlternative[];
+}
+
+export interface IExtractedLineItem {
+  id: string;
+  lineNumber: number;
+  description: IExtractedField<string>;
+  skuOrCode: IExtractedField<string>;
+  hsnSac: IExtractedField<string>;
+  quantity: IExtractedField<number>;
+  unit: IExtractedField<string>;
+  unitPrice: IExtractedField<number>;
+  discountPercent: IExtractedField<number>;
+  discountAmount: IExtractedField<number>;
+  taxableAmount: IExtractedField<number>;
+  gstRate: IExtractedField<number>;
+  cgstRate: IExtractedField<number>;
+  cgstAmount: IExtractedField<number>;
+  sgstRate: IExtractedField<number>;
+  sgstAmount: IExtractedField<number>;
+  igstRate: IExtractedField<number>;
+  igstAmount: IExtractedField<number>;
+  cessRate: IExtractedField<number>;
+  cessAmount: IExtractedField<number>;
+  lineTotal: IExtractedField<number>;
+  calculated?: {
+    taxableAmount: number;
+    cgstAmount: number;
+    sgstAmount: number;
+    igstAmount: number;
+    cessAmount: number;
+    lineTotal: number;
+    discrepancy: number;
+  };
+  productMatch?: IProductMatchResult;
+}
+
+export interface IVendorMatchAlternative {
+  vendorId: string;
+  name: string;
+  gstNumber: string | null;
+  similarity: number;
+}
+
+export interface IVendorMatchResult {
+  matchedVendorId: string | null;
+  matchedVendorName: string | null;
+  matchedVendorGstin: string | null;
+  matchingMethod: string;
+  confidence: number;
+  status: FieldStatus;
+  alternatives?: IVendorMatchAlternative[];
+}
+
+export interface IDraftReconciliation {
+  isMathValid: boolean;
+  hasDiscrepancies: boolean;
+  discrepancyNotes: string[];
+  calculatedSubtotal: number;
+  calculatedTaxTotal: number;
+  calculatedGrandTotal: number;
+  calculatedCgstAmount?: number;
+  calculatedSgstAmount?: number;
+  calculatedIgstAmount?: number;
+  taxMode?: 'INTRA_STATE' | 'INTER_STATE' | 'UNKNOWN';
+}
+
+export interface IPurchaseDraftOriginalFile {
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileUrl: string;
+  publicId: string;
+  pageCount: number;
+  previewImages: string[];
+}
+
+export interface IPurchaseDraft {
+  _id: string;
+  businessId: string;
+  draftNumber: string;
+  vendorId?: string | null;
+  originalFile: IPurchaseDraftOriginalFile;
+  rawExtraction: any;
+  extraction: {
+    supplier: {
+      name: IExtractedField<string>;
+      gstin: IExtractedField<string>;
+      pan: IExtractedField<string>;
+      address: IExtractedField<string>;
+      city: IExtractedField<string>;
+      state: IExtractedField<string>;
+      stateCode: IExtractedField<string>;
+      pincode: IExtractedField<string>;
+      phone: IExtractedField<string>;
+      email: IExtractedField<string>;
+    };
+    invoice: {
+      invoiceNumber: IExtractedField<string>;
+      invoiceDate: IExtractedField<string>;
+      dueDate: IExtractedField<string>;
+      poNumber: IExtractedField<string>;
+      ewayBillNumber: IExtractedField<string>;
+      placeOfSupply: IExtractedField<string>;
+      isReverseCharge: IExtractedField<boolean>;
+    };
+    items: IExtractedLineItem[];
+    summary: {
+      subtotal: IExtractedField<number>;
+      totalDiscount: IExtractedField<number>;
+      taxableAmount: IExtractedField<number>;
+      cgstRate?: IExtractedField<number>;
+      cgstAmount: IExtractedField<number>;
+      sgstRate?: IExtractedField<number>;
+      sgstAmount: IExtractedField<number>;
+      igstRate?: IExtractedField<number>;
+      igstAmount: IExtractedField<number>;
+      cessAmount: IExtractedField<number>;
+      totalTax: IExtractedField<number>;
+      roundOff: IExtractedField<number>;
+      grandTotal: IExtractedField<number>;
+      amountPaid: IExtractedField<number>;
+      balanceDue: IExtractedField<number>;
+    };
+    payment: {
+      paymentMode: IExtractedField<string>;
+      bankName: IExtractedField<string>;
+      bankAccountNumber: IExtractedField<string>;
+      bankIfsc: IExtractedField<string>;
+      upiId: IExtractedField<string>;
+      transactionReference: IExtractedField<string>;
+    };
+    additional: {
+      notes: IExtractedField<string>;
+      termsAndConditions: IExtractedField<string>;
+      vehicleNumber: IExtractedField<string>;
+    };
+  };
+  reconciliation: IDraftReconciliation;
+  vendorMatch: IVendorMatchResult;
+  manualOverride?: boolean;
+  userCorrections?: Array<{
+    field: string;
+    originalValue: any;
+    newValue: any;
+    changedAt: string;
+    reason?: string | null;
+  }>;
+  status: 'DRAFT_READY' | 'REVIEW_REQUIRED' | 'CONFIRMING' | 'CONVERTED' | 'EXPIRED';
+  idempotencyKey?: string | null;
+  confirmedPurchaseId?: string | null;
+  confirmedAt?: string | null;
+  confirmedBy?: string | null;
+  createdBy: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Vendor {
   _id: string;
   id?: string;
@@ -246,6 +438,73 @@ export const purchasesApi = {
     }>('/purchases/extract-bill', formData);
   },
 
+  // Phase 4 — AI Purchase Bill Scanner APIs
+  async createScannerDraft(
+    file: File,
+    idempotencyKey?: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{
+    success: boolean;
+    draftId: string;
+    draftNumber: string;
+    status: string;
+    draft: IPurchaseDraft;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+      headers['X-Scan-Operation-Id'] = idempotencyKey;
+    }
+    return apiClient.post<{
+      success: boolean;
+      draftId: string;
+      draftNumber: string;
+      status: string;
+      draft: IPurchaseDraft;
+    }>('/purchases/scanner/draft', formData, {
+      ...options,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+    });
+  },
+
+  async getScannerDraft(draftId: string): Promise<{
+    success: boolean;
+    draft: IPurchaseDraft;
+  }> {
+    return apiClient.get<{
+      success: boolean;
+      draft: IPurchaseDraft;
+    }>(`/purchases/scanner/drafts/${draftId}`);
+  },
+
+  async updateScannerDraft(draftId: string, patchData: any): Promise<{
+    success: boolean;
+    draft: IPurchaseDraft;
+  }> {
+    return apiClient.patch<{
+      success: boolean;
+      draft: IPurchaseDraft;
+    }>(`/purchases/scanner/drafts/${draftId}`, patchData);
+  },
+
+  async confirmScannerDraft(draftId: string, payload?: any): Promise<{
+    success: boolean;
+    converted: boolean;
+    alreadyConverted?: boolean;
+    purchaseId: string;
+    purchase: Purchase;
+  }> {
+    return apiClient.post<{
+      success: boolean;
+      converted: boolean;
+      alreadyConverted?: boolean;
+      purchaseId: string;
+      purchase: Purchase;
+    }>(`/purchases/scanner/drafts/${draftId}/confirm`, payload || {});
+  },
+
   // CSV Import
   async parseCsvItems(params: { file?: File; csvText?: string }): Promise<ParseCsvResult> {
     if (params.file) {
@@ -284,8 +543,12 @@ export interface BillAttachment {
   _id: string;
   fileName: string;
   fileUrl: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  publicId?: string | null;
+  documentType?: string;
   uploadedAt: string;
-  uploadedBy?: { _id: string; name: string; email: string };
+  uploadedBy?: { _id: string; name: string; email: string } | string;
 }
 
 export interface ExtractedItemDraft {

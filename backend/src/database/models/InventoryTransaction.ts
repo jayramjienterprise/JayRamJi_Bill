@@ -19,6 +19,7 @@ export interface IInventoryTransaction extends Document {
   unitCostPrice?: number | null;
   unitSellingPrice?: number | null;
   notes?: string | null;
+  idempotencyKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -89,6 +90,12 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
       type: String,
       default: null,
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -104,9 +111,15 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
 );
 
 InventoryTransactionSchema.index({ businessId: 1, productId: 1, createdAt: -1 });
+// Phase 4.2: Unique index on idempotencyKey per business (allows null idempotencyKey for unconstrained legacy txs)
+InventoryTransactionSchema.index(
+  { businessId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 export const InventoryTransaction = model<IInventoryTransaction>(
   'InventoryTransaction',
   InventoryTransactionSchema
 );
 export default InventoryTransaction;
+

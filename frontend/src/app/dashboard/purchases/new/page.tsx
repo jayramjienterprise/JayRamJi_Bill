@@ -34,6 +34,7 @@ import {
 } from '../../../../lib/api/purchases';
 import { apiClient } from '../../../../lib/api/client';
 import { Product } from '../../../../lib/api/types';
+import PurchaseBillScannerModal from '../scanner/PurchaseBillScannerModal';
 
 interface LineItemInput {
   productId: string;
@@ -120,6 +121,7 @@ export default function NewPurchasePage() {
   });
 
   // AI Bill Scanner State
+  const [showScannerModal, setShowScannerModal] = useState(false);
   const [showOcrModal, setShowOcrModal] = useState(false);
   const [ocrScanning, setOcrScanning] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -637,13 +639,13 @@ export default function NewPurchasePage() {
 
         {/* Phase 4 Automation Actions */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* <button
+          <button
             type="button"
-            onClick={() => setShowOcrModal(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition shadow-xs cursor-pointer active:scale-98"
+            onClick={() => setShowScannerModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition shadow-xs cursor-pointer active:scale-98"
           >
-            <Sparkles className="w-4 h-4 text-purple-600" />
-            AI Bill Scanner
+            <Sparkles className="w-4 h-4 text-purple-200" />
+            Scan Purchase Bill
           </button>
 
           <button
@@ -663,7 +665,7 @@ export default function NewPurchasePage() {
           >
             <Download className="w-3.5 h-3.5 text-gray-400" />
             Template
-          </button> */}
+          </button>
         </div>
       </div>
 
@@ -1833,6 +1835,20 @@ export default function NewPurchasePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI Purchase Bill Scanner Modal (Phase 4) */}
+      {showScannerModal && (
+        <PurchaseBillScannerModal
+          isOpen={showScannerModal}
+          onClose={() => setShowScannerModal(false)}
+          onPurchaseConfirmed={(purchaseId) => {
+            setShowScannerModal(false);
+            router.push(`/dashboard/purchases/${purchaseId}`);
+          }}
+          vendors={vendors}
+          products={products}
+        />
       )}
     </div>
   );

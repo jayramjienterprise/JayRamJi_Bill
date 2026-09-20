@@ -24,7 +24,17 @@ const envSchema = z.object({
   INTERNAL_EMAIL_SECRET: z.string().optional().default('jre_internal_email_secret_key_2026'),
   NVIDIA_NIM_API_KEY: z.string().optional().default(''),
   NVIDIA_NIM_MODEL: z.string().optional().default('meta/llama-3.2-11b-vision-instruct'),
+  NVIDIA_NIM_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   PURCHASE_DRAFT_TTL_HOURS: z.coerce.number().default(48),
+  PURCHASE_SCANNER_MAX_FILE_SIZE_MB: z.coerce.number().default(15),
+  PURCHASE_SCANNER_MAX_PAGES: z.coerce.number().default(10),
+  PURCHASE_SCANNER_TARGET_DPI: z.coerce.number().default(150),
+  PURCHASE_SCANNER_NIM_TIMEOUT_MS: z.coerce.number().default(60000),
+  PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB: z.coerce.number().default(20),
+  PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB: z.coerce.number().default(5),
+  PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS: z.coerce.number().default(4096),
+  PURCHASE_SCANNER_MAX_RESPONSE_MB: z.coerce.number().default(10),
+  PURCHASE_CONFIRMATION_LOCK_TIMEOUT_MS: z.coerce.number().default(60000),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -53,7 +63,17 @@ if (!parsed.success) {
     INTERNAL_EMAIL_SECRET: process.env.INTERNAL_EMAIL_SECRET || 'jre_internal_email_secret_key_2026',
     NVIDIA_NIM_API_KEY: process.env.NVIDIA_NIM_API_KEY || '',
     NVIDIA_NIM_MODEL: process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.2-11b-vision-instruct',
+    NVIDIA_NIM_BASE_URL: process.env.NVIDIA_NIM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     PURCHASE_DRAFT_TTL_HOURS: Number(process.env.PURCHASE_DRAFT_TTL_HOURS) || 48,
+    PURCHASE_SCANNER_MAX_FILE_SIZE_MB: Number(process.env.PURCHASE_SCANNER_MAX_FILE_SIZE_MB) || 15,
+    PURCHASE_SCANNER_MAX_PAGES: Number(process.env.PURCHASE_SCANNER_MAX_PAGES) || 10,
+    PURCHASE_SCANNER_TARGET_DPI: Number(process.env.PURCHASE_SCANNER_TARGET_DPI) || 150,
+    PURCHASE_SCANNER_NIM_TIMEOUT_MS: Number(process.env.PURCHASE_SCANNER_NIM_TIMEOUT_MS) || 60000,
+    PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB: Number(process.env.PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB) || 20,
+    PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB: Number(process.env.PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB) || 5,
+    PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS: Number(process.env.PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS) || 4096,
+    PURCHASE_SCANNER_MAX_RESPONSE_MB: Number(process.env.PURCHASE_SCANNER_MAX_RESPONSE_MB) || 10,
+    PURCHASE_CONFIRMATION_LOCK_TIMEOUT_MS: Number(process.env.PURCHASE_CONFIRMATION_LOCK_TIMEOUT_MS) || 60000,
   };
 } else {
   validatedEnv = parsed.data;

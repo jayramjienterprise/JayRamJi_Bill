@@ -54,11 +54,95 @@ export async function processReceiving(params: {
   deliveryChallanNumber?: string | null;
   notes?: string | null;
   receivedAt?: Date;
+  idempotencyKey?: string | null;
 }): Promise<any> {
   const { businessId, purchase, itemsToReceive, receivedBy, deliveryChallanNumber, notes, receivedAt } = params;
+  const idempotencyKey = params.idempotencyKey ? params.idempotencyKey.trim() : null;
+  const bId = new Types.ObjectId(businessId);
 
   if (purchase.status === 'CANCELLED') {
     throw new AppError('Cannot receive items for a cancelled purchase', 400, 'PURCHASE_CANCELLED');
+  }
+
+  // Phase 4.2 Step 0: Idempotency & Crash-Recovery Pre-check
+  if (idempotencyKey) {
+    const existingReceipt = await PurchaseReceipt.findOne({
+      businessId: bId,
+      purchaseId: purchase._id,
+      idempotencyKey,
+    });
+
+    if (existingReceipt) {
+      // Crash-recovery reconciliation:
+      // Verify if any inventory transactions or stock increments were missed due to a mid-operation crash
+      for (const recItem of existingReceipt.items) {
+        const itemTxKey = `RECEIPT_ITEM_${existingReceipt._id}_${recItem.purchaseItemId}`;
+        const existingTx = await InventoryTransaction.findOne({
+          businessId: bId,
+          idempotencyKey: itemTxKey,
+        });
+
+        if (!existingTx) {
+          // Transaction missing! Server crashed after receipt creation but before transaction/stock update.
+          // Increment stock and record immutable transaction
+          await Product.findByIdAndUpdate(recItem.productId, {
+            $inc: { stockQuantity: recItem.quantityReceived },
+            $set: {
+              lastPurchasePriceMinor: Math.round((recItem.unitPurchasePrice || 0) * 100),
+            },
+          });
+
+          try {
+            await InventoryTransaction.create({
+              businessId: bId,
+              productId: recItem.productId,
+              quantity: recItem.quantityReceived,
+              transactionType: 'PURCHASE_RECEIPT',
+              referenceType: 'PURCHASE_RECEIPT',
+              referenceId: existingReceipt._id,
+              purchaseId: purchase._id,
+              unitCostPrice: recItem.unitPurchasePrice,
+              idempotencyKey: itemTxKey,
+              notes: existingReceipt.deliveryChallanNumber
+                ? `Purchase Receipt ${existingReceipt.receiptNumber} (Challan: ${existingReceipt.deliveryChallanNumber})`
+                : `Purchase Receipt ${existingReceipt.receiptNumber}`,
+            });
+          } catch (txErr: any) {
+            if (txErr.code !== 11000) throw txErr;
+          }
+        }
+      }
+
+      // Reconcile purchase line item quantities if not yet reflected
+      let purchaseDirty = false;
+      for (const recItem of existingReceipt.items) {
+        const pItem = purchase.items.find(
+          (it: any) => it._id.toString() === recItem.purchaseItemId.toString()
+        );
+        if (pItem && pItem.receivedQuantity < recItem.quantityReceived) {
+          pItem.receivedQuantity = recItem.quantityReceived;
+          pItem.remainingQuantity = Math.max(0, pItem.orderedQuantity - pItem.receivedQuantity);
+          if (pItem.receivedQuantity >= pItem.orderedQuantity) {
+            pItem.receivingStatus = 'RECEIVED';
+          } else if (pItem.receivedQuantity > 0) {
+            pItem.receivingStatus = 'PARTIALLY_RECEIVED';
+          }
+          purchaseDirty = true;
+        }
+      }
+
+      const calculatedStatus = calculateOverallReceivingStatus(purchase.items);
+      if (purchase.receivingStatus !== calculatedStatus) {
+        purchase.receivingStatus = calculatedStatus;
+        purchaseDirty = true;
+      }
+
+      if (purchaseDirty) {
+        await purchase.save();
+      }
+
+      return existingReceipt;
+    }
   }
 
   // 1. Validation & over-receiving check
@@ -97,17 +181,38 @@ export async function processReceiving(params: {
   // 2. Generate receipt sequence
   const receiptNumber = await generateReceiptNumber(businessId);
 
-  // 3. Create PurchaseReceipt audit record
-  const receipt = await PurchaseReceipt.create({
-    businessId: new Types.ObjectId(businessId),
-    purchaseId: purchase._id,
-    receiptNumber,
-    receivedBy: new Types.ObjectId(receivedBy),
-    receivedAt: receivedAt || new Date(),
-    items: receiptItems,
-    deliveryChallanNumber: deliveryChallanNumber || null,
-    notes: notes || null,
-  });
+  // 3. Create PurchaseReceipt audit record (with unique idempotencyKey protection)
+  let receipt: any;
+  try {
+    receipt = await PurchaseReceipt.create({
+      businessId: bId,
+      purchaseId: purchase._id,
+      receiptNumber,
+      receivedBy: new Types.ObjectId(receivedBy),
+      receivedAt: receivedAt || new Date(),
+      items: receiptItems,
+      deliveryChallanNumber: deliveryChallanNumber || null,
+      notes: notes || null,
+      idempotencyKey,
+    });
+  } catch (err: any) {
+    if (
+      err.code === 11000 &&
+      idempotencyKey &&
+      (err.keyPattern?.idempotencyKey || JSON.stringify(err.keyValue || {}).includes('idempotencyKey'))
+    ) {
+      // Race condition handled: Fetch receipt created by winning concurrent request
+      const raceReceipt = await PurchaseReceipt.findOne({
+        businessId: bId,
+        purchaseId: purchase._id,
+        idempotencyKey,
+      });
+      if (raceReceipt) {
+        return raceReceipt;
+      }
+    }
+    throw err;
+  }
 
   // 4. Update Purchase line items and status
   for (const recItem of receiptItems) {
@@ -123,28 +228,45 @@ export async function processReceiving(params: {
       pItem.receivingStatus = 'NOT_RECEIVED';
     }
 
-    // 5. Atomic Stock Update & Last Purchase Price Update
-    await Product.findByIdAndUpdate(recItem.productId, {
-      $inc: { stockQuantity: recItem.quantityReceived },
-      $set: {
-        lastPurchasePriceMinor: Math.round((recItem.unitPurchasePrice || 0) * 100),
-      },
+    const itemTxKey = `RECEIPT_ITEM_${receipt._id}_${recItem.purchaseItemId}`;
+
+    // Check if transaction already exists (safety guard against duplicate stock increments)
+    const existingTx = await InventoryTransaction.findOne({
+      businessId: bId,
+      idempotencyKey: itemTxKey,
     });
 
-    // 6. Immutable Inventory Transaction Record
-    await InventoryTransaction.create({
-      businessId: new Types.ObjectId(businessId),
-      productId: recItem.productId,
-      quantity: recItem.quantityReceived, // Positive for stock inward
-      transactionType: 'PURCHASE_RECEIPT',
-      referenceType: 'PURCHASE_RECEIPT',
-      referenceId: receipt._id,
-      purchaseId: purchase._id,
-      unitCostPrice: recItem.unitPurchasePrice,
-      notes: deliveryChallanNumber
-        ? `Purchase Receipt ${receiptNumber} (Challan: ${deliveryChallanNumber})`
-        : `Purchase Receipt ${receiptNumber}`,
-    });
+    if (!existingTx) {
+      // 5. Atomic Stock Update & Last Purchase Price Update
+      await Product.findByIdAndUpdate(recItem.productId, {
+        $inc: { stockQuantity: recItem.quantityReceived },
+        $set: {
+          lastPurchasePriceMinor: Math.round((recItem.unitPurchasePrice || 0) * 100),
+        },
+      });
+
+      // 6. Immutable Inventory Transaction Record
+      try {
+        await InventoryTransaction.create({
+          businessId: bId,
+          productId: recItem.productId,
+          quantity: recItem.quantityReceived, // Positive for stock inward
+          transactionType: 'PURCHASE_RECEIPT',
+          referenceType: 'PURCHASE_RECEIPT',
+          referenceId: receipt._id,
+          purchaseId: purchase._id,
+          unitCostPrice: recItem.unitPurchasePrice,
+          idempotencyKey: itemTxKey,
+          notes: deliveryChallanNumber
+            ? `Purchase Receipt ${receiptNumber} (Challan: ${deliveryChallanNumber})`
+            : `Purchase Receipt ${receiptNumber}`,
+        });
+      } catch (txErr: any) {
+        if (txErr.code !== 11000) {
+          throw txErr;
+        }
+      }
+    }
   }
 
   // 7. Update overall purchase receiving status
@@ -173,6 +295,9 @@ export async function receivePurchaseProducts(req: Request, res: Response, next:
       return next(new AppError('Purchase not found', 404, 'PURCHASE_NOT_FOUND'));
     }
 
+    const rawIdemp = req.headers['idempotency-key'] || req.body.idempotencyKey;
+    const idempotencyKey = typeof rawIdemp === 'string' ? rawIdemp.trim() : null;
+
     const receipt = await processReceiving({
       businessId,
       purchase,
@@ -181,6 +306,7 @@ export async function receivePurchaseProducts(req: Request, res: Response, next:
       deliveryChallanNumber: validated.deliveryChallanNumber,
       notes: validated.notes,
       receivedAt: validated.receivedAt ? new Date(validated.receivedAt) : undefined,
+      idempotencyKey,
     });
 
     res.status(201).json({

@@ -47,6 +47,16 @@ export const supplierExtractionSchema = z.object({
   email: createExtractedFieldZodSchema(z.string()),
 });
 
+export const buyerExtractionSchema = z.object({
+  name: createExtractedFieldZodSchema(z.string()),
+  address: createExtractedFieldZodSchema(z.string()),
+  city: createExtractedFieldZodSchema(z.string()),
+  state: createExtractedFieldZodSchema(z.string()),
+  stateCode: createExtractedFieldZodSchema(z.string()),
+  pincode: createExtractedFieldZodSchema(z.string()),
+  gstin: createExtractedFieldZodSchema(z.string()),
+});
+
 export const invoiceMetaExtractionSchema = z.object({
   invoiceNumber: createExtractedFieldZodSchema(z.string()),
   invoiceDate: createExtractedFieldZodSchema(z.string()),
@@ -55,6 +65,8 @@ export const invoiceMetaExtractionSchema = z.object({
   ewayBillNumber: createExtractedFieldZodSchema(z.string()),
   placeOfSupply: createExtractedFieldZodSchema(z.string()),
   isReverseCharge: createExtractedFieldZodSchema(z.boolean()),
+  alternativeDates: z.array(z.string()).optional().default([]),
+  dateConflict: z.boolean().optional().default(false),
 });
 
 export const productMatchAlternativeSchema = z.object({
@@ -127,8 +139,11 @@ export const summaryExtractionSchema = z.object({
   subtotal: createExtractedFieldZodSchema(z.number().min(0, 'Subtotal cannot be negative')),
   totalDiscount: createExtractedFieldZodSchema(z.number().min(0, 'Total discount cannot be negative')),
   taxableAmount: createExtractedFieldZodSchema(z.number().min(0, 'Taxable amount cannot be negative')),
+  cgstRate: createExtractedFieldZodSchema(z.number().min(0)).optional(),
   cgstAmount: createExtractedFieldZodSchema(z.number().min(0)),
+  sgstRate: createExtractedFieldZodSchema(z.number().min(0)).optional(),
   sgstAmount: createExtractedFieldZodSchema(z.number().min(0)),
+  igstRate: createExtractedFieldZodSchema(z.number().min(0)).optional(),
   igstAmount: createExtractedFieldZodSchema(z.number().min(0)),
   cessAmount: createExtractedFieldZodSchema(z.number().min(0)),
   totalTax: createExtractedFieldZodSchema(z.number().min(0)),
@@ -157,6 +172,7 @@ export const additionalDetailsExtractionSchema = z.object({
 
 export const purchaseBillExtractionSchema = z.object({
   supplier: supplierExtractionSchema,
+  buyer: buyerExtractionSchema.optional(),
   invoice: invoiceMetaExtractionSchema,
   items: z.array(extractedLineItemSchema),
   summary: summaryExtractionSchema,
@@ -272,6 +288,29 @@ export const editableDraftLineItemSchema = z.object({
   taxRate: z.number().min(0).optional(),
 });
 
+export const editableDraftSummarySchema = z.object({
+  subtotal: z.number().min(0).optional(),
+  totalDiscount: z.number().min(0).optional(),
+  taxableAmount: z.number().min(0).optional(),
+  cgstRate: z.number().min(0).optional(),
+  cgstAmount: z.number().min(0).optional(),
+  sgstRate: z.number().min(0).optional(),
+  sgstAmount: z.number().min(0).optional(),
+  igstRate: z.number().min(0).optional(),
+  igstAmount: z.number().min(0).optional(),
+  totalTax: z.number().min(0).optional(),
+  roundOff: z.number().optional(),
+  grandTotal: z.number().min(0).optional(),
+});
+
+export const userCorrectionEntrySchema = z.object({
+  field: z.string(),
+  originalValue: z.any().optional(),
+  newValue: z.any().optional(),
+  changedAt: z.string().or(z.date()).optional(),
+  reason: z.string().nullable().optional(),
+});
+
 /**
  * Zod schema defining strictly the allowed user-editable draft update payload
  */
@@ -286,19 +325,36 @@ export const editableDraftFieldsSchema = z
     placeOfSupply: z.string().trim().nullable().optional(),
     notes: z.string().trim().nullable().optional(),
     items: z.array(editableDraftLineItemSchema).optional(),
+    summary: editableDraftSummarySchema.optional(),
+    manualOverride: z.boolean().optional(),
+    userCorrections: z.array(userCorrectionEntrySchema).optional(),
     // Client can explicitly acknowledge duplicate invoice warning
     allowDuplicateInvoice: z.boolean().optional(),
   })
   .strict(); // Rejects any payload containing unexpected or server-controlled fields!
 
-/**
- * Zod schema for confirming a draft into a permanent Purchase
- */
 export const confirmDraftSchema = z.object({
+  vendorId: z.string().nullable().optional(),
+  vendorInvoiceNumber: z.string().trim().nullable().optional(),
+  invoiceDate: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  purchaseDate: z.string().nullable().optional(),
   purchaseType: z.enum(['DIRECT_PURCHASE', 'ORDERED_PURCHASE']).default('DIRECT_PURCHASE'),
   directReceivedFull: z.boolean().default(false),
+  paymentMethod: z.string().nullable().optional(),
+  paymentReference: z.string().nullable().optional(),
   allowDuplicateInvoice: z.boolean().default(false),
   notes: z.string().trim().nullable().optional(),
+  manualOverride: z.boolean().optional(),
+  summary: editableDraftSummarySchema.optional(),
+  items: z
+    .array(
+      editableDraftLineItemSchema.extend({
+        orderedQuantity: z.number().min(0).optional(),
+        unitPurchasePrice: z.number().min(0).optional(),
+      })
+    )
+    .optional(),
 });
 
 export type EditableDraftFields = z.infer<typeof editableDraftFieldsSchema>;

@@ -38,7 +38,7 @@ export function uploadBufferToCloudinary(
   }
 ): Promise<{ public_id: string; secure_url: string }> {
   return new Promise((resolve, reject) => {
-    if (!isCloudinaryConfigured) {
+    if (!isCloudinaryConfigured || env.NODE_ENV === 'test') {
       if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') {
         const mockPublicId = `${options.folder}/${options.public_id}`;
         const format = options.resource_type === 'raw' ? 'pdf' : 'png';

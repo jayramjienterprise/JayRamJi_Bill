@@ -77,6 +77,11 @@ class ApiClient {
       }
 
       if (result.data === undefined) {
+        // Defensive check: if the server returned payload fields directly at the root (e.g. { success: true, draft: ... })
+        const { success: _s, error: _e, correlationId: _c, ...rest } = result as any;
+        if (Object.keys(rest).length > 0) {
+          return rest as T;
+        }
         throw new ApiError(
           'API response did not contain expected data payload',
           'MISSING_DATA_PAYLOAD',
@@ -87,6 +92,9 @@ class ApiClient {
       return result.data;
     } catch (error: any) {
       if (error instanceof ApiError) {
+        throw error;
+      }
+      if (error?.name === 'AbortError') {
         throw error;
       }
       // Handle network connection/cors failures

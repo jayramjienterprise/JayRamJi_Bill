@@ -47,6 +47,11 @@ export interface Product {
   type: 'SERVICE' | 'PRODUCT';
   name: string;
   description: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+  hsnCode?: string | null;
+  lastPurchasePriceMinor?: number | null;
+  stockQuantity?: number | null;
   uom: string;
   defaultPriceMinor: number;
   currency: 'INR';

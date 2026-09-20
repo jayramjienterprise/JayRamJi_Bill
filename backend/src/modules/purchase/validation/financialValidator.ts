@@ -189,11 +189,13 @@ export function compareAmounts(
 export function determineTaxMode(params: {
   lines: LineItemCalculationInput[];
   invoiceTotals?: InvoiceTotalsCalculationInput;
+  totals?: InvoiceTotalsCalculationInput;
   placeOfSupply?: string | null;
   supplierState?: string | null;
   buyerState?: string | null;
 }): TaxMode {
-  const { lines, invoiceTotals, placeOfSupply, supplierState, buyerState } = params;
+  const { lines, placeOfSupply, supplierState, buyerState } = params;
+  const invoiceTotals = params.invoiceTotals || params.totals;
 
   // 0. If zero tax exists on all lines and totals, default tax mode cleanly without ambiguity
   const anyTax =
@@ -212,7 +214,10 @@ export function determineTaxMode(params: {
       (invoiceTotals?.totalTax && invoiceTotals.totalTax > 0) ||
         (invoiceTotals?.cgstAmount && invoiceTotals.cgstAmount > 0) ||
         (invoiceTotals?.sgstAmount && invoiceTotals.sgstAmount > 0) ||
-        (invoiceTotals?.igstAmount && invoiceTotals.igstAmount > 0)
+        (invoiceTotals?.igstAmount && invoiceTotals.igstAmount > 0) ||
+        ((invoiceTotals as any)?.cgstRate && (invoiceTotals as any).cgstRate > 0) ||
+        ((invoiceTotals as any)?.sgstRate && (invoiceTotals as any).sgstRate > 0) ||
+        ((invoiceTotals as any)?.igstRate && (invoiceTotals as any).igstRate > 0)
     );
 
   if (!anyTax) {
@@ -220,15 +225,31 @@ export function determineTaxMode(params: {
   }
 
   // 1. Explicit line-level or total-level tax presence
-  const hasIgst = lines.some((l) => (l.igstRate !== null && l.igstRate !== undefined && l.igstRate > 0) || (l.igstAmount !== null && l.igstAmount !== undefined && l.igstAmount > 0)) ||
-    Boolean(invoiceTotals?.igstAmount && invoiceTotals.igstAmount > 0);
+  const hasIgst =
+    lines.some(
+      (l) =>
+        (l.igstRate !== null && l.igstRate !== undefined && l.igstRate > 0) ||
+        (l.igstAmount !== null && l.igstAmount !== undefined && l.igstAmount > 0)
+    ) ||
+    Boolean(
+      (invoiceTotals?.igstAmount && invoiceTotals.igstAmount > 0) ||
+        ((invoiceTotals as any)?.igstRate && (invoiceTotals as any).igstRate > 0)
+    );
 
-  const hasCgstOrSgst = lines.some(
-    (l) => (l.cgstRate !== null && l.cgstRate !== undefined && l.cgstRate > 0) ||
-      (l.sgstRate !== null && l.sgstRate !== undefined && l.sgstRate > 0) ||
-      (l.cgstAmount !== null && l.cgstAmount !== undefined && l.cgstAmount > 0) ||
-      (l.sgstAmount !== null && l.sgstAmount !== undefined && l.sgstAmount > 0)
-  ) || Boolean((invoiceTotals?.cgstAmount && invoiceTotals.cgstAmount > 0) || (invoiceTotals?.sgstAmount && invoiceTotals.sgstAmount > 0));
+  const hasCgstOrSgst =
+    lines.some(
+      (l) =>
+        (l.cgstRate !== null && l.cgstRate !== undefined && l.cgstRate > 0) ||
+        (l.sgstRate !== null && l.sgstRate !== undefined && l.sgstRate > 0) ||
+        (l.cgstAmount !== null && l.cgstAmount !== undefined && l.cgstAmount > 0) ||
+        (l.sgstAmount !== null && l.sgstAmount !== undefined && l.sgstAmount > 0)
+    ) ||
+    Boolean(
+      (invoiceTotals?.cgstAmount && invoiceTotals.cgstAmount > 0) ||
+        (invoiceTotals?.sgstAmount && invoiceTotals.sgstAmount > 0) ||
+        ((invoiceTotals as any)?.cgstRate && (invoiceTotals as any).cgstRate > 0) ||
+        ((invoiceTotals as any)?.sgstRate && (invoiceTotals as any).sgstRate > 0)
+    );
 
   // If contradictory tax components exist, return UNKNOWN rather than forcing a mode
   if (hasCgstOrSgst && hasIgst) {
@@ -247,11 +268,32 @@ export function determineTaxMode(params: {
 
   // Precedence 3: If explicit tax components are absent, use reliable place-of-supply / supplier-state information
   if (supplierState && (buyerState || placeOfSupply)) {
-    const targetState = (placeOfSupply || buyerState)!.trim().toLowerCase();
-    const sourceState = supplierState.trim().toLowerCase();
+    const rawTarget = (placeOfSupply || buyerState)!;
+    const rawSource = supplierState;
 
-    if (targetState && sourceState) {
-      if (sourceState === targetState) {
+    // Helper to extract 2-digit GST state code and cleaned state name
+    const parseState = (str: string) => {
+      const codeMatch = str.match(/\b(\d{2})\b/);
+      const code = codeMatch ? codeMatch[1] : null;
+      const cleanName = str.replace(/[\d\(\)\-_,\.]/g, '').trim().toLowerCase();
+      return { code, cleanName };
+    };
+
+    const source = parseState(rawSource);
+    const target = parseState(rawTarget);
+
+    // If both have 2-digit GST codes and they match
+    if (source.code && target.code) {
+      return source.code === target.code ? 'INTRA_STATE' : 'INTER_STATE';
+    }
+
+    // If cleaned state names match
+    if (source.cleanName && target.cleanName) {
+      if (
+        source.cleanName === target.cleanName ||
+        source.cleanName.includes(target.cleanName) ||
+        target.cleanName.includes(source.cleanName)
+      ) {
         return 'INTRA_STATE';
       } else {
         return 'INTER_STATE';
@@ -626,24 +668,74 @@ export function validateLineItem(
 export function validateInvoice(params: {
   lines: LineItemCalculationInput[];
   totals?: InvoiceTotalsCalculationInput;
+  invoiceTotals?: InvoiceTotalsCalculationInput;
   placeOfSupply?: string | null;
   supplierState?: string | null;
   buyerState?: string | null;
   tolerancePaise?: number;
 }): InvoiceValidationResult {
   const tolerance = params.tolerancePaise ?? DEFAULT_FINANCIAL_TOLERANCE_PAISE;
-  const taxMode = determineTaxMode(params);
+  const totals = params.totals || params.invoiceTotals;
+  const taxMode = determineTaxMode({ ...params, invoiceTotals: totals });
+
+  // Derive document-level uniform tax rates if applicable
+  let docCgstRate: number | null = null;
+  let docSgstRate: number | null = null;
+  let docIgstRate: number | null = null;
+  let docGstRate: number | null = null;
+
+  const baseSubtotal = totals?.taxableAmount || totals?.subtotal;
+  if (baseSubtotal && baseSubtotal > 0) {
+    if (taxMode === 'INTRA_STATE') {
+      if ((totals as any)?.cgstRate !== undefined && (totals as any)?.cgstRate !== null) {
+        docCgstRate = (totals as any).cgstRate;
+      } else if (totals?.cgstAmount && totals.cgstAmount > 0) {
+        docCgstRate = Math.round((totals.cgstAmount / baseSubtotal) * 10000) / 100;
+      }
+
+      if ((totals as any)?.sgstRate !== undefined && (totals as any)?.sgstRate !== null) {
+        docSgstRate = (totals as any).sgstRate;
+      } else if (totals?.sgstAmount && totals.sgstAmount > 0) {
+        docSgstRate = Math.round((totals.sgstAmount / baseSubtotal) * 10000) / 100;
+      }
+
+      if (docCgstRate && docSgstRate) {
+        docGstRate = docCgstRate + docSgstRate;
+      }
+    } else if (taxMode === 'INTER_STATE') {
+      if ((totals as any)?.igstRate !== undefined && (totals as any)?.igstRate !== null) {
+        docIgstRate = (totals as any).igstRate;
+      } else if (totals?.igstAmount && totals.igstAmount > 0) {
+        docIgstRate = Math.round((totals.igstAmount / baseSubtotal) * 10000) / 100;
+      } else if (totals?.totalTax && totals.totalTax > 0) {
+        docIgstRate = Math.round((totals.totalTax / baseSubtotal) * 10000) / 100;
+      }
+      docGstRate = docIgstRate;
+    }
+  }
 
   // 1. Validate all line items
-  const lineResults: LineItemValidationResult[] = params.lines.map((line, idx) =>
-    validateLineItem(
-      {
-        ...line,
-        lineNumber: line.lineNumber ?? idx + 1,
-      },
-      { taxMode, tolerancePaise: tolerance }
-    )
-  );
+  const lineResults: LineItemValidationResult[] = params.lines.map((line, idx) => {
+    const hasLineTax =
+      (line.gstRate !== null && line.gstRate !== undefined && line.gstRate > 0) ||
+      (line.cgstRate !== null && line.cgstRate !== undefined && line.cgstRate > 0) ||
+      (line.sgstRate !== null && line.sgstRate !== undefined && line.sgstRate > 0) ||
+      (line.igstRate !== null && line.igstRate !== undefined && line.igstRate > 0) ||
+      (line.cgstAmount !== null && line.cgstAmount !== undefined && line.cgstAmount > 0) ||
+      (line.sgstAmount !== null && line.sgstAmount !== undefined && line.sgstAmount > 0) ||
+      (line.igstAmount !== null && line.igstAmount !== undefined && line.igstAmount > 0);
+
+    const effectiveLine = {
+      ...line,
+      lineNumber: line.lineNumber ?? idx + 1,
+      cgstRate: !hasLineTax && docCgstRate !== null ? docCgstRate : line.cgstRate,
+      sgstRate: !hasLineTax && docSgstRate !== null ? docSgstRate : line.sgstRate,
+      igstRate: !hasLineTax && docIgstRate !== null ? docIgstRate : line.igstRate,
+      gstRate: !hasLineTax && docGstRate !== null ? docGstRate : line.gstRate,
+    };
+
+    return validateLineItem(effectiveLine, { taxMode, tolerancePaise: tolerance });
+  });
 
   // 2. Aggregate line sums in integer paise
   let sumSubtotalPaise = 0;
@@ -689,7 +781,7 @@ export function validateInvoice(params: {
     }
 
     roundOffComparison = compareAmounts(
-      params.totals.roundOff,
+      totals?.roundOff,
       expectedRoundOffPaise,
       tolerance,
       'Round-off'
@@ -697,16 +789,16 @@ export function validateInvoice(params: {
   }
 
   // 4. Invoice Total Comparisons
-  const totals = params.totals || {};
-  const subtotalComparison = compareAmounts(totals.subtotal, sumSubtotalPaise, tolerance, 'Subtotal');
-  const discountComparison = compareAmounts(totals.totalDiscount, sumDiscountPaise, tolerance, 'Total discount');
-  const taxableComparison = compareAmounts(totals.taxableAmount, sumTaxablePaise, tolerance, 'Taxable amount');
-  const cgstComparison = compareAmounts(totals.cgstAmount, sumCgstPaise, tolerance, 'CGST total');
-  const sgstComparison = compareAmounts(totals.sgstAmount, sumSgstPaise, tolerance, 'SGST total');
-  const igstComparison = compareAmounts(totals.igstAmount, sumIgstPaise, tolerance, 'IGST total');
-  const cessComparison = compareAmounts(totals.cessAmount, sumCessPaise, tolerance, 'CESS total');
-  const totalTaxComparison = compareAmounts(totals.totalTax, sumTaxPaise, tolerance, 'Total tax');
-  const grandTotalComparison = compareAmounts(totals.grandTotal, calculatedGrandTotalPaise, tolerance, 'Grand total');
+  const invoiceTotalsForCompare = totals || {};
+  const subtotalComparison = compareAmounts(invoiceTotalsForCompare.subtotal, sumSubtotalPaise, tolerance, 'Subtotal');
+  const discountComparison = compareAmounts(invoiceTotalsForCompare.totalDiscount, sumDiscountPaise, tolerance, 'Total discount');
+  const taxableComparison = compareAmounts(invoiceTotalsForCompare.taxableAmount, sumTaxablePaise, tolerance, 'Taxable amount');
+  const cgstComparison = compareAmounts(invoiceTotalsForCompare.cgstAmount, sumCgstPaise, tolerance, 'CGST total');
+  const sgstComparison = compareAmounts(invoiceTotalsForCompare.sgstAmount, sumSgstPaise, tolerance, 'SGST total');
+  const igstComparison = compareAmounts(invoiceTotalsForCompare.igstAmount, sumIgstPaise, tolerance, 'IGST total');
+  const cessComparison = compareAmounts(invoiceTotalsForCompare.cessAmount, sumCessPaise, tolerance, 'CESS total');
+  const totalTaxComparison = compareAmounts(invoiceTotalsForCompare.totalTax, sumTaxPaise, tolerance, 'Total tax');
+  const grandTotalComparison = compareAmounts(invoiceTotalsForCompare.grandTotal, calculatedGrandTotalPaise, tolerance, 'Grand total');
 
   const messages: string[] = [];
 

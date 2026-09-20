@@ -6,11 +6,16 @@ import { AppError } from '../../middleware/errorHandler';
 
 // Zod validation schemas
 export const createProductSchema = z.object({
-  type: z.enum(['SERVICE', 'PRODUCT']).default('SERVICE'),
+  type: z.enum(['SERVICE', 'PRODUCT']).default('PRODUCT'),
   name: z.string().min(1, 'Product/service name is required'),
   description: z.string().nullable().optional(),
+  sku: z.string().trim().nullable().optional(),
+  barcode: z.string().trim().nullable().optional(),
+  hsnCode: z.string().trim().nullable().optional(),
   uom: z.string().min(1, 'Unit of measurement (UOM) is required'),
   defaultPriceMinor: z.coerce.number().min(0, 'Default price cannot be negative'),
+  lastPurchasePriceMinor: z.coerce.number().min(0).nullable().optional(),
+  stockQuantity: z.coerce.number().min(0).optional().default(0),
   currency: z.enum(['INR']).default('INR'),
   defaultTaxRateBps: z.coerce.number().min(0, 'Tax rate cannot be negative').default(0),
 });
@@ -19,8 +24,13 @@ export const updateProductSchema = z.object({
   type: z.enum(['SERVICE', 'PRODUCT']).optional(),
   name: z.string().min(1, 'Product/service name cannot be empty').optional(),
   description: z.string().nullable().optional(),
+  sku: z.string().trim().nullable().optional(),
+  barcode: z.string().trim().nullable().optional(),
+  hsnCode: z.string().trim().nullable().optional(),
   uom: z.string().min(1, 'UOM cannot be empty').optional(),
   defaultPriceMinor: z.coerce.number().min(0, 'Default price cannot be negative').optional(),
+  lastPurchasePriceMinor: z.coerce.number().min(0).nullable().optional(),
+  stockQuantity: z.coerce.number().min(0).optional(),
   currency: z.enum(['INR']).optional(),
   defaultTaxRateBps: z.coerce.number().min(0, 'Tax rate cannot be negative').optional(),
 });
@@ -31,6 +41,64 @@ export const updateProductSchema = z.object({
 export async function createProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const validated = createProductSchema.parse(req.body);
+
+    // Duplicate prevention: check SKU
+    if (validated.sku) {
+      const existingBySku = await Product.findOne({
+        businessId: req.businessId,
+        sku: validated.sku.trim(),
+        deletedAt: null,
+      });
+      if (existingBySku) {
+        res.status(200).json({
+          success: true,
+          data: {
+            product: existingBySku,
+            alreadyExisted: true,
+          },
+          message: 'Product with this SKU already exists',
+        });
+        return;
+      }
+    }
+
+    // Duplicate prevention: check Barcode
+    if (validated.barcode) {
+      const existingByBarcode = await Product.findOne({
+        businessId: req.businessId,
+        barcode: validated.barcode.trim(),
+        deletedAt: null,
+      });
+      if (existingByBarcode) {
+        res.status(200).json({
+          success: true,
+          data: {
+            product: existingByBarcode,
+            alreadyExisted: true,
+          },
+          message: 'Product with this barcode already exists',
+        });
+        return;
+      }
+    }
+
+    // Duplicate prevention: check exact name (case-insensitive)
+    const existingByName = await Product.findOne({
+      businessId: req.businessId,
+      name: { $regex: new RegExp(`^${validated.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      deletedAt: null,
+    });
+    if (existingByName) {
+      res.status(200).json({
+        success: true,
+        data: {
+          product: existingByName,
+          alreadyExisted: true,
+        },
+        message: 'Product with this name already exists',
+      });
+      return;
+    }
 
     const product = await Product.create({
       ...validated,
