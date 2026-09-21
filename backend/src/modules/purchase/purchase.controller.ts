@@ -12,6 +12,9 @@ import { InvoiceSequence } from '../../database/models/InvoiceSequence';
 import { AppError } from '../../middleware/errorHandler';
 import { processReceiving } from './receiving.controller';
 
+import { VendorPayment } from '../../database/models/VendorPayment';
+import { generatePaymentNumber } from './payment.controller';
+
 const purchaseItemInputSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
   productName: z.string().optional(),
@@ -35,6 +38,16 @@ export const billAttachmentInputSchema = z.object({
   uploadedBy: z.string().or(z.instanceof(Types.ObjectId)).optional(),
 });
 
+export const purchasePaymentInputSchema = z.object({
+  amount: z.number().min(0, 'Payment amount cannot be negative'),
+  paymentMethod: z.enum(['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER']).optional(),
+  paymentAccountId: z.string().nullable().optional(),
+  paymentDate: z.string().or(z.date()).optional(),
+  referenceNumber: z.string().trim().nullable().optional(),
+  reference: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+});
+
 export const createPurchaseSchema = z.object({
   purchaseType: z.enum(['DIRECT_PURCHASE', 'ORDERED_PURCHASE']).default('DIRECT_PURCHASE'),
   vendorId: z.string().min(1, 'Vendor is required'),
@@ -46,6 +59,7 @@ export const createPurchaseSchema = z.object({
   items: z.array(purchaseItemInputSchema).min(1, 'At least one product item is required'),
   notes: z.string().nullable().optional(),
   billAttachments: z.array(billAttachmentInputSchema).optional().default([]),
+  payment: purchasePaymentInputSchema.optional(),
   directReceivedFull: z.boolean().optional().default(false), // Convenience flag for direct purchase
   allowDuplicateInvoice: z.boolean().optional().default(false),
 });
@@ -350,9 +364,26 @@ export async function executeCreatePurchaseCore(params: {
 
   const purchaseNumber = await generatePurchaseNumber(businessId);
 
-  const paidAmount = 0;
-  const outstandingAmount = grandTotal;
-  const paymentStatus: PaymentStatus = 'UNPAID';
+  const paymentInput = validated.payment;
+  let paidAmount = 0;
+  let outstandingAmount = grandTotal;
+  let paymentStatus: PaymentStatus = 'UNPAID';
+
+  if (paymentInput && paymentInput.amount > 0) {
+    if (paymentInput.amount > grandTotal) {
+      throw new AppError(
+        `Payment amount (₹${paymentInput.amount}) cannot exceed purchase grand total (₹${grandTotal}).`,
+        400,
+        'OVERPAYMENT_NOT_ALLOWED'
+      );
+    }
+    if (!paymentInput.paymentMethod) {
+      throw new AppError('Payment method is required when amount paid is greater than 0', 400, 'PAYMENT_METHOD_REQUIRED');
+    }
+    paidAmount = Math.round(paymentInput.amount * 100) / 100;
+    outstandingAmount = Math.max(0, Math.round((grandTotal - paidAmount) * 100) / 100);
+    paymentStatus = calculatePaymentStatus(grandTotal, paidAmount);
+  }
 
   let purchase: any;
   try {
@@ -385,6 +416,27 @@ export async function executeCreatePurchaseCore(params: {
       throw new AppError('A purchase has already been created for this draft', 409, 'DUPLICATE_CONVERSION');
     }
     throw err;
+  }
+
+  // If payment was provided, record VendorPayment record idempotently
+  if (paymentInput && paymentInput.amount > 0) {
+    const existingPayment = await VendorPayment.findOne({ purchaseId: purchase._id, businessId });
+    if (!existingPayment) {
+      const paymentNumber = await generatePaymentNumber(businessId);
+      await VendorPayment.create({
+        businessId,
+        vendorId: purchase.vendorId,
+        purchaseId: purchase._id,
+        paymentAccountId: paymentInput.paymentAccountId ? new Types.ObjectId(paymentInput.paymentAccountId) : undefined,
+        paymentNumber,
+        amount: paidAmount,
+        paymentMethod: paymentInput.paymentMethod || 'UPI',
+        paymentDate: paymentInput.paymentDate ? new Date(paymentInput.paymentDate) : new Date(),
+        referenceNumber: paymentInput.referenceNumber || paymentInput.reference || null,
+        notes: paymentInput.notes || null,
+        createdBy: userId ? new Types.ObjectId(userId) : undefined,
+      });
+    }
   }
 
   // If Direct Purchase with immediate physical receipt, execute receiving workflow

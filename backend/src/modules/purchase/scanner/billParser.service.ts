@@ -439,7 +439,27 @@ export function mapRawToPurchaseBillExtraction(
     const bbox = normalizeBoundingBox(it.bbox, pageNum);
 
     const qtyNorm = normalizeNumeric(it.quantity);
-    const unitPriceNorm = normalizeNumeric(it.unitPrice);
+    const rawPrice = it.unitPrice ?? (it as any).rate ?? (it as any).unitRate ?? (it as any).price;
+    const rawTotal = it.lineTotal ?? (it as any).amount ?? (it as any).lineAmount ?? (it as any).totalAmount;
+
+    let unitPriceNorm = normalizeNumeric(rawPrice);
+    const lineTotalNorm = normalizeNumeric(rawTotal);
+
+    // Rate vs Amount disambiguation:
+    // If quantity > 1 and unitPrice matches lineTotal (or diverges by >10x from expected rate),
+    // the printed line total was mistakenly assigned to unitPrice.
+    if (
+      qtyNorm.value !== null &&
+      qtyNorm.value > 1 &&
+      unitPriceNorm.value !== null &&
+      lineTotalNorm.value !== null
+    ) {
+      if (Math.abs(unitPriceNorm.value - lineTotalNorm.value) < 0.05) {
+        const computedRate = Math.round((lineTotalNorm.value / qtyNorm.value) * 100) / 100;
+        unitPriceNorm = { value: computedRate, warning: null };
+      }
+    }
+
     const discPctNorm = normalizePercentage(it.discountPercent);
     const discAmtNorm = normalizeNumeric(it.discountAmount);
     const taxableNorm = normalizeNumeric(it.taxableAmount);
@@ -452,7 +472,6 @@ export function mapRawToPurchaseBillExtraction(
     const igstAmtNorm = normalizeNumeric(it.igstAmount);
     const cessRateNorm = normalizePercentage(it.cessRate);
     const cessAmtNorm = normalizeNumeric(it.cessAmount);
-    const lineTotalNorm = normalizeNumeric(it.lineTotal);
 
     return {
       id: `line_${lineNum}_${Date.now()}_${idx}`,

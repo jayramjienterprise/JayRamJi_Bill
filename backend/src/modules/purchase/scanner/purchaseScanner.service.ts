@@ -608,7 +608,12 @@ export class PurchaseScannerService {
       working.invoice.placeOfSupply.value = patchData.placeOfSupply;
     }
     if (patchData.notes !== undefined) {
-      working.additional.notes.value = patchData.notes;
+      if (!working.additional) working.additional = {} as any;
+      if (!working.additional.notes) {
+        working.additional.notes = { value: patchData.notes, confidence: 1, status: 'VERIFIED', bbox: null };
+      } else {
+        working.additional.notes.value = patchData.notes;
+      }
     }
 
     // Apply manual vendor override if supplied
@@ -768,17 +773,45 @@ export class PurchaseScannerService {
     working.items = lineItemsWithCalculated;
     // If manual override is NOT active, automatically sync working summary with calculated totals
     if (!draft.manualOverride) {
-      working.summary.subtotal.value = reconciliationDetail.calculatedSubtotal;
-      working.summary.totalTax.value = reconciliationDetail.calculatedTaxTotal;
-      working.summary.grandTotal.value = reconciliationDetail.calculatedGrandTotal;
+      if (!working.summary) working.summary = {} as any;
+      if (!working.summary.subtotal) {
+        working.summary.subtotal = { value: reconciliationDetail.calculatedSubtotal, confidence: 1, status: 'VERIFIED' };
+      } else {
+        working.summary.subtotal.value = reconciliationDetail.calculatedSubtotal;
+      }
+
+      if (!working.summary.totalTax) {
+        working.summary.totalTax = { value: reconciliationDetail.calculatedTaxTotal, confidence: 1, status: 'VERIFIED' };
+      } else {
+        working.summary.totalTax.value = reconciliationDetail.calculatedTaxTotal;
+      }
+
+      if (!working.summary.grandTotal) {
+        working.summary.grandTotal = { value: reconciliationDetail.calculatedGrandTotal, confidence: 1, status: 'VERIFIED' };
+      } else {
+        working.summary.grandTotal.value = reconciliationDetail.calculatedGrandTotal;
+      }
+
       if (reconciliationDetail.calculatedCgstAmount !== undefined) {
-        working.summary.cgstAmount.value = reconciliationDetail.calculatedCgstAmount;
+        if (!working.summary.cgstAmount) {
+          working.summary.cgstAmount = { value: reconciliationDetail.calculatedCgstAmount, confidence: 1, status: 'VERIFIED' };
+        } else {
+          working.summary.cgstAmount.value = reconciliationDetail.calculatedCgstAmount;
+        }
       }
       if (reconciliationDetail.calculatedSgstAmount !== undefined) {
-        working.summary.sgstAmount.value = reconciliationDetail.calculatedSgstAmount;
+        if (!working.summary.sgstAmount) {
+          working.summary.sgstAmount = { value: reconciliationDetail.calculatedSgstAmount, confidence: 1, status: 'VERIFIED' };
+        } else {
+          working.summary.sgstAmount.value = reconciliationDetail.calculatedSgstAmount;
+        }
       }
       if (reconciliationDetail.calculatedIgstAmount !== undefined) {
-        working.summary.igstAmount.value = reconciliationDetail.calculatedIgstAmount;
+        if (!working.summary.igstAmount) {
+          working.summary.igstAmount = { value: reconciliationDetail.calculatedIgstAmount, confidence: 1, status: 'VERIFIED' };
+        } else {
+          working.summary.igstAmount.value = reconciliationDetail.calculatedIgstAmount;
+        }
       }
     }
 
@@ -827,6 +860,15 @@ export class PurchaseScannerService {
       invoiceDate?: string;
       dueDate?: string;
       notes?: string;
+      payment?: {
+        amount: number;
+        paymentMethod?: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER';
+        paymentAccountId?: string | null;
+        paymentDate?: string | Date;
+        referenceNumber?: string | null;
+        reference?: string | null;
+        notes?: string | null;
+      };
       items?: {
         id: string;
         productId: string;
@@ -1233,11 +1275,12 @@ export class PurchaseScannerService {
           dueDate,
           status: 'CONFIRMED',
           items: validatedItems,
-          notes: payload?.notes !== undefined ? payload.notes : (lockedDraft.extraction.additional.notes.value || null),
+          notes: payload?.notes !== undefined ? payload.notes : (lockedDraft.extraction?.additional?.notes?.value || null),
           billAttachments,
           directReceivedFull: payload?.directReceivedFull ?? true,
           allowDuplicateInvoice: payload?.allowDuplicateInvoice ?? false,
           sourceDraftId: lockedDraft._id,
+          payment: payload?.payment,
         },
       });
 

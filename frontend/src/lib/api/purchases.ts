@@ -605,6 +605,15 @@ export interface ParseCsvResult {
   rows: ParsedCsvRow[];
 }
 
+export interface PurchasePaymentInput {
+  amount: number;
+  paymentMethod?: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER';
+  paymentAccountId?: string | null;
+  paymentDate?: string;
+  referenceNumber?: string | null;
+  notes?: string | null;
+}
+
 export interface VendorPayment {
   _id: string;
   paymentNumber: string;

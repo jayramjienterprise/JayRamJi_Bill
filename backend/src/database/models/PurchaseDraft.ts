@@ -229,6 +229,10 @@ export interface IPurchaseDraft extends Document {
   vendorMatch: IVendorMatchResult;
   manualOverride?: boolean;
   userCorrections?: IUserCorrection[];
+  totalSource?: 'PRINTED_BILL' | 'DETERMINISTIC_CALCULATION' | 'DETERMINISTIC_CALCULATION_PENDING' | 'USER_OVERRIDE';
+  finalPurchaseTotal?: number | null;
+  acceptedCalculatedTotalAt?: Date | null;
+  acceptedCalculatedTotalBy?: Types.ObjectId | null;
   status: DraftStatus;
   idempotencyKey?: string | null;
   confirmedPurchaseId?: Types.ObjectId | null;
@@ -543,6 +547,14 @@ const PurchaseDraftSchema = new Schema<IPurchaseDraft>(
         reason: { type: String, default: null },
       },
     ],
+    totalSource: {
+      type: String,
+      enum: ['PRINTED_BILL', 'DETERMINISTIC_CALCULATION', 'DETERMINISTIC_CALCULATION_PENDING', 'USER_OVERRIDE'],
+      default: 'PRINTED_BILL',
+    },
+    finalPurchaseTotal: { type: Number, default: null },
+    acceptedCalculatedTotalAt: { type: Date, default: null },
+    acceptedCalculatedTotalBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     status: {
       type: String,
       required: true,

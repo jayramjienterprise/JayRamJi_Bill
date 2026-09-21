@@ -43,7 +43,16 @@ CRITICAL EXTRACTION RULES (MANDATORY):
 11. PRECISE TAX & TOTALS EXTRACTION:
 - Carefully read all printed numbers at the bottom of the invoice without altering digits.
 - Extract the exact printed CGST amount, SGST amount, total tax, and grand total.
-- Do not misread numbers or alter printed figures.`;
+- Do not misread numbers or alter printed figures.
+12. RATE VS AMOUNT (MANDATORY):
+- In Indian purchase bills and invoices, line items contain columns like 'Qty | Rate | Amount' or 'Qty | Price | Total'.
+- 'Rate', 'Rate/Unit', 'Unit Rate', or 'Unit Price' is the cost for ONE single unit: map this strictly to 'unitPrice' (e.g. 7.50).
+- 'Amount', 'Taxable Amount', 'Net Amount', or 'Line Total' is the line subtotal (quantity × rate): map this to 'lineTotal' / 'taxableAmount' (e.g. 7500).
+- CRITICAL: NEVER map the printed line 'Amount' into 'unitPrice'! If an item says Qty: 1000, Rate: 7.50, Amount: 7500, then 'unitPrice' MUST be 7.50 (NOT 7500!) and 'lineTotal' is 7500.
+13. SUPPLIER BANK DETAILS VS PAYMENT STATUS (MANDATORY):
+- Supplier bank details (Bank Name, Account Number, IFSC, UPI ID) printed on invoices are PAYMENT INSTRUCTIONS, NOT PROOF OF PAYMENT!
+- DO NOT mark payment as paid or infer payment occurred merely because bank details are present.
+- Only extract 'amountPaid' and payment info if the invoice explicitly prints words like 'PAID', 'Payment Received', 'Cash Received', or a completed transaction ID. Otherwise, 'amountPaid' MUST be null.`;
 
 export const EXTRACTION_RETRY_PROMPT = `CRITICAL RETRY INSTRUCTION:
 The previous extraction attempt failed because the output was not valid JSON or contained non-JSON wrappers.

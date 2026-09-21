@@ -620,7 +620,16 @@ export function validateLineItem(
 
   // 7. Line Total Calculation & Comparison
   const calcLineTotalPaise = calculatedTaxablePaise + calcCgstPaise + calcSgstPaise + calcIgstPaise + calcCessPaise;
-  const lineTotalComparison = compareAmounts(item.lineTotal, calcLineTotalPaise, tolerance, 'Line total');
+  let lineTotalComparison = compareAmounts(item.lineTotal, calcLineTotalPaise, tolerance, 'Line total');
+
+  // In bills where tax is calculated at invoice summary level (e.g. Shree Balaji Traders),
+  // the printed column 'Amount' reflects the pre-tax taxable base. Check if it matches taxable amount.
+  if (lineTotalComparison.status === 'MISMATCH') {
+    const preTaxComparison = compareAmounts(item.lineTotal, calculatedTaxablePaise, tolerance, 'Line amount');
+    if (preTaxComparison.status === 'MATCH') {
+      lineTotalComparison = preTaxComparison;
+    }
+  }
 
   if (lineTotalComparison.status === 'MISMATCH') {
     messages.push(`Printed line total (${item.lineTotal}) differs from calculated total (${toRupees(calcLineTotalPaise)}).`);

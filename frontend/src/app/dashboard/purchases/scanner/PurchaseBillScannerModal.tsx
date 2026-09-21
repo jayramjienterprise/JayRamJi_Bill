@@ -29,6 +29,7 @@ import {
   Info,
   Edit3,
   Paperclip,
+  CreditCard,
 } from 'lucide-react';
 import {
   purchasesApi,
@@ -37,7 +38,7 @@ import {
   Vendor,
   FieldStatus,
 } from '../../../../lib/api/purchases';
-import { Product } from '../../../../lib/api/types';
+import { Product, PaymentAccount } from '../../../../lib/api/types';
 import { apiClient } from '../../../../lib/api/client';
 
 interface PurchaseBillScannerModalProps {
@@ -139,6 +140,12 @@ export default function PurchaseBillScannerModal({
   const [directReceivedFull, setDirectReceivedFull] = useState<boolean>(true);
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paymentReference, setPaymentReference] = useState<string>('');
+  const [paymentStatusChoice, setPaymentStatusChoice] = useState<'UNPAID' | 'PARTIALLY_PAID' | 'PAID'>('UNPAID');
+  const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [paymentAccountId, setPaymentAccountId] = useState<string>('');
+  const [paymentDate, setPaymentDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [notes, setNotes] = useState<string>('');
 
   // Financial Edit & Manual Override State (Phase 5.6)
@@ -186,7 +193,7 @@ export default function PurchaseBillScannerModal({
     'Preparing interactive review draft...',
   ];
 
-  // Reset state on open/close
+  // Reset state on open/close & fetch payment accounts
   useEffect(() => {
     if (!isOpen) {
       // Abort any in-flight scan
@@ -209,6 +216,17 @@ export default function PurchaseBillScannerModal({
       setErrorMessage(null);
       setShowConfirmDialog(false);
       setConfirmError(null);
+      setPaymentStatusChoice('UNPAID');
+      setAmountPaid(0);
+      setPaymentMethod('CASH');
+      setPaymentAccountId('');
+      setPaymentReference('');
+      setPaymentNotes('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+    } else {
+      apiClient.listPaymentAccounts({ active: true })
+        .then((accs) => setPaymentAccounts(accs || []))
+        .catch(() => setPaymentAccounts([]));
     }
   }, [isOpen]);
 
@@ -514,12 +532,13 @@ export default function PurchaseBillScannerModal({
     const discPct = item.discountPercent?.value || 0;
     const gstRate = item.gstRate?.value || 0;
 
-    const baseAmount = qty * price;
-    const discountAmount = Math.round((baseAmount * discPct) / 100 * 100) / 100;
-    const taxableAmount = Math.max(0, baseAmount - discountAmount);
-    const taxAmount = Math.round((taxableAmount * gstRate) / 100 * 100) / 100;
+    const baseAmount = Math.round(qty * price * 100) / 100;
+    const discountAmount = Math.round(((baseAmount * discPct) / 100) * 100) / 100;
+    const taxableAmount = Math.max(0, Math.round((baseAmount - discountAmount) * 100) / 100);
+    const taxAmount = Math.round(((taxableAmount * gstRate) / 100) * 100) / 100;
     const lineTotal = Math.round((taxableAmount + taxAmount) * 100) / 100;
 
+    item.discountAmount = { ...item.discountAmount, value: discountAmount };
     item.taxableAmount = { ...item.taxableAmount, value: taxableAmount };
     item.lineTotal = { ...item.lineTotal, value: lineTotal };
     if (!item.calculated) {
@@ -534,6 +553,8 @@ export default function PurchaseBillScannerModal({
       };
     } else {
       item.calculated.taxableAmount = taxableAmount;
+      item.calculated.cgstAmount = Math.round((taxAmount / 2) * 100) / 100;
+      item.calculated.sgstAmount = Math.round((taxAmount / 2) * 100) / 100;
       item.calculated.lineTotal = lineTotal;
     }
   };
@@ -1121,6 +1142,15 @@ export default function PurchaseBillScannerModal({
         return `Line #${i + 1} has an invalid unit price.`;
       }
     }
+    if (amountPaid > activeGrandTotal) {
+      return `Amount paid (₹${amountPaid}) cannot exceed Grand Total (₹${activeGrandTotal}).`;
+    }
+    if (amountPaid > 0 && !paymentMethod) {
+      return 'Please select a Payment Method for the recorded payment.';
+    }
+    if (amountPaid > 0 && !paymentDate) {
+      return 'Please provide a valid Payment Date.';
+    }
     return null;
   };
 
@@ -1154,6 +1184,14 @@ export default function PurchaseBillScannerModal({
         paymentMethod,
         paymentReference: paymentReference.trim() || undefined,
         notes: notes.trim() || undefined,
+        payment: amountPaid > 0 ? {
+          amount: amountPaid,
+          paymentMethod,
+          paymentAccountId: paymentAccountId || undefined,
+          paymentDate: paymentDate || new Date().toISOString().split('T')[0],
+          reference: paymentReference.trim() || undefined,
+          notes: paymentNotes.trim() || undefined,
+        } : undefined,
         manualOverride: manualOverride || undefined,
         summary: manualOverride && draft.extraction?.summary ? {
           taxableAmount: draft.extraction.summary.taxableAmount?.value,
@@ -1940,7 +1978,7 @@ export default function PurchaseBillScannerModal({
                                   <span>•</span>
                                   <span>Qty: {it.quantity?.value ?? 1} {it.unit?.value || 'NOS'}</span>
                                   <span>•</span>
-                                  <span>Rate: ₹{it.unitPrice?.value ?? 0}</span>
+                                  <span>Unit Price: ₹{it.unitPrice?.value ?? 0}</span>
                                   <span>•</span>
                                   <span>GST: {it.gstRate?.value ?? 18}%</span>
                                 </div>
@@ -2063,7 +2101,7 @@ export default function PurchaseBillScannerModal({
 
                             <div>
                               <label className="text-[10px] font-bold text-gray-500 block mb-0.5">
-                                Price (₹)
+                                Unit Price (₹)
                               </label>
                               <input
                                 type="number"
@@ -2112,7 +2150,7 @@ export default function PurchaseBillScannerModal({
 
                             <div>
                               <label className="text-[10px] font-bold text-gray-500 block mb-0.5">
-                                Total (₹)
+                                Line Total (₹)
                               </label>
                               <div className="w-full text-xs font-mono font-bold text-gray-900 p-1.5 text-right bg-gray-50 rounded-lg border border-gray-100">
                                 ₹{(it.lineTotal?.value || 0).toFixed(2)}
@@ -2271,6 +2309,33 @@ export default function PurchaseBillScannerModal({
                           <span>Grand Total</span>
                           <span className="font-mono text-purple-700 text-base">
                             ₹{activeGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-xs border-t border-gray-200/80 pt-2 text-emerald-700 font-semibold">
+                          <span>Amount Paid</span>
+                          <span className="font-mono font-bold">
+                            ₹{amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-xs text-rose-700 font-semibold">
+                          <span>Balance Due</span>
+                          <span className="font-mono font-bold">
+                            ₹{Math.max(0, Math.round((activeGrandTotal - amountPaid) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-xs pt-1">
+                          <span className="text-gray-600 font-medium">Payment Status</span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            amountPaid <= 0
+                              ? 'bg-rose-100 text-rose-800'
+                              : amountPaid >= activeGrandTotal
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {amountPaid <= 0 ? 'UNPAID' : amountPaid >= activeGrandTotal ? 'PAID' : 'PARTIALLY PAID'}
                           </span>
                         </div>
                       </div>
@@ -2602,7 +2667,174 @@ export default function PurchaseBillScannerModal({
                   )}
                 </div>
 
-                {/* Section 5: Receiving & Payment Options */}
+                {/* Section 5: Payment Details (Phase 5.7) */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-5 h-5 text-purple-600" />
+                      <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+                        Payment Details
+                      </h3>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                      amountPaid <= 0
+                        ? 'bg-gray-100 text-gray-700'
+                        : amountPaid >= activeGrandTotal
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {amountPaid <= 0 ? 'UNPAID' : amountPaid >= activeGrandTotal ? 'PAID' : 'PARTIALLY PAID'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Payment Status Choice */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                        Payment Status
+                      </label>
+                      <div className="flex rounded-xl bg-gray-100 p-1 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentStatusChoice('UNPAID');
+                            setAmountPaid(0);
+                          }}
+                          className={`flex-1 py-1.5 rounded-lg text-center transition cursor-pointer ${
+                            paymentStatusChoice === 'UNPAID'
+                              ? 'bg-white text-gray-900 shadow-xs font-bold'
+                              : 'text-gray-500 hover:text-gray-900'
+                          }`}
+                        >
+                          Unpaid
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentStatusChoice('PARTIALLY_PAID');
+                            if (amountPaid <= 0 || amountPaid >= activeGrandTotal) {
+                              setAmountPaid(Math.round((activeGrandTotal / 2) * 100) / 100);
+                            }
+                          }}
+                          className={`flex-1 py-1.5 rounded-lg text-center transition cursor-pointer ${
+                            paymentStatusChoice === 'PARTIALLY_PAID'
+                              ? 'bg-white text-amber-800 shadow-xs font-bold'
+                              : 'text-gray-500 hover:text-gray-900'
+                          }`}
+                        >
+                          Partially Paid
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentStatusChoice('PAID');
+                            setAmountPaid(activeGrandTotal);
+                          }}
+                          className={`flex-1 py-1.5 rounded-lg text-center transition cursor-pointer ${
+                            paymentStatusChoice === 'PAID'
+                              ? 'bg-white text-emerald-800 shadow-xs font-bold'
+                              : 'text-gray-500 hover:text-gray-900'
+                          }`}
+                        >
+                          Fully Paid
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Amount Paid */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                        Amount Paid (₹)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={activeGrandTotal}
+                        step="any"
+                        value={amountPaid === 0 ? '' : amountPaid}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value) || 0);
+                          setAmountPaid(val);
+                          if (val <= 0) setPaymentStatusChoice('UNPAID');
+                          else if (val >= activeGrandTotal) setPaymentStatusChoice('PAID');
+                          else setPaymentStatusChoice('PARTIALLY_PAID');
+                        }}
+                        placeholder="₹0.00"
+                        className="w-full text-xs font-mono font-bold rounded-xl border border-gray-200 p-2 focus:ring-purple-500 bg-white"
+                      />
+                    </div>
+
+                    {/* Payment Method */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                        Payment Method {amountPaid > 0 && <span className="text-rose-500">*</span>}
+                      </label>
+                      <select
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="w-full text-xs font-semibold rounded-xl border border-gray-200 p-2 focus:ring-purple-500 bg-white"
+                      >
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                        <option value="CHEQUE">Cheque</option>
+                        <option value="CARD">Card</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {amountPaid > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+                      {paymentAccounts.length > 0 && (
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                            Payment Account
+                          </label>
+                          <select
+                            value={paymentAccountId}
+                            onChange={(e) => setPaymentAccountId(e.target.value)}
+                            className="w-full text-xs font-semibold rounded-xl border border-gray-200 p-2 focus:ring-purple-500 bg-white"
+                          >
+                            <option value="">-- Direct / Primary Cash --</option>
+                            {paymentAccounts.map((acc) => (
+                              <option key={acc.id} value={acc.id}>
+                                {acc.name} ({acc.type})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                          Payment Date <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={paymentDate}
+                          onChange={(e) => setPaymentDate(e.target.value)}
+                          className="w-full text-xs font-semibold rounded-xl border border-gray-200 p-2 focus:ring-purple-500 bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                          Reference / Txn ID
+                        </label>
+                        <input
+                          type="text"
+                          value={paymentReference}
+                          onChange={(e) => setPaymentReference(e.target.value)}
+                          placeholder="Optional transaction ref"
+                          className="w-full text-xs font-semibold rounded-xl border border-gray-200 p-2 focus:ring-purple-500 bg-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Section 6: Receiving & Inventory Workflow */}
                 <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
                   <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
                     Receiving &amp; Inventory Workflow

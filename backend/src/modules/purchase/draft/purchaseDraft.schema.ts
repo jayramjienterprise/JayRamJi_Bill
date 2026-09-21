@@ -333,6 +333,16 @@ export const editableDraftFieldsSchema = z
   })
   .strict(); // Rejects any payload containing unexpected or server-controlled fields!
 
+export const purchaseDraftPaymentSchema = z.object({
+  amount: z.number().min(0, 'Payment amount cannot be negative'),
+  paymentMethod: z.enum(['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER']).optional(),
+  paymentAccountId: z.string().nullable().optional(),
+  paymentDate: z.string().or(z.date()).optional(),
+  referenceNumber: z.string().trim().nullable().optional(),
+  reference: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
+});
+
 export const confirmDraftSchema = z.object({
   vendorId: z.string().nullable().optional(),
   vendorInvoiceNumber: z.string().trim().nullable().optional(),
@@ -343,6 +353,7 @@ export const confirmDraftSchema = z.object({
   directReceivedFull: z.boolean().default(false),
   paymentMethod: z.string().nullable().optional(),
   paymentReference: z.string().nullable().optional(),
+  payment: purchaseDraftPaymentSchema.optional(),
   allowDuplicateInvoice: z.boolean().default(false),
   notes: z.string().trim().nullable().optional(),
   manualOverride: z.boolean().optional(),

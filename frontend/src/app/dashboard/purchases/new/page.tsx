@@ -33,13 +33,19 @@ import {
   ExtractedBillDraft,
 } from '../../../../lib/api/purchases';
 import { apiClient } from '../../../../lib/api/client';
-import { Product } from '../../../../lib/api/types';
+import { Product, PaymentAccount } from '../../../../lib/api/types';
+import {
+  calculateLineItem,
+  calculatePurchaseTotals,
+  formatIndianCurrency,
+} from '../../../../lib/purchase/calculations';
 import PurchaseBillScannerModal from '../scanner/PurchaseBillScannerModal';
 
 interface LineItemInput {
   productId: string;
   productName: string;
   sku: string;
+  unit: string;
   orderedQuantity: number;
   unitPurchasePrice: number;
   discountPercent: number;
@@ -78,12 +84,22 @@ export default function NewPurchasePage() {
       productId: '',
       productName: '',
       sku: '',
+      unit: 'NOS',
       orderedQuantity: 1,
       unitPurchasePrice: 0,
       discountPercent: 0,
       taxRate: 18,
     },
   ]);
+
+  // Payment Details state (Phase 5.7)
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+  const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER'>('UPI');
+  const [paymentAccountId, setPaymentAccountId] = useState<string>('');
+  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [paymentReference, setPaymentReference] = useState<string>('');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
 
   // Full Add Vendor modal state
   const [showAddVendorModal, setShowAddVendorModal] = useState(false);
@@ -111,39 +127,44 @@ export default function NewPurchasePage() {
   const [productError, setProductError] = useState<string | null>(null);
   const [targetProductLineIndex, setTargetProductLineIndex] = useState<number | null>(null);
   const [productFormData, setProductFormData] = useState({
-    type: 'SERVICE' as 'SERVICE' | 'PRODUCT',
+    type: 'PRODUCT' as 'PRODUCT' | 'SERVICE',
     name: '',
     description: '',
-    uom: 'JOB',
+    uom: 'NOS',
     customUom: '',
     priceFloat: '0.00',
-    defaultTaxRateBps: '0',
+    defaultTaxRateBps: '1800',
   });
 
-  // AI Bill Scanner State
+  // Scanner modal state
   const [showScannerModal, setShowScannerModal] = useState(false);
+
+  // Legacy OCR / CSV states
   const [showOcrModal, setShowOcrModal] = useState(false);
   const [ocrScanning, setOcrScanning] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrSuccessNotice, setOcrSuccessNotice] = useState<string | null>(null);
-
-  // CSV Import State
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvParsing, setCsvParsing] = useState(false);
   const [csvError, setCsvError] = useState<string | null>(null);
+
+  // CSV Import State
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [parsingCsv, setParsingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<ParseCsvResult | null>(null);
 
   useEffect(() => {
     async function loadData() {
       try {
         setLoadingInitial(true);
-        const [vendorsRes, productsRes] = await Promise.all([
+        const [vendorsRes, productsRes, accounts] = await Promise.all([
           purchasesApi.listVendors({ isActive: true }),
           apiClient.listProducts({ active: true }),
+          apiClient.listPaymentAccounts({ active: true }).catch(() => []),
         ]);
         setVendors(vendorsRes.vendors || []);
-        // Only physical products or products marked for inventory
         setProducts(productsRes.products || []);
+        setPaymentAccounts(accounts || []);
       } catch (err: any) {
         console.error('Failed to load initial data:', err);
         setFormError('Failed to load vendors and product catalog');
@@ -217,6 +238,7 @@ export default function NewPurchasePage() {
             productId: pId,
             productName: it.matchedProductName || it.rawDescription,
             sku: it.matchedSku || '',
+            unit: 'NOS',
             orderedQuantity: it.rawQuantity || 1,
             unitPurchasePrice: it.rawUnitPrice || 0,
             discountPercent: it.rawDiscountPercent || 0,
@@ -274,6 +296,7 @@ export default function NewPurchasePage() {
         productId: pId,
         productName: r.matchedProductName || r.productName,
         sku: r.sku || '',
+        unit: (r as any).uom || (r as any).unit || 'NOS',
         orderedQuantity: r.quantity,
         unitPurchasePrice: r.unitPurchasePrice,
         discountPercent: r.discountPercent,
@@ -362,6 +385,7 @@ export default function NewPurchasePage() {
               productId: pId,
               productName: p.name,
               sku: (p as any).sku || '',
+              unit: (p as any).uom || 'NOS',
               orderedQuantity: 1,
               unitPurchasePrice: price,
               discountPercent: 0,
@@ -520,6 +544,7 @@ export default function NewPurchasePage() {
         productId: '',
         productName: '',
         sku: '',
+        unit: 'NOS',
         orderedQuantity: 1,
         unitPurchasePrice: 0,
         discountPercent: 0,
@@ -533,31 +558,32 @@ export default function NewPurchasePage() {
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Calculations
-  const calculateLineTotal = (it: LineItemInput) => {
-    const gross = (it.orderedQuantity || 0) * (it.unitPurchasePrice || 0);
-    const discount = (gross * (it.discountPercent || 0)) / 100;
-    const taxable = Math.max(0, gross - discount);
-    const tax = (taxable * (it.taxRate || 0)) / 100;
-    return Math.round((taxable + tax) * 100) / 100;
-  };
+  // Canonical Calculations (Phase 5.7)
+  const calculatedLines = items.map((it) =>
+    calculateLineItem({
+      quantity: it.orderedQuantity,
+      unitPrice: it.unitPurchasePrice,
+      discountPercent: it.discountPercent,
+      taxRate: it.taxRate,
+    })
+  );
 
-  const subtotal = items.reduce(
-    (sum, it) => sum + (it.orderedQuantity || 0) * (it.unitPurchasePrice || 0),
-    0
-  );
-  const totalDiscount = items.reduce(
-    (sum, it) =>
-      sum + ((it.orderedQuantity || 0) * (it.unitPurchasePrice || 0) * (it.discountPercent || 0)) / 100,
-    0
-  );
-  const totalTax = items.reduce((sum, it) => {
-    const gross = (it.orderedQuantity || 0) * (it.unitPurchasePrice || 0);
-    const discount = (gross * (it.discountPercent || 0)) / 100;
-    const taxable = Math.max(0, gross - discount);
-    return sum + (taxable * (it.taxRate || 0)) / 100;
-  }, 0);
-  const grandTotal = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+  const totals = calculatePurchaseTotals({
+    items: calculatedLines,
+    isIntraState: true,
+    amountPaid,
+  });
+
+  const subtotal = totals.subtotal;
+  const totalDiscount = totals.totalDiscount;
+  const totalTax = totals.totalTax;
+  const grandTotal = totals.grandTotal;
+  const balanceDue = totals.balanceDue;
+  const paymentStatus = totals.paymentStatus;
+
+  const calculateLineTotal = (index: number) => {
+    return calculatedLines[index]?.lineTotal ?? 0;
+  };
 
   // Form Submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -575,6 +601,16 @@ export default function NewPurchasePage() {
       return;
     }
 
+    if (amountPaid > grandTotal) {
+      setFormError(`Payment amount (₹${amountPaid}) cannot exceed Grand Total (₹${grandTotal})`);
+      return;
+    }
+
+    if (amountPaid > 0 && !paymentMethod) {
+      setFormError('Please select a payment method for the recorded payment');
+      return;
+    }
+
     try {
       setSubmitting(true);
       const payload = {
@@ -587,6 +623,17 @@ export default function NewPurchasePage() {
         directReceivedFull: purchaseType === 'DIRECT_PURCHASE' ? directReceivedFull : false,
         notes: notes.trim() || undefined,
         allowDuplicateInvoice: isDuplicateBill, // user confirmed if they still proceed
+        payment:
+          amountPaid > 0
+            ? {
+                amount: amountPaid,
+                paymentMethod,
+                paymentAccountId: paymentAccountId || null,
+                paymentDate: paymentDate || undefined,
+                referenceNumber: paymentReference.trim() || null,
+                notes: paymentNotes.trim() || null,
+              }
+            : undefined,
         items: items.map((it) => ({
           productId: it.productId,
           orderedQuantity: Number(it.orderedQuantity),
@@ -921,18 +968,19 @@ export default function NewPurchasePage() {
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-gray-50/75 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <th className="py-2.5 px-3 min-w-[240px]">Product *</th>
-                  <th className="py-2.5 px-3 w-28 text-center">Qty *</th>
-                  <th className="py-2.5 px-3 w-32 text-right">Unit Price (₹) *</th>
-                  <th className="py-2.5 px-3 w-24 text-right">Disc %</th>
-                  <th className="py-2.5 px-3 w-28 text-right">GST %</th>
-                  <th className="py-2.5 px-3 w-32 text-right">Line Total (₹)</th>
+                  <th className="py-2.5 px-3 min-w-[220px]">Product *</th>
+                  <th className="py-2.5 px-3 w-24 text-center">Qty *</th>
+                  <th className="py-2.5 px-3 w-20 text-center">Unit</th>
+                  <th className="py-2.5 px-3 w-28 text-right">Unit Price (₹) *</th>
+                  <th className="py-2.5 px-3 w-20 text-right">Disc %</th>
+                  <th className="py-2.5 px-3 w-24 text-right">GST %</th>
+                  <th className="py-2.5 px-3 w-28 text-right">Line Total (₹)</th>
                   <th className="py-2.5 px-2 w-10 text-center"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {items.map((item, index) => {
-                  const lineTotal = calculateLineTotal(item);
+                  const lineTotal = calculateLineTotal(index);
 
                   return (
                     <tr key={index} className="hover:bg-gray-50/40">
@@ -975,7 +1023,7 @@ export default function NewPurchasePage() {
                         )}
                       </td>
 
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-2">
                         <input
                           type="number"
                           min="1"
@@ -984,11 +1032,22 @@ export default function NewPurchasePage() {
                           onChange={(e) =>
                             handleItemFieldChange(index, 'orderedQuantity', Math.max(1, Number(e.target.value)))
                           }
-                          className="w-full text-center text-sm px-2 py-1.5 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
+                          className="w-full text-center text-sm px-2 py-1.5 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-mono"
                         />
                       </td>
 
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-2">
+                        <input
+                          type="text"
+                          value={item.unit || 'NOS'}
+                          onChange={(e) =>
+                            handleItemFieldChange(index, 'unit', e.target.value.toUpperCase())
+                          }
+                          className="w-full text-center text-xs font-semibold px-1 py-1.5 rounded-lg border border-gray-300 uppercase focus:outline-hidden focus:ring-1 focus:ring-primary-500"
+                        />
+                      </td>
+
+                      <td className="py-3 px-2">
                         <input
                           type="number"
                           min="0"
@@ -998,7 +1057,7 @@ export default function NewPurchasePage() {
                           onChange={(e) =>
                             handleItemFieldChange(index, 'unitPurchasePrice', Math.max(0, Number(e.target.value)))
                           }
-                          className="w-full text-right text-sm px-2 py-1.5 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
+                          className="w-full text-right text-sm px-2 py-1.5 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-mono"
                         />
                       </td>
 
@@ -1118,6 +1177,175 @@ export default function NewPurchasePage() {
             </div>
           </div>
 
+          {/* Step 5: Payment Details */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center">
+                  5
+                </span>
+                Payment Details
+              </h2>
+              <span
+                className={`text-xs px-2.5 py-1 rounded-full font-bold ${
+                  paymentStatus === 'PAID'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : paymentStatus === 'PARTIALLY_PAID'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                {paymentStatus === 'PAID' ? '✓ Fully Paid' : paymentStatus === 'PARTIALLY_PAID' ? '⚠ Partially Paid' : 'Unpaid'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Payment Status Quick Select */}
+              <div className="sm:col-span-3">
+                <label className="block text-xs font-semibold text-gray-700 mb-2">Payment Status</label>
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentChoice"
+                      checked={amountPaid === 0}
+                      onChange={() => setAmountPaid(0)}
+                      className="text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>Unpaid</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentChoice"
+                      checked={amountPaid > 0 && amountPaid < grandTotal}
+                      onChange={() => {
+                        if (amountPaid === 0 || amountPaid >= grandTotal) {
+                          setAmountPaid(Math.round(grandTotal / 2));
+                        }
+                      }}
+                      className="text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>Partially Paid</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <input
+                      type="radio"
+                      name="paymentChoice"
+                      checked={amountPaid >= grandTotal && grandTotal > 0}
+                      onChange={() => setAmountPaid(grandTotal)}
+                      className="text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>Fully Paid</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Amount Paid */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Amount Paid (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={amountPaid}
+                  onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value)))}
+                  className="w-full text-sm font-mono font-bold px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+                />
+                {amountPaid > grandTotal && (
+                  <span className="text-[11px] text-rose-600 font-semibold block mt-1">
+                    Overpayment not allowed. Max: ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+              </div>
+
+              {/* Payment Method */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Payment Method {amountPaid > 0 && <span className="text-rose-500">*</span>}
+                </label>
+                <select
+                  disabled={amountPaid === 0}
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white disabled:opacity-50"
+                >
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="CASH">Cash</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              {/* Payment Account */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Payment Account
+                </label>
+                <select
+                  disabled={amountPaid === 0}
+                  value={paymentAccountId}
+                  onChange={(e) => setPaymentAccountId(e.target.value)}
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white disabled:opacity-50"
+                >
+                  <option value="">-- Select Account (Optional) --</option>
+                  {paymentAccounts.map((acc: any) => (
+                    <option key={acc.id || acc._id} value={acc.id || acc._id}>
+                      {acc.displayName || acc.name} ({acc.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Payment Date */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Payment Date {amountPaid > 0 && <span className="text-rose-500">*</span>}
+                </label>
+                <input
+                  type="date"
+                  disabled={amountPaid === 0}
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                />
+              </div>
+
+              {/* Reference / Transaction ID */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Reference / Txn ID
+                </label>
+                <input
+                  type="text"
+                  disabled={amountPaid === 0}
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="e.g. UTR / UPI Ref (Optional)"
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 font-mono disabled:opacity-50"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Payment Notes
+                </label>
+                <input
+                  type="text"
+                  disabled={amountPaid === 0}
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder="Optional notes"
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Sticky Financial Summary Box */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4 h-fit">
             <h3 className="font-bold text-gray-900 text-sm border-b border-gray-100 pb-3">
@@ -1127,33 +1355,54 @@ export default function NewPurchasePage() {
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Gross Subtotal:</span>
-                <span>₹{subtotal.toLocaleString('en-IN')}</span>
+                <span>₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="flex justify-between text-gray-600">
                 <span>Total Discount:</span>
-                <span className="text-emerald-600">- ₹{totalDiscount.toLocaleString('en-IN')}</span>
+                <span className="text-emerald-600">- ₹{totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="flex justify-between text-gray-600">
                 <span>Total GST Tax:</span>
-                <span>+ ₹{totalTax.toLocaleString('en-IN')}</span>
+                <span>+ ₹{totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="border-t border-gray-200 pt-3 flex justify-between font-bold text-base text-gray-900">
-                <span>Net Payable:</span>
-                <span className="text-primary-700 font-mono">₹{grandTotal.toLocaleString('en-IN')}</span>
+              <div className="border-t border-gray-200 pt-3 flex justify-between font-bold text-sm text-gray-900">
+                <span>Grand Total:</span>
+                <span className="text-primary-700 font-mono">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
-            </div>
 
-            <div className="pt-2 text-[11px] text-gray-500 leading-relaxed bg-gray-50 p-2.5 rounded-xl">
-              💡 <strong>Payment is recorded independently.</strong> This purchase will start with status <strong>UNPAID</strong>. You can record payments (UPI, Bank, Cash) from the purchase page.
+              <div className="flex justify-between text-gray-700 font-medium">
+                <span>Amount Paid:</span>
+                <span className="font-mono text-emerald-600">₹{amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+
+              <div className="border-t border-dashed border-gray-200 pt-2 flex justify-between font-bold text-base text-gray-900">
+                <span>Balance Due:</span>
+                <span className="text-rose-700 font-mono">₹{balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+
+              <div className="pt-1 flex items-center justify-between text-xs">
+                <span className="text-gray-500">Status:</span>
+                <span
+                  className={`px-2 py-0.5 rounded font-bold ${
+                    paymentStatus === 'PAID'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : paymentStatus === 'PARTIALLY_PAID'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {paymentStatus === 'PAID' ? 'PAID' : paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY PAID' : 'UNPAID'}
+                </span>
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+              className="w-full py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 active:scale-98 cursor-pointer mt-4"
             >
               {submitting ? (
                 <>

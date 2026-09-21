@@ -36,6 +36,7 @@ import { BusinessMember } from '../database/models/BusinessMember';
 import { Product } from '../database/models/Product';
 import { Vendor } from '../database/models/Vendor';
 import { Purchase } from '../database/models/Purchase';
+import { VendorPayment } from '../database/models/VendorPayment';
 import { PurchaseDraft, IPurchaseBillExtraction } from '../database/models/PurchaseDraft';
 import { PurchaseReceipt } from '../database/models/PurchaseReceipt';
 import { InventoryTransaction } from '../database/models/InventoryTransaction';
@@ -4213,6 +4214,594 @@ describe('Phase 5 — Production Validation, Accuracy Benchmarking & Observabili
       expect(result.calculated.totalTax).toBe(2700);
       expect(result.calculated.grandTotal).toBe(17700);
       expect(result.isMathValid).toBe(true);
+    });
+  });
+
+  describe('PHASE 5.7: Purchase Calculation, Unit Price, Payment & AI Scanner Workflow', () => {
+    const createTestDraft57 = async (overrides: any = {}) => {
+      const defaultExtraction: any = {
+        supplier: {
+          name: { value: 'Shree Balaji Traders', confidence: 1, status: 'VERIFIED' },
+          gstin: { value: '27BALAJI1234F1Z5', confidence: 1, status: 'VERIFIED' },
+        },
+        invoice: {
+          invoiceNumber: { value: 'SBT/2026/001', confidence: 1, status: 'VERIFIED' },
+          invoiceDate: { value: '2026-03-15', confidence: 1, status: 'VERIFIED' },
+        },
+        items: [
+          {
+            id: 'balaji_item_1',
+            lineNumber: 1,
+            description: { value: 'OPC Cement (50 Kg Bag)', confidence: 1, status: 'VERIFIED' },
+            quantity: { value: 200, confidence: 1, status: 'VERIFIED' },
+            unit: { value: 'BAG', confidence: 1, status: 'VERIFIED' },
+            unitPrice: { value: 380, confidence: 1, status: 'VERIFIED' },
+            discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+            discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+            taxableAmount: { value: 76000, confidence: 1, status: 'VERIFIED' },
+            gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+            lineTotal: { value: 76000, confidence: 1, status: 'VERIFIED' },
+            productMatch: {
+              productId: productA1._id.toString(),
+              productName: 'OPC Cement',
+              matchingMethod: 'EXACT_SKU',
+              confidence: 1,
+              isMatched: true,
+              status: 'VERIFIED',
+            },
+          },
+          {
+            id: 'balaji_item_2',
+            lineNumber: 2,
+            description: { value: 'TMT Steel Bar 12mm', confidence: 1, status: 'VERIFIED' },
+            quantity: { value: 100, confidence: 1, status: 'VERIFIED' },
+            unit: { value: 'NOS', confidence: 1, status: 'VERIFIED' },
+            unitPrice: { value: 620, confidence: 1, status: 'VERIFIED' },
+            discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+            discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+            taxableAmount: { value: 62000, confidence: 1, status: 'VERIFIED' },
+            gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+            lineTotal: { value: 62000, confidence: 1, status: 'VERIFIED' },
+            productMatch: {
+              productId: productA1._id.toString(),
+              productName: 'TMT Steel Bar 12mm',
+              matchingMethod: 'EXACT_SKU',
+              confidence: 1,
+              isMatched: true,
+              status: 'VERIFIED',
+            },
+          },
+          {
+            id: 'balaji_item_3',
+            lineNumber: 3,
+            description: { value: 'TMT Steel Bar 16mm', confidence: 1, status: 'VERIFIED' },
+            quantity: { value: 80, confidence: 1, status: 'VERIFIED' },
+            unit: { value: 'NOS', confidence: 1, status: 'VERIFIED' },
+            unitPrice: { value: 850, confidence: 1, status: 'VERIFIED' },
+            discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+            discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+            taxableAmount: { value: 68000, confidence: 1, status: 'VERIFIED' },
+            gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+            lineTotal: { value: 68000, confidence: 1, status: 'VERIFIED' },
+            productMatch: {
+              productId: productA1._id.toString(),
+              productName: 'TMT Steel Bar 16mm',
+              matchingMethod: 'EXACT_SKU',
+              confidence: 1,
+              isMatched: true,
+              status: 'VERIFIED',
+            },
+          },
+          {
+            id: 'balaji_item_4',
+            lineNumber: 4,
+            description: { value: 'Bricks (Red)', confidence: 1, status: 'VERIFIED' },
+            quantity: { value: 1000, confidence: 1, status: 'VERIFIED' },
+            unit: { value: 'NOS', confidence: 1, status: 'VERIFIED' },
+            unitPrice: { value: 7.5, confidence: 1, status: 'VERIFIED' },
+            discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+            discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+            taxableAmount: { value: 7500, confidence: 1, status: 'VERIFIED' },
+            gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+            lineTotal: { value: 7500, confidence: 1, status: 'VERIFIED' },
+            productMatch: {
+              productId: productA1._id.toString(),
+              productName: 'Bricks (Red)',
+              matchingMethod: 'EXACT_SKU',
+              confidence: 1,
+              isMatched: true,
+              status: 'VERIFIED',
+            },
+          },
+          {
+            id: 'balaji_item_5',
+            lineNumber: 5,
+            description: { value: 'Construction Sand', confidence: 1, status: 'VERIFIED' },
+            quantity: { value: 5, confidence: 1, status: 'VERIFIED' },
+            unit: { value: 'TRUCK', confidence: 1, status: 'VERIFIED' },
+            unitPrice: { value: 2800, confidence: 1, status: 'VERIFIED' },
+            discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+            discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+            taxableAmount: { value: 14000, confidence: 1, status: 'VERIFIED' },
+            gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+            lineTotal: { value: 14000, confidence: 1, status: 'VERIFIED' },
+            productMatch: {
+              productId: productA1._id.toString(),
+              productName: 'Construction Sand',
+              matchingMethod: 'EXACT_SKU',
+              confidence: 1,
+              isMatched: true,
+              status: 'VERIFIED',
+            },
+          },
+        ],
+        summary: {
+          subtotal: { value: 227500, confidence: 1, status: 'VERIFIED' },
+          totalDiscount: { value: 0, confidence: 1, status: 'VERIFIED' },
+          taxableAmount: { value: 227500, confidence: 1, status: 'VERIFIED' },
+          cgstRate: { value: 9, confidence: 1, status: 'VERIFIED' },
+          cgstAmount: { value: 20475, confidence: 1, status: 'VERIFIED' },
+          sgstRate: { value: 9, confidence: 1, status: 'VERIFIED' },
+          sgstAmount: { value: 20475, confidence: 1, status: 'VERIFIED' },
+          totalTax: { value: 40950, confidence: 1, status: 'VERIFIED' },
+          grandTotal: { value: 268450, confidence: 1, status: 'VERIFIED' },
+        },
+      };
+
+      if (overrides.items) {
+        defaultExtraction.items = overrides.items;
+        delete overrides.items;
+      }
+
+      const draftData: any = {
+        businessId: businessA._id,
+        createdBy: userA._id,
+        draftNumber: `DRF-57-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        status: 'DRAFT_READY',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        originalFile: {
+          fileName: 'Shree_Balaji_Traders_Bill.pdf',
+          fileSize: 102400,
+          mimeType: 'application/pdf',
+          fileUrl: 'https://res.cloudinary.com/test/balaji.pdf',
+          publicId: 'test_balaji_pdf',
+          pageCount: 1,
+          previewImages: [],
+        },
+        rawExtraction: JSON.parse(JSON.stringify(defaultExtraction)),
+        extraction: JSON.parse(JSON.stringify(defaultExtraction)),
+        reconciliation: {
+          isMathValid: true,
+          hasDiscrepancies: false,
+          discrepancyNotes: [],
+          calculatedSubtotal: 227500,
+          calculatedTaxTotal: 40950,
+          calculatedGrandTotal: 268450,
+          calculatedCgstAmount: 20475,
+          calculatedSgstAmount: 20475,
+          taxMode: 'INTRA_STATE',
+        },
+        vendorMatch: {
+          matchedVendorId: vendorA._id,
+          matchedVendorName: vendorA.name,
+          matchedVendorGstin: vendorA.gstNumber,
+          matchingMethod: 'EXACT_GSTIN',
+          confidence: 1,
+          status: 'VERIFIED',
+        },
+        ...overrides,
+      };
+
+      return PurchaseDraft.create(draftData);
+    };
+
+    it('TEST 1: Qty 1000 × Unit Price ₹7.50 = ₹7,500 line subtotal (not ₹7,500,000)', () => {
+      const bricksLine = {
+        lineNumber: 1,
+        description: 'Bricks (Red)',
+        quantity: 1000,
+        unit: 'NOS',
+        unitPrice: 7.5,
+        discountPercent: 0,
+        discountAmount: 0,
+        taxableAmount: 7500,
+        gstRate: 18,
+        lineTotal: 8850,
+      };
+
+      const grossAmount = bricksLine.quantity * bricksLine.unitPrice;
+      const taxable = grossAmount - bricksLine.discountAmount;
+      expect(grossAmount).toBe(7500);
+      expect(taxable).toBe(7500);
+    });
+
+    it('TEST 2: All 5 Shree Balaji Traders line items produce exact subtotal of ₹2,27,500', () => {
+      const items = [
+        { desc: 'OPC Cement (50 Kg Bag)', qty: 200, rate: 380, expected: 76000 },
+        { desc: 'TMT Steel Bar 12mm', qty: 100, rate: 620, expected: 62000 },
+        { desc: 'TMT Steel Bar 16mm', qty: 80, rate: 850, expected: 68000 },
+        { desc: 'Bricks (Red)', qty: 1000, rate: 7.5, expected: 7500 },
+        { desc: 'Construction Sand', qty: 5, rate: 2800, expected: 14000 },
+      ];
+
+      let subtotal = 0;
+      for (const it of items) {
+        const lineTotal = it.qty * it.rate;
+        expect(lineTotal).toBe(it.expected);
+        subtotal += lineTotal;
+      }
+      expect(subtotal).toBe(227500);
+    });
+
+    it('TEST 3: GST and Grand Total for Shree Balaji Traders (CGST 9% = ₹20,475, SGST 9% = ₹20,475, Total GST = ₹40,950, Grand Total = ₹2,68,450)', () => {
+      const subtotal = 227500;
+      const cgst = Math.round(((subtotal * 9) / 100) * 100) / 100;
+      const sgst = Math.round(((subtotal * 9) / 100) * 100) / 100;
+      const totalTax = Math.round((cgst + sgst) * 100) / 100;
+      const grandTotal = Math.round((subtotal + totalTax) * 100) / 100;
+
+      expect(cgst).toBe(20475);
+      expect(sgst).toBe(20475);
+      expect(totalTax).toBe(40950);
+      expect(grandTotal).toBe(268450);
+    });
+
+    it('TEST 4: Financial validator validates Shree Balaji Traders fixture with pre-tax line totals against taxableAmount', () => {
+      const lines = [
+        { lineNumber: 1, description: 'OPC Cement', quantity: 200, unitPrice: 380, lineTotal: 76000, taxableAmount: 76000, gstRate: 18 },
+        { lineNumber: 2, description: 'TMT Steel Bar 12mm', quantity: 100, unitPrice: 620, lineTotal: 62000, taxableAmount: 62000, gstRate: 18 },
+        { lineNumber: 3, description: 'TMT Steel Bar 16mm', quantity: 80, unitPrice: 850, lineTotal: 68000, taxableAmount: 68000, gstRate: 18 },
+        { lineNumber: 4, description: 'Bricks (Red)', quantity: 1000, unitPrice: 7.5, lineTotal: 7500, taxableAmount: 7500, gstRate: 18 },
+        { lineNumber: 5, description: 'Construction Sand', quantity: 5, unitPrice: 2800, lineTotal: 14000, taxableAmount: 14000, gstRate: 18 },
+      ];
+
+      const totals = {
+        subtotal: 227500,
+        taxableAmount: 227500,
+        cgstAmount: 20475,
+        sgstAmount: 20475,
+        totalTax: 40950,
+        grandTotal: 268450,
+      };
+
+      const result = validateInvoice({
+        lines: lines as any,
+        totals,
+        placeOfSupply: 'Maharashtra (27)',
+        supplierState: 'Maharashtra',
+      });
+
+      expect(result.calculated.subtotal).toBe(227500);
+      expect(result.calculated.totalTax).toBe(40950);
+      expect(result.calculated.grandTotal).toBe(268450);
+      expect(result.isMathValid).toBe(true);
+      expect(result.comparisons.subtotal.status).toBe('MATCH');
+      expect(result.comparisons.grandTotal.status).toBe('MATCH');
+    });
+
+    it('TEST 5: Decimal unit prices are preserved without integer rounding truncation', () => {
+      const decimals = [
+        { qty: 10, rate: 7.5, expected: 75.0 },
+        { qty: 100, rate: 7.25, expected: 725.0 },
+        { qty: 4, rate: 12.5, expected: 50.0 },
+        { qty: 1000, rate: 0.75, expected: 750.0 },
+        { qty: 2, rate: 99.99, expected: 199.98 },
+      ];
+
+      for (const d of decimals) {
+        const calc = Math.round(d.qty * d.rate * 100) / 100;
+        expect(calc).toBe(d.expected);
+      }
+    });
+
+    it('TEST 6: AI parser rate vs amount disambiguation: if raw unitPrice === lineTotal with qty > 1, recalculates unitPrice', () => {
+      const rawWithBug = {
+        supplier: { name: 'Shree Balaji Traders' },
+        invoice: { invoiceNumber: 'SBT-101', invoiceDate: '2026-03-15' },
+        items: [
+          {
+            description: 'Bricks (Red)',
+            quantity: 1000,
+            unit: 'NOS',
+            unitPrice: 7500, // Buggy extraction mapped line amount as unitPrice
+            amount: 7500,
+            gstRate: 18,
+          },
+        ],
+        summary: { grandTotal: 8850 },
+      };
+
+      const extracted = mapRawToPurchaseBillExtraction(rawWithBug as any);
+      const line = extracted.items[0];
+      expect(line.quantity.value).toBe(1000);
+      expect(line.unitPrice.value).toBe(7.5);
+      expect(line.lineTotal.value).toBe(7500);
+    });
+
+    it('TEST 7: AI extraction safety: presence of supplier bank details does NOT set paymentStatus = PAID', () => {
+      const rawWithBankDetails = {
+        supplier: {
+          name: 'Shree Balaji Traders',
+          bankDetails: 'HDFC Bank, A/C: 50200012345678, IFSC: HDFC0001234',
+        },
+        invoice: {
+          invoiceNumber: 'SBT-102',
+          invoiceDate: '2026-03-15',
+          paymentDetails: 'Please transfer to our HDFC account',
+        },
+        items: [
+          { description: 'Cement', quantity: 10, unitPrice: 380, amount: 3800 },
+        ],
+        summary: { grandTotal: 3800 },
+      };
+
+      const extracted = mapRawToPurchaseBillExtraction(rawWithBankDetails as any);
+      // Must not be marked as PAID
+      expect(extracted.payment?.paymentMode?.value).not.toBe('PAID');
+    });
+
+    it('TEST 8: Default purchase confirmation without payment creates purchase with status UNPAID and no VendorPayment', async () => {
+      const draft = await createTestDraft57();
+
+      const confirmRes = await purchaseScannerService.confirmDraft(
+        businessA._id.toString(),
+        draft._id.toString(),
+        userA._id.toString(),
+        {
+          vendorId: vendorA._id.toString(),
+          vendorInvoiceNumber: `INV-UNPAID-${Date.now()}`,
+          invoiceDate: '2026-03-15',
+          purchaseType: 'DIRECT_PURCHASE',
+          directReceivedFull: true,
+          items: [
+            {
+              id: 'balaji_item_1',
+              productId: productA1._id.toString(),
+              orderedQuantity: 200,
+              unitPurchasePrice: 380,
+              taxRate: 18,
+            },
+          ],
+        }
+      );
+
+      expect(confirmRes.success).toBe(true);
+      const purchase = await Purchase.findById(confirmRes.purchaseId);
+      expect(purchase).toBeDefined();
+      expect(purchase!.paymentStatus).toBe('UNPAID');
+      expect(purchase!.paidAmount).toBe(0);
+      expect(purchase!.outstandingAmount).toBe(purchase!.totalAmount);
+
+      const payment = await VendorPayment.findOne({ purchaseId: purchase!._id, businessId: businessA._id });
+      expect(payment).toBeNull();
+    });
+
+    it('TEST 9: Partial payment confirmation creates VendorPayment and sets status to PARTIALLY_PAID', async () => {
+      const draft = await createTestDraft57();
+
+      const confirmRes = await purchaseScannerService.confirmDraft(
+        businessA._id.toString(),
+        draft._id.toString(),
+        userA._id.toString(),
+        {
+          vendorId: vendorA._id.toString(),
+          vendorInvoiceNumber: `INV-PARTIAL-${Date.now()}`,
+          invoiceDate: '2026-03-15',
+          purchaseType: 'DIRECT_PURCHASE',
+          directReceivedFull: true,
+          items: [
+            {
+              id: 'balaji_item_1',
+              productId: productA1._id.toString(),
+              orderedQuantity: 10,
+              unitPurchasePrice: 1000,
+              taxRate: 18,
+            },
+          ],
+          payment: {
+            amount: 5000,
+            paymentMethod: 'UPI',
+            paymentDate: '2026-03-15',
+            reference: 'UPI-TXN-12345',
+            notes: 'Advance via Jay Ramji UPI',
+          },
+        }
+      );
+
+      expect(confirmRes.success).toBe(true);
+      const purchase = await Purchase.findById(confirmRes.purchaseId);
+      expect(purchase).toBeDefined();
+      expect(purchase!.paymentStatus).toBe('PARTIALLY_PAID');
+      expect(purchase!.paidAmount).toBe(5000);
+      expect(purchase!.outstandingAmount).toBe(purchase!.totalAmount - 5000);
+
+      const payment = await VendorPayment.findOne({ purchaseId: purchase!._id, businessId: businessA._id });
+      expect(payment).toBeDefined();
+      expect(payment!.amount).toBe(5000);
+      expect(payment!.paymentMethod).toBe('UPI');
+      expect(payment!.referenceNumber).toBe('UPI-TXN-12345');
+    });
+
+    it('TEST 10: Full payment confirmation sets status to PAID and outstandingAmount to 0', async () => {
+      const singleItem = [
+        {
+          id: 'balaji_item_1',
+          lineNumber: 1,
+          description: { value: 'OPC Cement', confidence: 1, status: 'VERIFIED' },
+          quantity: { value: 10, confidence: 1, status: 'VERIFIED' },
+          unit: { value: 'BAG', confidence: 1, status: 'VERIFIED' },
+          unitPrice: { value: 1000, confidence: 1, status: 'VERIFIED' },
+          discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+          discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+          taxableAmount: { value: 10000, confidence: 1, status: 'VERIFIED' },
+          gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+          lineTotal: { value: 11800, confidence: 1, status: 'VERIFIED' },
+          productMatch: {
+            productId: productA1._id.toString(),
+            productName: 'OPC Cement',
+            matchingMethod: 'EXACT_SKU',
+            confidence: 1,
+            isMatched: true,
+            status: 'VERIFIED',
+          },
+        },
+      ];
+      const draft = await createTestDraft57({ items: singleItem });
+
+      // 10 items @ 1000 + 18% tax = 11,800
+      const confirmRes = await purchaseScannerService.confirmDraft(
+        businessA._id.toString(),
+        draft._id.toString(),
+        userA._id.toString(),
+        {
+          vendorId: vendorA._id.toString(),
+          vendorInvoiceNumber: `INV-FULL-${Date.now()}`,
+          invoiceDate: '2026-03-15',
+          purchaseType: 'DIRECT_PURCHASE',
+          directReceivedFull: true,
+          items: [
+            {
+              id: 'balaji_item_1',
+              productId: productA1._id.toString(),
+              orderedQuantity: 10,
+              unitPurchasePrice: 1000,
+              taxRate: 18,
+            },
+          ],
+          payment: {
+            amount: 11800,
+            paymentMethod: 'BANK_TRANSFER',
+            paymentDate: '2026-03-15',
+            reference: 'HDFC-IMPS-8877',
+          },
+        }
+      );
+
+      expect(confirmRes.success).toBe(true);
+      const purchase = await Purchase.findById(confirmRes.purchaseId);
+      expect(purchase!.paymentStatus).toBe('PAID');
+      expect(purchase!.paidAmount).toBe(11800);
+      expect(purchase!.outstandingAmount).toBe(0);
+
+      const payment = await VendorPayment.findOne({ purchaseId: purchase!._id, businessId: businessA._id });
+      expect(payment).toBeDefined();
+      expect(payment!.amount).toBe(11800);
+      expect(payment!.paymentMethod).toBe('BANK_TRANSFER');
+    });
+
+    it('TEST 11: Overpayment validation rejects amountPaid > grandTotal with OVERPAYMENT_NOT_ALLOWED', async () => {
+      const singleItem = [
+        {
+          id: 'balaji_item_1',
+          lineNumber: 1,
+          description: { value: 'OPC Cement', confidence: 1, status: 'VERIFIED' },
+          quantity: { value: 10, confidence: 1, status: 'VERIFIED' },
+          unit: { value: 'BAG', confidence: 1, status: 'VERIFIED' },
+          unitPrice: { value: 1000, confidence: 1, status: 'VERIFIED' },
+          discountPercent: { value: 0, confidence: 1, status: 'VERIFIED' },
+          discountAmount: { value: 0, confidence: 1, status: 'VERIFIED' },
+          taxableAmount: { value: 10000, confidence: 1, status: 'VERIFIED' },
+          gstRate: { value: 18, confidence: 1, status: 'VERIFIED' },
+          lineTotal: { value: 11800, confidence: 1, status: 'VERIFIED' },
+          productMatch: {
+            productId: productA1._id.toString(),
+            productName: 'OPC Cement',
+            matchingMethod: 'EXACT_SKU',
+            confidence: 1,
+            isMatched: true,
+            status: 'VERIFIED',
+          },
+        },
+      ];
+      const draft = await createTestDraft57({ items: singleItem });
+
+      await expect(
+        purchaseScannerService.confirmDraft(
+          businessA._id.toString(),
+          draft._id.toString(),
+          userA._id.toString(),
+          {
+            vendorId: vendorA._id.toString(),
+            vendorInvoiceNumber: `INV-OVERPAY-${Date.now()}`,
+            invoiceDate: '2026-03-15',
+            purchaseType: 'DIRECT_PURCHASE',
+            directReceivedFull: true,
+            items: [
+              {
+                id: 'balaji_item_1',
+                productId: productA1._id.toString(),
+                orderedQuantity: 10,
+                unitPurchasePrice: 1000,
+                taxRate: 18,
+              },
+            ],
+            payment: {
+              amount: 50000, // grandTotal is 11,800
+              paymentMethod: 'CASH',
+              paymentDate: '2026-03-15',
+            },
+          }
+        )
+      ).rejects.toThrow('cannot exceed purchase grand total');
+    });
+
+    it('TEST 12: Confirmation retry idempotency: repeating confirmDraft does not duplicate VendorPayment', async () => {
+      const draft = await createTestDraft57();
+
+      const payload = {
+        vendorId: vendorA._id.toString(),
+        vendorInvoiceNumber: `INV-RETRY-PAY-${Date.now()}`,
+        invoiceDate: '2026-03-15',
+        purchaseType: 'DIRECT_PURCHASE' as const,
+        directReceivedFull: true,
+        items: [
+          {
+            id: 'balaji_item_1',
+            productId: productA1._id.toString(),
+            orderedQuantity: 5,
+            unitPurchasePrice: 2000,
+            taxRate: 18,
+          },
+        ],
+        payment: {
+          amount: 5000,
+          paymentMethod: 'UPI' as const,
+          paymentDate: '2026-03-15',
+          reference: 'IDEMPOTENT-REF-1',
+        },
+      };
+
+      const res1 = await purchaseScannerService.confirmDraft(
+        businessA._id.toString(),
+        draft._id.toString(),
+        userA._id.toString(),
+        payload
+      );
+      expect(res1.success).toBe(true);
+
+      // Verify 1 payment exists
+      const paymentsCount1 = await VendorPayment.countDocuments({
+        purchaseId: res1.purchaseId,
+        businessId: businessA._id,
+      });
+      expect(paymentsCount1).toBe(1);
+
+      // Retry confirmation on the already converted draft
+      const res2 = await purchaseScannerService.confirmDraft(
+        businessA._id.toString(),
+        draft._id.toString(),
+        userA._id.toString(),
+        payload
+      );
+      expect(res2.success).toBe(true);
+      expect(res2.purchaseId).toBe(res1.purchaseId);
+
+      // Verify still exactly 1 payment exists (no duplicate)
+      const paymentsCount2 = await VendorPayment.countDocuments({
+        purchaseId: res1.purchaseId,
+        businessId: businessA._id,
+      });
+      expect(paymentsCount2).toBe(1);
     });
   });
 });

@@ -6,6 +6,7 @@ export interface IVendorPayment extends Document {
   businessId: Types.ObjectId;
   vendorId: Types.ObjectId;
   purchaseId?: Types.ObjectId | null;
+  paymentAccountId?: Types.ObjectId | null;
   paymentNumber: string;
   amount: number;
   paymentMethod: VendorPaymentMethod;
@@ -36,6 +37,11 @@ const VendorPaymentSchema = new Schema<IVendorPayment>(
       ref: 'Purchase',
       default: null,
       index: true,
+    },
+    paymentAccountId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PaymentAccount',
+      default: null,
     },
     paymentNumber: {
       type: String,
