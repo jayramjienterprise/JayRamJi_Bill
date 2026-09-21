@@ -281,6 +281,18 @@ export async function generateQuotationPdf(req: Request, res: Response, next: Ne
 
     const customer: any = quotation.customerId;
 
+    const isGeneral = quotation.quotationType === 'GENERAL' || quotation.quotationType === 'STANDARD';
+    const isComp = quotation.quotationType === 'COMPREHENSIVE';
+    const isNonComp = quotation.quotationType === 'NON_COMPREHENSIVE';
+
+    const quotationTitle = isGeneral
+      ? 'QUOTATION INQUIRY'
+      : isComp
+        ? 'AMC QUOTATION (COMPREHENSIVE)'
+        : isNonComp
+          ? 'AMC QUOTATION (NON-COMPREHENSIVE)'
+          : 'QUOTATION INQUIRY';
+
     const renderData: AmcQuotationRenderData = {
       quotation: {
         id: quotation._id.toString(),
@@ -288,7 +300,8 @@ export async function generateQuotationPdf(req: Request, res: Response, next: Ne
         quotationDate: quotation.quotationDate,
         validUntil: quotation.validUntil,
         paymentTerms: quotation.paymentTerms,
-        title: quotation.quotationType === 'COMPREHENSIVE' ? 'AMC QUOTATION (COMPREHENSIVE)' : 'AMC QUOTATION (NON-COMPREHENSIVE)',
+        quotationType: quotation.quotationType,
+        title: quotationTitle,
         termsAndConditions: quotation.termsAndConditions,
       },
       business: {

@@ -144,14 +144,32 @@ export default function AmcQuotationPaper({
     serialNumber: it.serialNumber || idx + 1,
   }));
 
-  const amcTypeLabel =
-    quotation.quotationType === 'COMPREHENSIVE'
+  const isGeneral = quotation.quotationType === 'GENERAL' || quotation.quotationType === 'STANDARD';
+  const isComp = quotation.quotationType === 'COMPREHENSIVE';
+  const isNonComp = quotation.quotationType === 'NON_COMPREHENSIVE';
+
+  const defaultTitle = isGeneral
+    ? 'QUOTATION INQUIRY'
+    : isComp
+      ? 'AMC QUOTATION (COMPREHENSIVE)'
+      : isNonComp
+        ? 'AMC QUOTATION (NON-COMPREHENSIVE)'
+        : 'QUOTATION INQUIRY';
+
+  const resolvedTitle = quotation.title || defaultTitle;
+
+  const hasTypeInTitle = !!(resolvedTitle && (
+    resolvedTitle.includes('COMPREHENSIVE') ||
+    resolvedTitle.includes('NON-COMPREHENSIVE')
+  ));
+
+  const amcTypeLabel = (hasTypeInTitle || isGeneral)
+    ? ''
+    : isComp
       ? 'Comprehensive AMC'
-      : quotation.quotationType === 'NON_COMPREHENSIVE'
+      : isNonComp
         ? 'Non-Comprehensive AMC'
-        : quotation.quotationType === 'STANDARD' || quotation.quotationType === 'GENERAL'
-          ? ''
-          : (quotation.quotationType || '');
+        : (quotation.quotationType || '');
 
   const DEFAULT_ROWS = 10;
   const emptyRowsCount = Math.max(0, DEFAULT_ROWS - displayItems.length);
@@ -272,21 +290,23 @@ export default function AmcQuotationPaper({
               lineHeight: 1.2,
             }}
           >
-            {quotation.title || 'QUOTATION INQUIRY'}
+            {resolvedTitle}
           </div>
-          <div
-            style={{
-              fontSize: '10pt',
-              fontWeight: 'bold',
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              color: '#222222',
-              marginTop: '4px',
-              lineHeight: 1.2,
-            }}
-          >
-            {amcTypeLabel}
-          </div>
+          {amcTypeLabel ? (
+            <div
+              style={{
+                fontSize: '10pt',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '1px',
+                color: '#222222',
+                marginTop: '4px',
+                lineHeight: 1.2,
+              }}
+            >
+              {amcTypeLabel}
+            </div>
+          ) : null}
         </div>
 
         {/* Sold To (No Border Box) */}

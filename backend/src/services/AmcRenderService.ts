@@ -616,13 +616,18 @@ export class AmcRenderService {
       `;
     }).join('');
 
+    const hasTypeInTitle = !!(quotation.title && (
+      quotation.title.includes('COMPREHENSIVE') ||
+      quotation.title.includes('NON-COMPREHENSIVE')
+    ));
+
     // Determine AMC Type Label
-    const amcTypeLabel = quotation.quotationType === 'COMPREHENSIVE'
-      ? 'Comprehensive AMC'
-      : quotation.quotationType === 'NON_COMPREHENSIVE'
-        ? 'Non-Comprehensive AMC'
-        : quotation.quotationType === 'STANDARD' || quotation.quotationType === 'GENERAL'
-          ? ''
+    const amcTypeLabel = (hasTypeInTitle || quotation.quotationType === 'STANDARD' || quotation.quotationType === 'GENERAL')
+      ? ''
+      : quotation.quotationType === 'COMPREHENSIVE'
+        ? 'Comprehensive AMC'
+        : quotation.quotationType === 'NON_COMPREHENSIVE'
+          ? 'Non-Comprehensive AMC'
           : (quotation.quotationType || '');
 
     // Default 10 rows (empty or filled)
@@ -914,7 +919,7 @@ export class AmcRenderService {
             <!-- Title & AMC Type -->
             <div class="quotation-heading-section">
               <div class="quotation-title-centered">${quotation.title || 'QUOTATION INQUIRY'}</div>
-              <div class="amc-type-subtitle">${amcTypeLabel}</div>
+              ${amcTypeLabel ? `<div class="amc-type-subtitle">${amcTypeLabel}</div>` : ''}
             </div>
 
             <!-- Sold To -->
