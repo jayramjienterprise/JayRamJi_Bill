@@ -52,7 +52,20 @@ CRITICAL EXTRACTION RULES (MANDATORY):
 13. SUPPLIER BANK DETAILS VS PAYMENT STATUS (MANDATORY):
 - Supplier bank details (Bank Name, Account Number, IFSC, UPI ID) printed on invoices are PAYMENT INSTRUCTIONS, NOT PROOF OF PAYMENT!
 - DO NOT mark payment as paid or infer payment occurred merely because bank details are present.
-- Only extract 'amountPaid' and payment info if the invoice explicitly prints words like 'PAID', 'Payment Received', 'Cash Received', or a completed transaction ID. Otherwise, 'amountPaid' MUST be null.`;
+- Only extract 'amountPaid' and payment info if the invoice explicitly prints words like 'PAID', 'Payment Received', 'Cash Received', or a completed transaction ID. Otherwise, 'amountPaid' MUST be null.
+14. LINE-LEVEL TAX VS DOCUMENT TAX (MANDATORY):
+- If the itemized product table on the invoice does NOT contain a dedicated printed column for GST/Tax (for example, the table has columns like S.No, Description, HSN, Qty, Rate, Amount), you MUST NOT invent, guess, calculate, or hallucinate line item tax fields! Set line item gstRate, cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount to null.
+- Under NO circumstances should you guess or calculate 25%, 14%, 12.5%, 7%, etc. for individual line items based on product name, HSN, price, or document summary.
+- Line item tax rates must ONLY be extracted if the invoice visibly and explicitly prints a dedicated tax rate column for each line.
+- Set "hasLineTaxColumn": true ONLY if the line item table actually contains a dedicated printed tax column; otherwise set "hasLineTaxColumn": false.
+15. TAX RATE VS. TAX AMOUNT (CRITICAL - NO CONFUSION):
+- A tax rate is a percentage (e.g. 9 for 9%, 18 for 18%).
+- A tax amount is currency in rupees (e.g. 20475 for ₹20,475).
+- NEVER confuse tax amount with tax rate! If an invoice prints 'CGST @ 9%: 20,475', 'cgstRate' is 9 (percentage) and 'cgstAmount' is 20475 (rupees).
+- NEVER set cgstRate to 20, 20.475, or 20475 from an amount like ₹20,475! The rate is 9%.
+16. DECIMAL UNIT RATES & LINE ARITHMETIC (CRITICAL):
+- Preserve exact decimal points in rates (e.g. 7.50 is 7.5, NOT 750 or 75).
+- Verify quantity × unitPrice ≈ line amount (e.g. 1000 × 7.50 = 7500). NEVER turn 7.50 into 750!`;
 
 export const EXTRACTION_RETRY_PROMPT = `CRITICAL RETRY INSTRUCTION:
 The previous extraction attempt failed because the output was not valid JSON or contained non-JSON wrappers.
@@ -64,6 +77,7 @@ Never output markdown fences (\`\`\`json), headings, or prose.`;
 export const EXTRACTION_USER_PROMPT = `Extract all details from the provided purchase bill document page images into the following JSON structure:
 
 {
+  "hasLineTaxColumn": boolean,
   "supplier": {
     "name": string | null,
     "legalName": string | null,

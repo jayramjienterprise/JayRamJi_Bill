@@ -29,7 +29,14 @@ const envSchema = z.object({
   PURCHASE_SCANNER_MAX_FILE_SIZE_MB: z.coerce.number().default(15),
   PURCHASE_SCANNER_MAX_PAGES: z.coerce.number().default(10),
   PURCHASE_SCANNER_TARGET_DPI: z.coerce.number().default(150),
+  // Phase 5.13.1 / Fix: Realistic NIM timeouts for multimodal vision LLMs.
+  // Real multimodal document extraction typically takes 25-45s on NVIDIA NIM cloud.
+  // Per-attempt: 60000ms. Total NIM budget: 90000ms. Global scanner deadline: 90000ms.
   PURCHASE_SCANNER_NIM_TIMEOUT_MS: z.coerce.number().default(60000),
+  NVIDIA_NIM_REQUEST_TIMEOUT_MS: z.coerce.number().default(60000),
+  NVIDIA_NIM_MAX_ATTEMPTS: z.coerce.number().default(2),
+  NVIDIA_NIM_TOTAL_TIMEOUT_MS: z.coerce.number().default(90000),
+  GLOBAL_SCANNER_DEADLINE_MS: z.coerce.number().default(90000),
   PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB: z.coerce.number().default(20),
   PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB: z.coerce.number().default(5),
   PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS: z.coerce.number().default(4096),
@@ -69,6 +76,10 @@ if (!parsed.success) {
     PURCHASE_SCANNER_MAX_PAGES: Number(process.env.PURCHASE_SCANNER_MAX_PAGES) || 10,
     PURCHASE_SCANNER_TARGET_DPI: Number(process.env.PURCHASE_SCANNER_TARGET_DPI) || 150,
     PURCHASE_SCANNER_NIM_TIMEOUT_MS: Number(process.env.PURCHASE_SCANNER_NIM_TIMEOUT_MS) || 60000,
+    NVIDIA_NIM_REQUEST_TIMEOUT_MS: Number(process.env.NVIDIA_NIM_REQUEST_TIMEOUT_MS) || 60000,
+    NVIDIA_NIM_MAX_ATTEMPTS: Number(process.env.NVIDIA_NIM_MAX_ATTEMPTS) || 2,
+    NVIDIA_NIM_TOTAL_TIMEOUT_MS: Number(process.env.NVIDIA_NIM_TOTAL_TIMEOUT_MS) || 90000,
+    GLOBAL_SCANNER_DEADLINE_MS: Number(process.env.GLOBAL_SCANNER_DEADLINE_MS) || 90000,
     PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB: Number(process.env.PURCHASE_SCANNER_MAX_NIM_PAYLOAD_MB) || 20,
     PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB: Number(process.env.PURCHASE_SCANNER_MAX_PAGE_IMAGE_MB) || 5,
     PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS: Number(process.env.PURCHASE_SCANNER_NIM_MAX_OUTPUT_TOKENS) || 4096,

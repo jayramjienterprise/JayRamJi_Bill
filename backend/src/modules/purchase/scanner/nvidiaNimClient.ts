@@ -67,6 +67,7 @@ export interface NvidiaNimClientConfig {
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  totalBudgetMs?: number;
   maxRetries?: number;
 }
 
@@ -78,14 +79,16 @@ export class NvidiaNimClient {
   private readonly baseUrl: string;
   private readonly defaultModel: string;
   private readonly timeoutMs: number;
+  private readonly totalBudgetMs: number;
   private readonly maxRetries: number;
 
   constructor(config?: NvidiaNimClientConfig) {
     this.apiKey = config?.apiKey ?? env.NVIDIA_NIM_API_KEY;
     this.baseUrl = (config?.baseUrl ?? env.NVIDIA_NIM_BASE_URL).replace(/\/+$/, '');
     this.defaultModel = config?.model ?? env.NVIDIA_NIM_MODEL;
-    this.timeoutMs = config?.timeoutMs ?? env.PURCHASE_SCANNER_NIM_TIMEOUT_MS;
-    this.maxRetries = config?.maxRetries ?? 3;
+    this.timeoutMs = config?.timeoutMs ?? env.NVIDIA_NIM_REQUEST_TIMEOUT_MS ?? env.PURCHASE_SCANNER_NIM_TIMEOUT_MS ?? 45000;
+    this.totalBudgetMs = config?.totalBudgetMs ?? env.NVIDIA_NIM_TOTAL_TIMEOUT_MS ?? 90000;
+    this.maxRetries = config?.maxRetries ?? (env.NVIDIA_NIM_MAX_ATTEMPTS ? Math.max(0, env.NVIDIA_NIM_MAX_ATTEMPTS - 1) : 1);
   }
 
   /**
@@ -95,6 +98,8 @@ export class NvidiaNimClient {
     rawText: string;
     model: string;
     durationMs: number;
+    attemptCount?: number;
+    attemptDurations?: number[];
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     finishReason?: string | null;
   }> {
@@ -146,13 +151,38 @@ export class NvidiaNimClient {
     };
 
     const startTime = Date.now();
+    const globalDeadline = startTime + this.totalBudgetMs;
     let attempt = 0;
     let lastError: Error | null = null;
+    // Phase 5.13.1: Track each attempt's duration for observability
+    const attemptDurations: number[] = [];
 
     while (attempt <= this.maxRetries) {
+      const now = Date.now();
+      const remainingTimeMs = globalDeadline - now;
+
+      // Global deadline guard
+      if (remainingTimeMs < 5000) {
+        const totalElapsed = Date.now() - startTime;
+        const deadlineErr = new NvidiaTimeoutError(this.totalBudgetMs);
+        (deadlineErr as any).details = {
+          ...(deadlineErr as any).details,
+          totalElapsedMs: totalElapsed,
+          attemptCount: attempt,
+          attemptDurations,
+          stage: 'GLOBAL_DEADLINE',
+        };
+        throw deadlineErr;
+      }
+
+      const requestTimeoutMs = Math.min(this.timeoutMs, remainingTimeMs);
+      const attemptStart = Date.now();
+
       try {
-        const response = await this.executeHttpRequest(url, requestBody);
-        const durationMs = Date.now() - startTime;
+        const response = await this.executeHttpRequest(url, requestBody, requestTimeoutMs);
+        const attemptDurationMs = Date.now() - attemptStart;
+        attemptDurations.push(attemptDurationMs);
+        const totalDurationMs = Date.now() - startTime;
 
         const firstChoice = response.choices?.[0];
         const rawText = firstChoice?.message?.content || '';
@@ -160,30 +190,48 @@ export class NvidiaNimClient {
         return {
           rawText,
           model,
-          durationMs,
+          durationMs: totalDurationMs,
+          attemptCount: attempt + 1,
+          attemptDurations,
           usage: response.usage,
           finishReason,
         };
       } catch (err: any) {
+        const attemptDurationMs = Date.now() - attemptStart;
+        attemptDurations.push(attemptDurationMs);
         lastError = err;
         const isTransient =
           err instanceof NvidiaRateLimitError ||
           err instanceof NvidiaTimeoutError ||
           (err instanceof NvidiaNimError && err.statusCode >= 500 && err.statusCode <= 504);
 
-        if (isTransient && attempt < this.maxRetries) {
+        const timeRemainingAfterError = globalDeadline - Date.now();
+
+        if (isTransient && attempt < this.maxRetries && timeRemainingAfterError >= 6000) {
           attempt++;
-          // Progressive backoff: 1000ms, 2000ms, 3500ms + random jitter
-          const baseDelay = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 3500;
-          const backoffDelay = baseDelay + Math.floor(Math.random() * 250);
+          // Progressive backoff: 1000ms + random jitter
+          const baseDelay = 1000;
+          const backoffDelay = Math.min(baseDelay + Math.floor(Math.random() * 250), timeRemainingAfterError - 5000);
           console.warn(
-            `[NvidiaNimClient] Transient error (${err.message}). Retrying attempt ${attempt}/${this.maxRetries} after ${backoffDelay}ms...`
+            `[NvidiaNimClient] Transient error on attempt ${attempt - 1} (${attemptDurationMs}ms): ${err.message}. ` +
+            `Retrying attempt ${attempt}/${this.maxRetries} after ${backoffDelay}ms...`
           );
           await new Promise((resolve) => setTimeout(resolve, backoffDelay));
           continue;
         }
 
-        // Permanent error or retries exhausted
+        // Attach attempt diagnostics to the final thrown error for observability
+        const totalElapsed = Date.now() - startTime;
+        const attemptSummary = attemptDurations.map((d, i) => `attempt ${i + 1}: ${d}ms`).join(', ');
+        if (err instanceof NvidiaTimeoutError || err instanceof NvidiaNimError) {
+          err.message = `NVIDIA NIM extraction failed after ${attemptDurations.length} attempt(s) (${attemptSummary}). Total: ${totalElapsed}ms`;
+          (err as any).details = {
+            ...(err as any).details,
+            attemptCount: attemptDurations.length,
+            attemptDurations,
+            totalElapsedMs: totalElapsed,
+          };
+        }
         throw err;
       }
     }
@@ -194,9 +242,10 @@ export class NvidiaNimClient {
   /**
    * Executes low-level fetch request with timeouts, response size bounds, and sanitization
    */
-  private async executeHttpRequest(url: string, body: Record<string, unknown>): Promise<any> {
+  private async executeHttpRequest(url: string, body: Record<string, unknown>, timeoutMsOverride?: number): Promise<any> {
+    const effectiveTimeoutMs = timeoutMsOverride ?? this.timeoutMs;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     const maxResponseBytes = (env.PURCHASE_SCANNER_MAX_RESPONSE_MB || 10) * 1024 * 1024;
 
     try {
@@ -215,7 +264,7 @@ export class NvidiaNimClient {
       }
 
       // 1. Check Content-Length header if present
-      const contentLengthHeader = response.headers.get('content-length');
+      const contentLengthHeader = response.headers?.get ? response.headers.get('content-length') : null;
       if (contentLengthHeader) {
         const contentLength = parseInt(contentLengthHeader, 10);
         if (!isNaN(contentLength) && contentLength > maxResponseBytes) {
@@ -275,7 +324,7 @@ export class NvidiaNimClient {
       }
     } catch (err: any) {
       if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('timeout')) {
-        throw new NvidiaTimeoutError(this.timeoutMs);
+        throw new NvidiaTimeoutError(effectiveTimeoutMs);
       }
       if (err instanceof NvidiaNimError) {
         throw err;

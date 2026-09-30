@@ -1,3 +1,7 @@
+benchmark
+
+node_modules
+
 # Dependencies
 node_modules/
 /jspm_packages/

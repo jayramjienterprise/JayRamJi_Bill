@@ -61,8 +61,17 @@ export interface IExtractedLineItem {
   igstRate: IExtractedField<number>;
   igstAmount: IExtractedField<number>;
   cessRate: IExtractedField<number>;
-  cessAmount: IExtractedField<number>;
   lineTotal: IExtractedField<number>;
+  taxMode?: 'EXCLUSIVE' | 'INCLUSIVE' | 'TAX_EXCLUSIVE' | 'TAX_INCLUSIVE';
+  taxSource?:
+    | 'INVOICE_DOCUMENT_EXTRACTED'
+    | 'INVOICE_LINE_EXTRACTED'
+    | 'INVOICE_EXTRACTED'
+    | 'CATALOG_DEFAULT'
+    | 'USER_OVERRIDE'
+    | 'NOT_SPECIFIED'
+    | 'NONE';
+  gstNotice?: string;
   calculated?: {
     taxableAmount: number;
     cgstAmount: number;
@@ -179,6 +188,10 @@ export interface IPurchaseDraft {
   reconciliation: IDraftReconciliation;
   vendorMatch: IVendorMatchResult;
   manualOverride?: boolean;
+  totalSource?: 'PRINTED_BILL' | 'DETERMINISTIC_CALCULATION' | 'DETERMINISTIC_CALCULATION_PENDING' | 'USER_OVERRIDE';
+  finalPurchaseTotal?: number | null;
+  acceptedCalculatedTotalAt?: string | null;
+  acceptedCalculatedTotalBy?: string | null;
   userCorrections?: Array<{
     field: string;
     originalValue: any;
@@ -503,6 +516,16 @@ export const purchasesApi = {
       purchaseId: string;
       purchase: Purchase;
     }>(`/purchases/scanner/drafts/${draftId}/confirm`, payload || {});
+  },
+
+  async acceptCalculatedTotal(draftId: string, payload?: { items?: any[]; calculatedGrandTotal?: number; taxMode?: string }): Promise<{
+    success: boolean;
+    draft: IPurchaseDraft;
+    calculatedGrandTotal: number;
+    differenceFromPrintedBill: number;
+    status: 'ACCEPTED';
+  }> {
+    return apiClient.post(`/purchases/scanner/drafts/${draftId}/accept-calculated-total`, payload || {});
   },
 
   // CSV Import

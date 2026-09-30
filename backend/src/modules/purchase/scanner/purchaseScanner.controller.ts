@@ -114,11 +114,20 @@ export class PurchaseScannerController {
       const durationMs = Date.now() - startTime;
       scannerMetrics.recordScannerRequest(false, durationMs);
 
+      const details = error.details || {};
+      const nimAttemptDurations: number[] = details.attemptDurations || [];
+
       logScannerEvent('error', 'SCANNER_UPLOAD_FAILED', {
         correlationId,
         durationMs,
+        scannerDurationMs: durationMs,
         error: error.message,
         errorCode: error.errorCode || error.code || 'UNKNOWN_ERROR',
+        finalFailureStage: error.finalFailureStage || details.stage || (error.name === 'NvidiaTimeoutError' || error.errorCode === 'NVIDIA_TIMEOUT' ? 'nim_extraction' : 'unknown'),
+        nimAttemptCount: details.attemptCount ?? (nimAttemptDurations.length > 0 ? nimAttemptDurations.length : null),
+        nimAttempt1DurationMs: nimAttemptDurations[0] ?? null,
+        nimAttempt2DurationMs: nimAttemptDurations[1] ?? null,
+        jsonRepairAttempted: details.jsonRepairAttempted ?? false,
       });
 
       next(error);
@@ -169,6 +178,31 @@ export class PurchaseScannerController {
           draft,
         },
         draft,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Handle accepting the deterministic calculated total for a PurchaseDraft.
+   * POST /api/purchases/scanner/drafts/:draftId/accept-calculated-total
+   */
+  public async acceptCalculatedTotalHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const businessId = req.businessId;
+      if (!businessId) {
+        return next(new AppError('Active business workspace context is required', 400, 'BAD_REQUEST'));
+      }
+
+      const userId = (req as any).user?.id || (req as any).user?._id;
+      const { draftId } = req.params;
+      const result = await purchaseScannerService.acceptCalculatedTotal(businessId, draftId, userId, req.body);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        ...result,
       });
     } catch (error) {
       next(error);

@@ -3,6 +3,7 @@ import {
   PurchaseDraft,
   IPurchaseDraft,
   IPurchaseBillExtraction,
+  IExtractedLineItem,
   IVendorMatchResult,
   IDraftReconciliation,
 } from '../../../database/models/PurchaseDraft';
@@ -28,6 +29,8 @@ import * as cloudinaryService from '../../../services/cloudinary';
 import { AppError } from '../../../middleware/errorHandler';
 
 import crypto from 'crypto';
+import { env } from '../../../config/env';
+import { NvidiaTimeoutError } from './nvidiaNimClient';
 import {
   generateScannerCorrelationId,
   hashIdentifier,
@@ -133,7 +136,23 @@ export class PurchaseScannerService {
       return await activeLock.promise;
     }
 
-    const scanPromise = this.executeScanAndCreateDraft(input, fileHash);
+    const globalDeadlineMs = env.GLOBAL_SCANNER_DEADLINE_MS ?? 65000;
+    let deadlineTimer: NodeJS.Timeout | null = null;
+    const deadlinePromise = new Promise<never>((_, reject) => {
+      deadlineTimer = setTimeout(() => {
+        reject(new NvidiaTimeoutError(globalDeadlineMs));
+      }, globalDeadlineMs);
+    });
+
+    const scanPromise = Promise.race([
+      this.executeScanAndCreateDraft(input, fileHash),
+      deadlinePromise,
+    ]).finally(() => {
+      if (deadlineTimer) {
+        clearTimeout(deadlineTimer);
+      }
+    });
+
     if (lockKey) {
       PurchaseScannerService.activeScanLocks.set(lockKey, { promise: scanPromise, fileHash });
     }
@@ -356,6 +375,95 @@ export class PurchaseScannerService {
           : 'MISSING',
         alternatives: safeAlternatives,
       };
+
+      // Phase 5.12: Check whether document specifies tax anywhere (header, summary, or lines)
+      const docHasInvoiceGst =
+        (workingExtraction.summary?.cgstAmount?.value !== null && workingExtraction.summary?.cgstAmount?.value !== undefined && workingExtraction.summary.cgstAmount.value > 0) ||
+        (workingExtraction.summary?.sgstAmount?.value !== null && workingExtraction.summary?.sgstAmount?.value !== undefined && workingExtraction.summary.sgstAmount.value > 0) ||
+        (workingExtraction.summary?.igstAmount?.value !== null && workingExtraction.summary?.igstAmount?.value !== undefined && workingExtraction.summary.igstAmount.value > 0) ||
+        (workingExtraction.summary?.totalTax?.value !== null && workingExtraction.summary?.totalTax?.value !== undefined && workingExtraction.summary.totalTax.value > 0) ||
+        ((workingExtraction.summary as any)?.cgstRate?.value !== null && (workingExtraction.summary as any)?.cgstRate?.value !== undefined && (workingExtraction.summary as any).cgstRate.value > 0) ||
+        ((workingExtraction.summary as any)?.sgstRate?.value !== null && (workingExtraction.summary as any)?.sgstRate?.value !== undefined && (workingExtraction.summary as any).sgstRate.value > 0) ||
+        ((workingExtraction.summary as any)?.igstRate?.value !== null && (workingExtraction.summary as any)?.igstRate?.value !== undefined && (workingExtraction.summary as any).igstRate.value > 0) ||
+        workingExtraction.items.some((it) =>
+          it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' ||
+          it.taxSource === 'INVOICE_LINE_EXTRACTED' ||
+          it.taxSource === 'INVOICE_EXTRACTED' ||
+          (it.gstRate?.value !== null && it.gstRate?.value !== undefined && it.gstRate.value > 0)
+        );
+
+      // Derive invoice default rate if invoice has tax
+      let docDefaultGstRate: number | null = (workingExtraction.tax as any)?.totalGstRate ?? null;
+      if (!docDefaultGstRate && docHasInvoiceGst) {
+        if ((workingExtraction.summary as any)?.igstRate?.value) {
+          docDefaultGstRate = (workingExtraction.summary as any).igstRate.value;
+        } else if ((workingExtraction.summary as any)?.cgstRate?.value && (workingExtraction.summary as any)?.sgstRate?.value) {
+          docDefaultGstRate = (workingExtraction.summary as any).cgstRate.value + (workingExtraction.summary as any).sgstRate.value;
+        } else {
+          const lineWithTax = workingExtraction.items.find((it) =>
+            (it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' || it.taxSource === 'INVOICE_LINE_EXTRACTED' || it.taxSource === 'INVOICE_EXTRACTED') &&
+            (it.gstRate?.value ?? 0) > 0
+          );
+          if (lineWithTax?.gstRate?.value) {
+            docDefaultGstRate = lineWithTax.gstRate.value;
+          }
+        }
+      }
+
+      // Phase 5.12: Product matching is IDENTIFICATION ONLY (Section 13).
+      // Product matching must NEVER overwrite: purchase unit price, quantity, discount, GST, tax source, or line amount.
+      let catalogRate: number | null = null;
+      if (item.productMatch.productId) {
+        const matchedProduct = cachedProducts.find(
+          (p) => p._id.toString() === item.productMatch!.productId
+        );
+        if (matchedProduct && typeof (matchedProduct as any).defaultTaxRateBps === 'number') {
+          catalogRate = (matchedProduct as any).defaultTaxRateBps / 100;
+
+          const isInvoiceTaxSource =
+            item.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' ||
+            item.taxSource === 'INVOICE_LINE_EXTRACTED' ||
+            item.taxSource === 'INVOICE_EXTRACTED';
+
+          if (docHasInvoiceGst || isInvoiceTaxSource) {
+            // Priority 2 & 3: Invoice GST is authoritative; catalog GST CANNOT override invoice GST
+            if (!isInvoiceTaxSource || item.gstRate?.value === null || item.gstRate?.value === undefined) {
+              if (docDefaultGstRate !== null && docDefaultGstRate > 0) {
+                item.gstRate = { value: docDefaultGstRate, confidence: 1, bbox: null, status: 'VERIFIED' };
+                item.cgstRate = { value: docDefaultGstRate / 2, confidence: 1, bbox: null, status: 'VERIFIED' };
+                item.sgstRate = { value: docDefaultGstRate / 2, confidence: 1, bbox: null, status: 'VERIFIED' };
+                item.taxSource = 'INVOICE_DOCUMENT_EXTRACTED';
+              }
+            }
+
+            const currentLineGst = item.gstRate?.value ?? docDefaultGstRate ?? 0;
+            if (catalogRate !== currentLineGst) {
+              item.gstNotice = `Invoice GST (${currentLineGst}%) used for this purchase. (Catalog GST: ${catalogRate}%)`;
+            } else {
+              item.gstNotice = undefined;
+            }
+          } else {
+            // Priority 4: Invoice genuinely has NO tax anywhere -> use catalog default GST
+            item.gstRate = { value: catalogRate, confidence: 1, bbox: null, status: 'VERIFIED' };
+            item.cgstRate = { value: catalogRate / 2, confidence: 1, bbox: null, status: 'VERIFIED' };
+            item.sgstRate = { value: catalogRate / 2, confidence: 1, bbox: null, status: 'VERIFIED' };
+            item.taxSource = 'CATALOG_DEFAULT';
+            item.gstNotice = `Using catalog default GST (${catalogRate}%) as invoice did not specify line GST.`;
+          }
+        }
+      }
+
+      // Section 25: Safe development debug tax trace logging
+      console.log('[DEBUG TAX TRACE]', {
+        lineNumber: item.lineNumber,
+        description: item.description?.value,
+        extractedGstRate: (item as any).rawExtractedGstRate ?? null,
+        documentGstRate: docDefaultGstRate,
+        lineLevelGstEvidence: (workingExtraction.tax as any)?.hasLineLevelTax ?? false,
+        catalogGstRate: catalogRate,
+        finalGstRate: item.gstRate?.value,
+        taxSource: item.taxSource,
+      });
     }
     const matchingDurationMs = Date.now() - tMatchStart;
 
@@ -494,6 +602,12 @@ export class PurchaseScannerService {
     const persistenceDurationMs = Date.now() - tPersistStart;
     const totalDurationMs = Date.now() - tStart;
 
+    const attemptDurations = extractionResult.metadata?.nimAttemptDurations ?? [];
+    const nimAttempt1DurationMs = attemptDurations[0] ?? (extractionResult.metadata?.initialNimDurationMs ?? 0);
+    const nimAttempt2DurationMs = attemptDurations[1] ?? (extractionResult.metadata?.repairNimDurationMs ?? 0);
+    const nimAttemptCount = extractionResult.metadata?.nimAttemptCount ?? (attemptDurations.length || 1);
+    const jsonRepairAttempted = !!extractionResult.metadata?.repaired || !!extractionResult.metadata?.retryAttempted;
+
     // Stage-Level Durations
     const stageDurations: ScannerStageDurations = {
       preprocessing: preprocessingDurationMs,
@@ -508,6 +622,10 @@ export class PurchaseScannerService {
       duplicateInvoiceDetection: duplicateCheckDurationMs,
       draftPersistence: persistenceDurationMs,
       total: totalDurationMs,
+      nimAttemptCount,
+      nimAttempt1DurationMs,
+      nimAttempt2DurationMs,
+      jsonRepairAttempted,
     };
 
     // Record metrics into registry
@@ -728,9 +846,83 @@ export class PurchaseScannerService {
 
     // Apply line item updates
     if (patchData.items && patchData.items.length > 0) {
+      // Invalidate previously accepted total if items change without explicit acceptance
+      if (draft.totalSource === 'DETERMINISTIC_CALCULATION' && !patchData.acceptCalculatedTotal) {
+        draft.totalSource = 'DETERMINISTIC_CALCULATION_PENDING';
+      }
+
+      // Filter out deleted items if items payload is provided
+      const patchItemIds = new Set(
+        patchData.items
+          .filter((it: any) => !it.isDeleted && !it.deleted)
+          .map((it) => it.id)
+      );
+
+      const hasDeletions = working.items.some((it) => !patchItemIds.has(it.id));
+      if (hasDeletions && (patchData.items.length > 1 || (patchData.items[0] as any).isDeleted || (patchData.items[0] as any).deleted || working.items.length > 1)) {
+        working.items = working.items.filter((it) => patchItemIds.has(it.id));
+      }
+
       for (const itemPatch of patchData.items) {
-        const line = working.items.find((it) => it.id === itemPatch.id);
-        if (line) {
+        // If flagged as deleted
+        if ((itemPatch as any).isDeleted || (itemPatch as any).deleted) {
+          working.items = working.items.filter((it) => it.id !== itemPatch.id);
+          continue;
+        }
+
+        const qty = itemPatch.quantity ?? 1;
+        const price = itemPatch.unitPrice ?? 0;
+        const discPct = itemPatch.discountPercent ?? 0;
+        const discAmt = itemPatch.discountAmount ?? ((qty * price * discPct) / 100);
+        const taxable = Math.max(0, qty * price - discAmt);
+        const gstRate = itemPatch.gstRate ?? itemPatch.taxRate ?? 0;
+        const taxAmt = Math.round(taxable * (gstRate / 100) * 100) / 100;
+        const lineTotal = taxable + taxAmt;
+
+        let line = working.items.find((it) => it.id === itemPatch.id);
+        if (!line) {
+          // New line added by user
+          const newLine: IExtractedLineItem = {
+            id: itemPatch.id,
+            lineNumber: itemPatch.lineNumber || (working.items.length + 1),
+            description: { value: itemPatch.description || '', confidence: 1, bbox: null, status: 'VERIFIED' },
+            skuOrCode: { value: itemPatch.skuOrCode || '', confidence: 1, bbox: null, status: 'VERIFIED' },
+            hsnSac: { value: itemPatch.hsnSac || '', confidence: 1, bbox: null, status: 'VERIFIED' },
+            quantity: { value: qty, confidence: 1, bbox: null, status: 'VERIFIED' },
+            unit: { value: itemPatch.unit || 'NOS', confidence: 1, bbox: null, status: 'VERIFIED' },
+            unitPrice: { value: price, confidence: 1, bbox: null, status: 'VERIFIED' },
+            discountPercent: { value: discPct, confidence: 1, bbox: null, status: 'VERIFIED' },
+            discountAmount: { value: discAmt, confidence: 1, bbox: null, status: 'VERIFIED' },
+            taxableAmount: { value: (itemPatch as any).taxableAmount ?? taxable, confidence: 1, bbox: null, status: 'VERIFIED' },
+            gstRate: { value: gstRate, confidence: 1, bbox: null, status: 'VERIFIED' },
+            cgstRate: { value: itemPatch.cgstRate ?? (gstRate / 2), confidence: 1, bbox: null, status: 'VERIFIED' },
+            cgstAmount: { value: Math.round(taxable * ((itemPatch.cgstRate ?? (gstRate / 2)) / 100) * 100) / 100, confidence: 1, bbox: null, status: 'VERIFIED' },
+            sgstRate: { value: itemPatch.sgstRate ?? (gstRate / 2), confidence: 1, bbox: null, status: 'VERIFIED' },
+            sgstAmount: { value: Math.round(taxable * ((itemPatch.sgstRate ?? (gstRate / 2)) / 100) * 100) / 100, confidence: 1, bbox: null, status: 'VERIFIED' },
+            igstRate: { value: itemPatch.igstRate ?? 0, confidence: 1, bbox: null, status: 'VERIFIED' },
+            igstAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
+            cessRate: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
+            cessAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
+            lineTotal: { value: (itemPatch as any).lineTotal ?? lineTotal, confidence: 1, bbox: null, status: 'VERIFIED' },
+            taxMode: itemPatch.taxMode || 'EXCLUSIVE',
+            taxSource: itemPatch.taxSource || 'USER_OVERRIDE',
+            gstNotice: itemPatch.gstNotice ?? null,
+            productMatch: itemPatch.productId ? {
+              productId: itemPatch.productId,
+              productName: itemPatch.description || null,
+              sku: itemPatch.skuOrCode || null,
+              uom: itemPatch.unit || null,
+              currentStock: null,
+              lastPurchasePrice: null,
+              matchingMethod: 'UNMATCHED',
+              confidence: 1.0,
+              isMatched: true,
+              status: 'VERIFIED',
+              alternatives: [],
+            } : undefined,
+          };
+          working.items.push(newLine);
+        } else {
           if (itemPatch.description !== undefined) line.description.value = itemPatch.description;
           if (itemPatch.quantity !== undefined) line.quantity.value = itemPatch.quantity;
           if (itemPatch.unitPrice !== undefined) line.unitPrice.value = itemPatch.unitPrice;
@@ -739,6 +931,29 @@ export class PurchaseScannerService {
           if (itemPatch.skuOrCode !== undefined) line.skuOrCode.value = itemPatch.skuOrCode;
           if (itemPatch.hsnSac !== undefined) line.hsnSac.value = itemPatch.hsnSac;
           if (itemPatch.unit !== undefined) line.unit.value = itemPatch.unit;
+          if (itemPatch.gstRate !== undefined) line.gstRate.value = itemPatch.gstRate;
+          else if (itemPatch.taxRate !== undefined) line.gstRate.value = itemPatch.taxRate;
+          if (itemPatch.cgstRate !== undefined) line.cgstRate.value = itemPatch.cgstRate;
+          if (itemPatch.sgstRate !== undefined) line.sgstRate.value = itemPatch.sgstRate;
+          if (itemPatch.igstRate !== undefined) line.igstRate.value = itemPatch.igstRate;
+          if (itemPatch.taxMode !== undefined) line.taxMode = itemPatch.taxMode;
+          if (itemPatch.taxSource !== undefined) line.taxSource = itemPatch.taxSource;
+          else if (itemPatch.gstRate !== undefined || itemPatch.taxRate !== undefined) {
+            line.taxSource = 'USER_OVERRIDE';
+          }
+          if (itemPatch.gstNotice !== undefined) line.gstNotice = itemPatch.gstNotice;
+
+          // Recalculate line's taxable amount and line total
+          const currentQty = line.quantity?.value ?? 0;
+          const currentPrice = line.unitPrice?.value ?? 0;
+          const currentDiscAmt = line.discountAmount?.value ?? 0;
+          const currentTaxable = Math.max(0, currentQty * currentPrice - currentDiscAmt);
+          const currentGst = line.gstRate?.value ?? 0;
+          const currentTax = Math.round(currentTaxable * (currentGst / 100) * 100) / 100;
+
+          line.taxableAmount.value = (itemPatch as any).taxableAmount ?? currentTaxable;
+          line.lineTotal.value = (itemPatch as any).lineTotal ?? (currentTaxable + currentTax);
+
           if (itemPatch.productId !== undefined) {
             if (!line.productMatch) {
               line.productMatch = {
@@ -771,48 +986,18 @@ export class PurchaseScannerService {
       reconciliationDetail.invoiceValidation
     );
     working.items = lineItemsWithCalculated;
-    // If manual override is NOT active, automatically sync working summary with calculated totals
-    if (!draft.manualOverride) {
-      if (!working.summary) working.summary = {} as any;
-      if (!working.summary.subtotal) {
-        working.summary.subtotal = { value: reconciliationDetail.calculatedSubtotal, confidence: 1, status: 'VERIFIED' };
-      } else {
-        working.summary.subtotal.value = reconciliationDetail.calculatedSubtotal;
-      }
 
-      if (!working.summary.totalTax) {
-        working.summary.totalTax = { value: reconciliationDetail.calculatedTaxTotal, confidence: 1, status: 'VERIFIED' };
-      } else {
-        working.summary.totalTax.value = reconciliationDetail.calculatedTaxTotal;
-      }
+    // Handle totalSource and acceptCalculatedTotal
+    if (patchData.acceptCalculatedTotal) {
+      draft.totalSource = 'DETERMINISTIC_CALCULATION';
+      draft.finalPurchaseTotal = reconciliationDetail.calculatedGrandTotal;
+      draft.acceptedCalculatedTotalAt = new Date();
+    } else if (patchData.totalSource !== undefined) {
+      draft.totalSource = patchData.totalSource;
+    }
 
-      if (!working.summary.grandTotal) {
-        working.summary.grandTotal = { value: reconciliationDetail.calculatedGrandTotal, confidence: 1, status: 'VERIFIED' };
-      } else {
-        working.summary.grandTotal.value = reconciliationDetail.calculatedGrandTotal;
-      }
-
-      if (reconciliationDetail.calculatedCgstAmount !== undefined) {
-        if (!working.summary.cgstAmount) {
-          working.summary.cgstAmount = { value: reconciliationDetail.calculatedCgstAmount, confidence: 1, status: 'VERIFIED' };
-        } else {
-          working.summary.cgstAmount.value = reconciliationDetail.calculatedCgstAmount;
-        }
-      }
-      if (reconciliationDetail.calculatedSgstAmount !== undefined) {
-        if (!working.summary.sgstAmount) {
-          working.summary.sgstAmount = { value: reconciliationDetail.calculatedSgstAmount, confidence: 1, status: 'VERIFIED' };
-        } else {
-          working.summary.sgstAmount.value = reconciliationDetail.calculatedSgstAmount;
-        }
-      }
-      if (reconciliationDetail.calculatedIgstAmount !== undefined) {
-        if (!working.summary.igstAmount) {
-          working.summary.igstAmount = { value: reconciliationDetail.calculatedIgstAmount, confidence: 1, status: 'VERIFIED' };
-        } else {
-          working.summary.igstAmount.value = reconciliationDetail.calculatedIgstAmount;
-        }
-      }
+    if (patchData.finalPurchaseTotal !== undefined) {
+      draft.finalPurchaseTotal = patchData.finalPurchaseTotal;
     }
 
     draft.extraction = working;
@@ -831,9 +1016,76 @@ export class PurchaseScannerService {
 
     draft.markModified('extraction');
     draft.markModified('reconciliation');
+    draft.markModified('totalSource');
+    draft.markModified('finalPurchaseTotal');
+    draft.markModified('acceptedCalculatedTotalAt');
 
     await draft.save();
     return draft;
+  }
+
+  /**
+   * Explicitly accept the deterministic calculated total for this draft.
+   * Deterministically calculates totals from currently submitted purchase lines.
+   */
+  public async acceptCalculatedTotal(
+    businessId: string | Types.ObjectId,
+    draftId: string,
+    userId: string | Types.ObjectId,
+    payload?: { items?: any[] }
+  ): Promise<{
+    draft: IPurchaseDraft;
+    calculatedGrandTotal: number;
+    differenceFromPrintedBill: number;
+    status: 'ACCEPTED';
+  }> {
+    const draft = await this.getDraftById(businessId, draftId);
+
+    if (draft.expiresAt && new Date(draft.expiresAt).getTime() < Date.now()) {
+      throw new AppError('This purchase draft has expired and cannot be modified', 400, 'DRAFT_EXPIRED');
+    }
+
+    // If items provided, update them first
+    if (payload?.items && payload.items.length > 0) {
+      await this.updateDraftById(businessId, draftId, {
+        items: payload.items,
+        acceptCalculatedTotal: true,
+      });
+    } else {
+      await this.updateDraftById(businessId, draftId, {
+        acceptCalculatedTotal: true,
+      });
+    }
+
+    const updated = await this.getDraftById(businessId, draftId);
+    const reconciliation = reconcilePurchaseExtraction(updated.extraction);
+    const calculatedGrandTotal = reconciliation.calculatedGrandTotal;
+    const printedGrandTotal =
+      updated.rawExtraction?.summary?.grandTotal?.value ??
+      updated.extraction?.summary?.grandTotal?.value ??
+      calculatedGrandTotal;
+    const differenceFromPrintedBill = Math.round((calculatedGrandTotal - printedGrandTotal) * 100) / 100;
+
+    updated.totalSource = 'DETERMINISTIC_CALCULATION';
+    updated.finalPurchaseTotal = calculatedGrandTotal;
+    updated.acceptedCalculatedTotalAt = new Date();
+    if (userId) {
+      updated.acceptedCalculatedTotalBy = new Types.ObjectId(userId);
+    }
+
+    updated.markModified('totalSource');
+    updated.markModified('finalPurchaseTotal');
+    updated.markModified('acceptedCalculatedTotalAt');
+    updated.markModified('acceptedCalculatedTotalBy');
+
+    await updated.save();
+
+    return {
+      draft: updated,
+      calculatedGrandTotal,
+      differenceFromPrintedBill,
+      status: 'ACCEPTED',
+    };
   }
 
   /**
@@ -869,8 +1121,11 @@ export class PurchaseScannerService {
         reference?: string | null;
         notes?: string | null;
       };
+      totalSource?: 'PRINTED_BILL' | 'DETERMINISTIC_CALCULATION' | 'DETERMINISTIC_CALCULATION_PENDING' | 'USER_OVERRIDE';
+      finalPurchaseTotal?: number;
       items?: {
         id: string;
+        lineNumber?: number;
         productId: string;
         orderedQuantity?: number;
         unitPurchasePrice?: number;
@@ -1178,19 +1433,52 @@ export class PurchaseScannerService {
         new Date().toISOString().split('T')[0];
 
       // 8. Line items revalidation
-      const draftItems = lockedDraft.extraction.items;
-      if (!draftItems || draftItems.length === 0) {
+      const draftItems = lockedDraft.extraction.items || [];
+      const itemMap = new Map<string, any>();
+      for (const it of draftItems) {
+        itemMap.set(it.id, it);
+      }
+
+      const itemsToValidate = (payload?.items && payload.items.length > 0)
+        ? payload.items.map((p, idx) => {
+            const draftIt = itemMap.get(p.id);
+            return {
+              id: p.id,
+              description: draftIt?.description?.value || `Item #${idx + 1}`,
+              lineNumber: p.lineNumber || draftIt?.lineNumber || idx + 1,
+              productId: p.productId || draftIt?.productMatch?.productId,
+              skuOrCode: draftIt?.skuOrCode?.value || null,
+              orderedQuantity: p.orderedQuantity !== undefined ? p.orderedQuantity : (draftIt?.quantity?.value || 1),
+              unitPurchasePrice: p.unitPurchasePrice !== undefined ? p.unitPurchasePrice : (draftIt?.unitPrice?.value ?? 0),
+              discountPercent: p.discountPercent !== undefined ? p.discountPercent : (draftIt?.discountPercent?.value || 0),
+              discountAmount: draftIt?.discountAmount?.value || 0,
+              taxRate: p.taxRate !== undefined ? p.taxRate : (draftIt?.gstRate?.value || 0),
+            };
+          })
+        : draftItems.map((it, idx) => ({
+            id: it.id,
+            description: it.description?.value || `Item #${it.lineNumber || idx + 1}`,
+            lineNumber: it.lineNumber || idx + 1,
+            productId: it.productMatch?.productId,
+            skuOrCode: it.skuOrCode?.value || null,
+            orderedQuantity: it.quantity?.value && it.quantity.value > 0 ? it.quantity.value : 1,
+            unitPurchasePrice: it.unitPrice?.value ?? 0,
+            discountPercent: it.discountPercent?.value || 0,
+            discountAmount: it.discountAmount?.value || 0,
+            taxRate: it.gstRate?.value || 0,
+          }));
+
+      if (!itemsToValidate || itemsToValidate.length === 0) {
         throw new AppError('Purchase draft contains no line items to confirm', 400, 'ITEMS_REQUIRED');
       }
 
       const validatedItems: any[] = [];
-      for (const it of draftItems) {
-        const itemOverride = payload?.items?.find((p) => p.id === it.id);
-        const productId = itemOverride?.productId || it.productMatch?.productId;
+      for (const it of itemsToValidate) {
+        const productId = it.productId;
 
         if (!productId) {
           throw new AppError(
-            `Line item "${it.description.value || it.lineNumber}" is not mapped to an inventory product`,
+            `Line item "${it.description || it.lineNumber}" is not mapped to an inventory product`,
             400,
             'PRODUCT_UNRESOLVED'
           );
@@ -1200,49 +1488,31 @@ export class PurchaseScannerService {
         const prod = await Product.findOne({ _id: productId, businessId, active: true, deletedAt: null });
         if (!prod) {
           throw new AppError(
-            `Mapped product for line "${it.description.value || it.lineNumber}" does not exist or is inactive`,
+            `Mapped product for line "${it.description || it.lineNumber}" does not exist or is inactive`,
             400,
             'PRODUCT_NOT_FOUND'
           );
         }
 
-        const orderedQty =
-          itemOverride?.orderedQuantity !== undefined
-            ? itemOverride.orderedQuantity
-            : (it.quantity.value && it.quantity.value > 0 ? it.quantity.value : 1);
-
+        const orderedQty = it.orderedQuantity;
         if (orderedQty <= 0) {
-          throw new AppError(`Quantity for "${it.description.value || it.lineNumber}" must be at least 1`, 400, 'INVALID_QUANTITY');
+          throw new AppError(`Quantity for "${it.description || it.lineNumber}" must be at least 1`, 400, 'INVALID_QUANTITY');
         }
 
-        const unitPrice =
-          itemOverride?.unitPurchasePrice !== undefined
-            ? itemOverride.unitPurchasePrice
-            : (it.unitPrice.value !== null && it.unitPrice.value !== undefined ? it.unitPrice.value : 0);
-
+        const unitPrice = it.unitPurchasePrice;
         if (unitPrice < 0) {
-          throw new AppError(`Price for "${it.description.value || it.lineNumber}" cannot be negative`, 400, 'INVALID_PRICE');
+          throw new AppError(`Price for "${it.description || it.lineNumber}" cannot be negative`, 400, 'INVALID_PRICE');
         }
-
-        const discountPercent =
-          itemOverride?.discountPercent !== undefined
-            ? itemOverride.discountPercent
-            : (it.discountPercent?.value || 0);
-
-        const taxRate =
-          itemOverride?.taxRate !== undefined
-            ? itemOverride.taxRate
-            : (it.gstRate?.value || 0);
 
         validatedItems.push({
           productId: prod._id.toString(),
           productName: prod.name,
-          sku: prod.sku || it.skuOrCode?.value || null,
+          sku: prod.sku || it.skuOrCode || null,
           orderedQuantity: orderedQty,
           unitPurchasePrice: unitPrice,
-          discountPercent,
-          discountAmount: it.discountAmount?.value || 0,
-          taxRate,
+          discountPercent: it.discountPercent || 0,
+          discountAmount: it.discountAmount || 0,
+          taxRate: it.taxRate || 0,
         });
       }
 
@@ -1291,6 +1561,16 @@ export class PurchaseScannerService {
       if (userId) {
         lockedDraft.confirmedBy = new Types.ObjectId(userId);
       }
+      if (payload?.totalSource) {
+        lockedDraft.totalSource = payload.totalSource;
+      }
+      if (payload?.finalPurchaseTotal !== undefined) {
+        lockedDraft.finalPurchaseTotal = payload.finalPurchaseTotal;
+      } else if (purchase?.totalAmount !== undefined) {
+        lockedDraft.finalPurchaseTotal = purchase.totalAmount;
+      }
+      lockedDraft.markModified('totalSource');
+      lockedDraft.markModified('finalPurchaseTotal');
       await lockedDraft.save();
 
       console.log(

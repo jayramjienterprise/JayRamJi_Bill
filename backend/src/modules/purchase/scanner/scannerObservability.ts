@@ -126,6 +126,11 @@ export interface ScannerStageDurations {
   duplicateInvoiceDetection: number;
   draftPersistence: number;
   total: number;
+  // Phase 5.13.1: Per-attempt NIM observability
+  nimAttemptCount?: number;       // total NIM HTTP requests across initial + repair
+  nimAttempt1DurationMs?: number; // duration of first HTTP attempt (initial call, attempt 1)
+  nimAttempt2DurationMs?: number; // duration of second HTTP attempt (initial call, attempt 2 OR repair attempt 1)
+  jsonRepairAttempted?: boolean;
 }
 
 /**

@@ -47,6 +47,7 @@ export interface LineItemCalculationInput {
   cessRate?: number | null;
   cessAmount?: number | null; // in Rupees
   lineTotal?: number | null; // printed total
+  taxMode?: 'EXCLUSIVE' | 'INCLUSIVE' | 'TAX_EXCLUSIVE' | 'TAX_INCLUSIVE' | 'UNKNOWN';
 }
 
 export interface LineItemValidationResult {
@@ -532,8 +533,18 @@ export function validateLineItem(
     calculatedDiscountPaise = printedDiscPaise;
   }
 
-  // 5. Taxable Amount Calculation
-  const calculatedTaxablePaise = Math.max(0, grossPaise - calculatedDiscountPaise);
+  // 5. Taxable Amount Calculation (Phase 5.12 Section 12: Inclusive vs Exclusive GST)
+  const isInclusive = item.taxMode === 'INCLUSIVE' || item.taxMode === 'TAX_INCLUSIVE';
+  const effectiveGstRate =
+    item.gstRate ??
+    ((item.cgstRate || 0) + (item.sgstRate || 0) + (item.igstRate || 0));
+
+  let calculatedTaxablePaise: number;
+  if (isInclusive && effectiveGstRate > 0) {
+    calculatedTaxablePaise = Math.round(((grossPaise - calculatedDiscountPaise) * 100) / (100 + effectiveGstRate));
+  } else {
+    calculatedTaxablePaise = Math.max(0, grossPaise - calculatedDiscountPaise);
+  }
   let taxableComparison: ComparisonFieldResult | undefined = undefined;
   if (item.taxableAmount !== null && item.taxableAmount !== undefined) {
     taxableComparison = compareAmounts(item.taxableAmount, calculatedTaxablePaise, tolerance, 'Taxable amount');
@@ -609,17 +620,20 @@ export function validateLineItem(
   if (calcCgstPaise === 0 && calcSgstPaise === 0 && calcIgstPaise === 0 && item.gstRate !== null && item.gstRate !== undefined && item.gstRate > 0) {
     if (taxMode === 'INTER_STATE') {
       calcIgstPaise = Math.round((calculatedTaxablePaise * item.gstRate) / 100);
-    } else if (taxMode === 'INTRA_STATE') {
+    } else {
+      // Default to INTRA_STATE (CGST + SGST 50-50 split)
       calcCgstPaise = Math.round((calculatedTaxablePaise * (item.gstRate / 2)) / 100);
       calcSgstPaise = Math.round((calculatedTaxablePaise * (item.gstRate / 2)) / 100);
-    } else {
-      // Ambiguous Tax Mode
-      messages.push(`Combined GST rate (${item.gstRate}%) present, but tax mode is UNKNOWN.`);
+      if (taxMode === 'UNKNOWN') {
+        messages.push(`Combined GST rate (${item.gstRate}%) present, tax mode defaulted to intra-state.`);
+      }
     }
   }
 
   // 7. Line Total Calculation & Comparison
-  const calcLineTotalPaise = calculatedTaxablePaise + calcCgstPaise + calcSgstPaise + calcIgstPaise + calcCessPaise;
+  const calcLineTotalPaise = isInclusive
+    ? Math.max(0, grossPaise - calculatedDiscountPaise)
+    : calculatedTaxablePaise + calcCgstPaise + calcSgstPaise + calcIgstPaise + calcCessPaise;
   let lineTotalComparison = compareAmounts(item.lineTotal, calcLineTotalPaise, tolerance, 'Line total');
 
   // In bills where tax is calculated at invoice summary level (e.g. Shree Balaji Traders),

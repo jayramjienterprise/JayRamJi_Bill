@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   Upload,
@@ -40,6 +40,12 @@ import {
 } from '../../../../lib/api/purchases';
 import { Product, PaymentAccount } from '../../../../lib/api/types';
 import { apiClient } from '../../../../lib/api/client';
+import {
+  calculateLineItem,
+  calculatePurchaseTotals,
+  formatIndianCurrency,
+  LineCalculationOutput,
+} from '../../../../lib/purchase/calculations';
 
 interface PurchaseBillScannerModalProps {
   isOpen: boolean;
@@ -127,6 +133,7 @@ export default function PurchaseBillScannerModal({
   const [savingDraft, setSavingDraft] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
 
   // Editable working state
   const [vendorId, setVendorId] = useState<string>('');
@@ -163,6 +170,10 @@ export default function PurchaseBillScannerModal({
   const [editGrandTotal, setEditGrandTotal] = useState<string>('');
   const [totalsEditError, setTotalsEditError] = useState<string | null>(null);
 
+  // Phase 5.9: Live Calculation & Total Acceptance State
+  const [totalSource, setTotalSource] = useState<'PRINTED_BILL' | 'DETERMINISTIC_CALCULATION' | 'DETERMINISTIC_CALCULATION_PENDING' | 'USER_OVERRIDE'>('PRINTED_BILL');
+  const [isAcceptingTotal, setIsAcceptingTotal] = useState(false);
+
   // Document preview state
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
@@ -183,14 +194,14 @@ export default function PurchaseBillScannerModal({
   const [activeItemSearchIdx, setActiveItemSearchIdx] = useState<number | null>(null);
   const [productSearchQuery, setProductSearchQuery] = useState<string>('');
 
-  // Processing steps indicator
+  // Processing steps indicator (Section 27)
   const processingSteps = [
-    'Uploading purchase bill document...',
-    'Preprocessing & rasterizing document...',
-    'NVIDIA Vision AI extraction...',
-    'Deterministic financial reconciliation...',
-    'Vendor & catalog product matching...',
-    'Preparing interactive review draft...',
+    'Uploading bill...',
+    'Reading invoice...',
+    'Extracting purchase data...',
+    'Validating totals...',
+    'Matching products...',
+    'Preparing review...',
   ];
 
   // Reset state on open/close & fetch payment accounts
@@ -209,11 +220,14 @@ export default function PurchaseBillScannerModal({
       setFileError(null);
       setIdempotencyKey('');
       setDraft(null);
+      setTotalSource('PRINTED_BILL');
+      setIsAcceptingTotal(false);
       setManualOverride(false);
       setIsEditingTotals(false);
       setShowCalculationDetails(false);
       setTotalsEditError(null);
       setErrorMessage(null);
+      setIsTimeoutError(false);
       setShowConfirmDialog(false);
       setConfirmError(null);
       setPaymentStatusChoice('UNPAID');
@@ -258,6 +272,11 @@ export default function PurchaseBillScannerModal({
       setEwayBillNumber(ext.invoice?.ewayBillNumber?.value || '');
       setNotes(ext.additional?.notes?.value || '');
       setManualOverride(Boolean(draft.manualOverride));
+      if (draft.totalSource) {
+        setTotalSource(draft.totalSource);
+      } else {
+        setTotalSource('PRINTED_BILL');
+      }
 
       // Vendor matching sync
       if (draft.vendorMatch?.matchedVendorId) {
@@ -349,6 +368,14 @@ export default function PurchaseBillScannerModal({
     const abortController = new AbortController();
     activeAbortControllerRef.current = abortController;
 
+    // Phase 5.13.1: Client-side 90s timeout to guard against hung requests while allowing vision LLM inference
+    const FRONTEND_TIMEOUT_MS = 90000;
+    let isTimeoutAborted = false;
+    const timeoutTimerId = setTimeout(() => {
+      isTimeoutAborted = true;
+      abortController.abort('timeout');
+    }, FRONTEND_TIMEOUT_MS);
+
     // Generate unique scan operation identity (per scan operation)
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const scanOperationId = `SCAN_UPLOAD_${dateStr}_${generateUUID()}`;
@@ -357,6 +384,7 @@ export default function PurchaseBillScannerModal({
 
     setStage('PROCESSING');
     setErrorMessage(null);
+    setIsTimeoutError(false);
 
     try {
       const res = await purchasesApi.createScannerDraft(selectedFile, scanOperationId, {
@@ -371,13 +399,23 @@ export default function PurchaseBillScannerModal({
       if (res && res.draft) {
         setDraft(res.draft);
         setErrorMessage(null);
+        setIsTimeoutError(false);
         setStage('REVIEW');
       } else {
         throw new Error('Scanner did not return a valid draft object.');
       }
     } catch (err: any) {
-      // If user canceled or replaced this scan, ignore silently
-      if (err?.name === 'AbortError' || abortController.signal.aborted) {
+      const isTimeout =
+        isTimeoutAborted ||
+        abortController.signal.reason === 'timeout' ||
+        err?.code === 'NVIDIA_TIMEOUT' ||
+        err?.code === 'TIMEOUT' ||
+        err?.message?.includes('timed out') ||
+        err?.message?.includes('extraction request timed out') ||
+        err?.message?.includes('global deadline');
+
+      // If user canceled or replaced this scan, ignore silently (unless it was a timeout abort)
+      if ((err?.name === 'AbortError' || abortController.signal.aborted) && !isTimeout) {
         return;
       }
 
@@ -388,17 +426,24 @@ export default function PurchaseBillScannerModal({
 
       console.error('Scan error:', err);
       let userMsg = err.message || 'Failed to process purchase bill. Please verify server connection and document format.';
-      if (
-        err.code === 'NVIDIA_SERVER_ERROR' ||
-        userMsg.includes('Inference connection error') ||
-        userMsg.includes('NVIDIA NIM server error') ||
-        userMsg.includes('internal-server-error')
-      ) {
-        userMsg = 'NVIDIA AI cloud connection dropped temporarily during document processing. Please click "Retry Scan" to try again.';
+      if (isTimeout) {
+        userMsg = 'Bill analysis timed out. The AI service did not respond in time. Please try again.';
+        setIsTimeoutError(true);
+      } else {
+        setIsTimeoutError(false);
+        if (
+          err.code === 'NVIDIA_SERVER_ERROR' ||
+          userMsg.includes('Inference connection error') ||
+          userMsg.includes('NVIDIA NIM server error') ||
+          userMsg.includes('internal-server-error')
+        ) {
+          userMsg = 'NVIDIA AI cloud connection dropped temporarily during document processing. Please click "Retry Scan" to try again.';
+        }
       }
       setErrorMessage(userMsg);
       setStage('IDLE');
     } finally {
+      clearTimeout(timeoutTimerId);
       if (activeScanOperationIdRef.current === scanOperationId) {
         isScanningRef.current = false;
         setIsScanning(false);
@@ -493,6 +538,9 @@ export default function PurchaseBillScannerModal({
 
   // 4. Line Items Editing Handlers
   const handleUpdateItem = (index: number, field: string, value: any) => {
+    if (totalSource === 'DETERMINISTIC_CALCULATION') {
+      setTotalSource('DETERMINISTIC_CALCULATION_PENDING');
+    }
     setItems((prev) => {
       const updated = [...prev];
       const item = { ...updated[index] };
@@ -510,10 +558,21 @@ export default function PurchaseBillScannerModal({
       } else if (field === 'discountPercent') {
         const disc = parseFloat(value) || 0;
         item.discountPercent = { ...item.discountPercent, value: disc };
+        item.discountAmount = { ...item.discountAmount, value: 0 };
+        recalcLine(item);
+      } else if (field === 'discountAmount') {
+        const discAmt = parseFloat(value) || 0;
+        item.discountAmount = { ...item.discountAmount, value: discAmt };
+        item.discountPercent = { ...item.discountPercent, value: 0 };
         recalcLine(item);
       } else if (field === 'gstRate') {
         const rate = parseFloat(value) || 0;
         item.gstRate = { ...item.gstRate, value: rate };
+        item.taxSource = 'USER_OVERRIDE';
+        item.gstNotice = undefined;
+        recalcLine(item);
+      } else if (field === 'taxMode') {
+        item.taxMode = value;
         recalcLine(item);
       } else if (field === 'hsnSac') {
         item.hsnSac = { ...item.hsnSac, value };
@@ -530,32 +589,48 @@ export default function PurchaseBillScannerModal({
     const qty = item.quantity?.value || 0;
     const price = item.unitPrice?.value || 0;
     const discPct = item.discountPercent?.value || 0;
-    const gstRate = item.gstRate?.value || 0;
+    const discAmt = item.discountAmount?.value || 0;
+    const gstRate = item.gstRate?.value ?? ((item.cgstRate?.value || 0) + (item.sgstRate?.value || 0));
+    const taxMode = item.taxMode || 'EXCLUSIVE';
 
-    const baseAmount = Math.round(qty * price * 100) / 100;
-    const discountAmount = Math.round(((baseAmount * discPct) / 100) * 100) / 100;
-    const taxableAmount = Math.max(0, Math.round((baseAmount - discountAmount) * 100) / 100);
-    const taxAmount = Math.round(((taxableAmount * gstRate) / 100) * 100) / 100;
-    const lineTotal = Math.round((taxableAmount + taxAmount) * 100) / 100;
+    const calc = calculateLineItem({
+      quantity: qty,
+      unitPrice: price,
+      discountPercent: discPct,
+      discountAmount: discAmt,
+      taxRate: gstRate,
+      cgstRate: isIntraState ? gstRate / 2 : 0,
+      sgstRate: isIntraState ? gstRate / 2 : 0,
+      igstRate: !isIntraState ? gstRate : 0,
+      taxMode,
+    });
 
-    item.discountAmount = { ...item.discountAmount, value: discountAmount };
-    item.taxableAmount = { ...item.taxableAmount, value: taxableAmount };
-    item.lineTotal = { ...item.lineTotal, value: lineTotal };
+    item.discountAmount = { ...item.discountAmount, value: calc.discountAmount };
+    item.taxableAmount = { ...item.taxableAmount, value: calc.taxableAmount };
+    item.cgstRate = { ...item.cgstRate, value: isIntraState ? gstRate / 2 : 0 };
+    item.cgstAmount = { ...item.cgstAmount, value: calc.cgstAmount };
+    item.sgstRate = { ...item.sgstRate, value: isIntraState ? gstRate / 2 : 0 };
+    item.sgstAmount = { ...item.sgstAmount, value: calc.sgstAmount };
+    item.igstRate = { ...item.igstRate, value: !isIntraState ? gstRate : 0 };
+    item.igstAmount = { ...item.igstAmount, value: calc.igstAmount };
+    item.lineTotal = { ...item.lineTotal, value: calc.lineTotal };
+    item.taxMode = taxMode;
     if (!item.calculated) {
       item.calculated = {
-        taxableAmount,
-        cgstAmount: Math.round((taxAmount / 2) * 100) / 100,
-        sgstAmount: Math.round((taxAmount / 2) * 100) / 100,
-        igstAmount: 0,
+        taxableAmount: calc.taxableAmount,
+        cgstAmount: calc.cgstAmount,
+        sgstAmount: calc.sgstAmount,
+        igstAmount: calc.igstAmount,
         cessAmount: 0,
-        lineTotal,
+        lineTotal: calc.lineTotal,
         discrepancy: 0,
       };
     } else {
-      item.calculated.taxableAmount = taxableAmount;
-      item.calculated.cgstAmount = Math.round((taxAmount / 2) * 100) / 100;
-      item.calculated.sgstAmount = Math.round((taxAmount / 2) * 100) / 100;
-      item.calculated.lineTotal = lineTotal;
+      item.calculated.taxableAmount = calc.taxableAmount;
+      item.calculated.cgstAmount = calc.cgstAmount;
+      item.calculated.sgstAmount = calc.sgstAmount;
+      item.calculated.igstAmount = calc.igstAmount;
+      item.calculated.lineTotal = calc.lineTotal;
     }
   };
 
@@ -584,6 +659,61 @@ export default function PurchaseBillScannerModal({
       }
       if (!item.unit?.value && (product as any).uom) {
         item.unit = { ...item.unit, value: (product as any).uom };
+      }
+
+      // Catalog product default GST notice (Phase 5.12):
+      // Invoice GST takes precedence; catalog GST CANNOT override invoice GST.
+      // Priority 2/3: INVOICE_DOCUMENT_EXTRACTED / INVOICE_LINE_EXTRACTED -> preserve invoice GST
+      // Priority 4: If no invoice tax across entire bill, fallback to catalog GST
+      const isLineInvoiceTax =
+        item.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' ||
+        item.taxSource === 'INVOICE_LINE_EXTRACTED' ||
+        item.taxSource === 'INVOICE_EXTRACTED';
+
+      const invoiceHasTax =
+        (draft?.extraction?.summary?.totalTax?.value ?? 0) > 0 ||
+        (draft?.extraction?.summary?.cgstAmount?.value ?? 0) > 0 ||
+        (draft?.extraction?.summary?.sgstAmount?.value ?? 0) > 0 ||
+        (draft?.extraction?.summary?.igstAmount?.value ?? 0) > 0 ||
+        ((draft?.extraction?.summary as any)?.cgstRate?.value ?? 0) > 0 ||
+        ((draft?.extraction?.summary as any)?.sgstRate?.value ?? 0) > 0 ||
+        ((draft?.extraction?.summary as any)?.igstRate?.value ?? 0) > 0 ||
+        isLineInvoiceTax ||
+        items.some((it) =>
+          it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' ||
+          it.taxSource === 'INVOICE_LINE_EXTRACTED' ||
+          it.taxSource === 'INVOICE_EXTRACTED' ||
+          ((it.gstRate?.value ?? 0) > 0)
+        );
+
+      const catalogTaxBps = (product as any).defaultTaxRateBps;
+      if (typeof catalogTaxBps === 'number') {
+        const catalogGstRate = catalogTaxBps / 100;
+        const currentLineGstRate = item.gstRate?.value;
+
+        if (invoiceHasTax || isLineInvoiceTax) {
+          // When invoice has tax, catalog GST MUST NEVER override invoice GST
+          if (catalogGstRate !== (currentLineGstRate ?? 0)) {
+            item.gstNotice = `Invoice GST (${currentLineGstRate ?? 0}%) used for this purchase. (Catalog GST: ${catalogGstRate}%)`;
+          } else {
+            item.gstNotice = undefined;
+          }
+        } else if (
+          item.taxSource === 'NOT_SPECIFIED' ||
+          item.taxSource === 'NONE' ||
+          currentLineGstRate === undefined ||
+          currentLineGstRate === null
+        ) {
+          // Priority 4: Only when bill has no tax whatsoever, fallback to catalog default GST
+          item.gstRate = { ...item.gstRate, value: catalogGstRate };
+          item.taxSource = 'CATALOG_DEFAULT';
+          item.gstNotice = `Using catalog default GST (${catalogGstRate}%) as invoice did not specify line GST.`;
+          recalcLine(item);
+        } else if (catalogGstRate !== currentLineGstRate) {
+          item.gstNotice = `Invoice GST (${currentLineGstRate}%) used for this purchase. (Catalog GST: ${catalogGstRate}%)`;
+        } else {
+          item.gstNotice = undefined;
+        }
       }
 
       updated[index] = item;
@@ -862,12 +992,18 @@ export default function PurchaseBillScannerModal({
       alert('A purchase order must contain at least one line item.');
       return;
     }
+    if (totalSource === 'DETERMINISTIC_CALCULATION') {
+      setTotalSource('DETERMINISTIC_CALCULATION_PENDING');
+    }
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleAddLineItem = () => {
+    if (totalSource === 'DETERMINISTIC_CALCULATION') {
+      setTotalSource('DETERMINISTIC_CALCULATION_PENDING');
+    }
     const newItem: IExtractedLineItem = {
-      id: `manual_${Date.now()}`,
+      id: `manual_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       lineNumber: items.length + 1,
       description: { value: '', confidence: 1, bbox: null, status: 'VERIFIED' },
       skuOrCode: { value: '', confidence: 1, bbox: null, status: 'MISSING' },
@@ -877,6 +1013,7 @@ export default function PurchaseBillScannerModal({
       unitPrice: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       discountPercent: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       discountAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
+      taxMode: 'EXCLUSIVE',
       taxableAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       gstRate: { value: 18, confidence: 1, bbox: null, status: 'VERIFIED' },
       cgstRate: { value: 9, confidence: 1, bbox: null, status: 'VERIFIED' },
@@ -886,84 +1023,159 @@ export default function PurchaseBillScannerModal({
       igstRate: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       igstAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       cessRate: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
-      cessAmount: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
       lineTotal: { value: 0, confidence: 1, bbox: null, status: 'VERIFIED' },
     };
     setItems((prev) => [...prev, newItem]);
   };
 
-  // 5. Financial Totals Calculations
-  const calculatedSubtotal = items.reduce((acc, it) => {
-    const qty = it.quantity?.value || 0;
-    const price = it.unitPrice?.value || 0;
-    const disc = it.discountAmount?.value || 0;
-    const taxable = it.taxableAmount?.value ?? Math.max(0, qty * price - disc);
-    return acc + taxable;
-  }, 0);
+  // 5. Phase 5.9: Live Financial Totals Engine
+  const isIntraState = useMemo(() => {
+    const draftRecon = draft?.reconciliation;
+    return (
+      draftRecon?.taxMode === 'INTRA_STATE' ||
+      Boolean(draft?.extraction?.summary?.cgstAmount?.value && draft.extraction.summary.cgstAmount.value > 0) ||
+      items.some((it) => (it.cgstRate?.value && it.cgstRate.value > 0) || (it.cgstAmount?.value && it.cgstAmount.value > 0))
+    );
+  }, [draft, items]);
 
-  const draftRecon = draft?.reconciliation;
-  const isIntraState =
-    draftRecon?.taxMode === 'INTRA_STATE' ||
-    Boolean(draft?.extraction?.summary?.cgstAmount?.value && draft.extraction.summary.cgstAmount.value > 0) ||
-    items.some((it) => (it.cgstRate?.value && it.cgstRate.value > 0) || (it.cgstAmount?.value && it.cgstAmount.value > 0));
+  const lineCalculations = useMemo(() => {
+    const map: Record<string, LineCalculationOutput> = {};
+    items.forEach((it) => {
+      const qty = it.quantity?.value || 0;
+      const price = it.unitPrice?.value || 0;
+      const discPct = it.discountPercent?.value || 0;
+      const discAmt = it.discountAmount?.value || 0;
+      const rate = it.gstRate?.value ?? ((it.cgstRate?.value || 0) + (it.sgstRate?.value || 0));
+      const tMode = it.taxMode || 'EXCLUSIVE';
+      map[it.id] = calculateLineItem({
+        quantity: qty,
+        unitPrice: price,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        taxRate: rate,
+        cgstRate: isIntraState ? rate / 2 : 0,
+        sgstRate: isIntraState ? rate / 2 : 0,
+        igstRate: !isIntraState ? rate : 0,
+        taxMode: tMode,
+      });
+    });
+    return map;
+  }, [items, isIntraState]);
 
-  // CGST calculation
-  const calculatedCgst = items.reduce((acc, it) => {
-    const qty = it.quantity?.value || 0;
-    const price = it.unitPrice?.value || 0;
-    const disc = it.discountAmount?.value || 0;
-    const taxable = it.taxableAmount?.value ?? Math.max(0, qty * price - disc);
-    const rate = it.cgstRate?.value ?? (isIntraState ? (it.gstRate?.value ? it.gstRate.value / 2 : 9) : 0);
-    return acc + Math.round(((taxable * rate) / 100) * 100) / 100;
-  }, 0);
+  const liveTotals = useMemo(() => {
+    const calculationItems = items.map((it) => lineCalculations[it.id] || calculateLineItem({
+      quantity: it.quantity?.value || 0,
+      unitPrice: it.unitPrice?.value || 0,
+      discountPercent: it.discountPercent?.value || 0,
+      discountAmount: it.discountAmount?.value || 0,
+      taxRate: it.gstRate?.value ?? ((it.cgstRate?.value || 0) + (it.sgstRate?.value || 0)),
+      cgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+      sgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+      igstRate: !isIntraState ? (it.gstRate?.value ?? 0) : 0,
+      taxMode: it.taxMode || 'EXCLUSIVE',
+    }));
 
-  // SGST calculation
-  const calculatedSgst = items.reduce((acc, it) => {
-    const qty = it.quantity?.value || 0;
-    const price = it.unitPrice?.value || 0;
-    const disc = it.discountAmount?.value || 0;
-    const taxable = it.taxableAmount?.value ?? Math.max(0, qty * price - disc);
-    const rate = it.sgstRate?.value ?? (isIntraState ? (it.gstRate?.value ? it.gstRate.value / 2 : 9) : 0);
-    return acc + Math.round(((taxable * rate) / 100) * 100) / 100;
-  }, 0);
+    const printedGrand = draft?.extraction?.summary?.grandTotal?.value;
+    const printedSub = draft?.extraction?.summary?.taxableAmount?.value;
 
-  const calculatedTaxTotal = isIntraState
-    ? Math.round((calculatedCgst + calculatedSgst) * 100) / 100
-    : items.reduce((acc, it) => {
-        const qty = it.quantity?.value || 0;
-        const price = it.unitPrice?.value || 0;
-        const disc = it.discountAmount?.value || 0;
-        const taxable = it.taxableAmount?.value ?? Math.max(0, qty * price - disc);
-        const rate = it.igstRate?.value ?? it.gstRate?.value ?? 18;
-        return acc + Math.round(((taxable * rate) / 100) * 100) / 100;
-      }, 0);
+    return calculatePurchaseTotals({
+      items: calculationItems,
+      isIntraState,
+      printedGrandTotal: printedGrand,
+      printedSubtotal: printedSub,
+      amountPaid,
+      totalSource,
+      manualOverride: manualOverride || totalSource === 'USER_OVERRIDE',
+    });
+  }, [items, lineCalculations, isIntraState, draft, amountPaid, totalSource, manualOverride]);
 
-  const calculatedGrandTotal = Math.round((calculatedSubtotal + calculatedTaxTotal) * 100) / 100;
+  const calculatedSubtotal = liveTotals.subtotal;
+  const calculatedCgst = liveTotals.cgstAmount;
+  const calculatedSgst = liveTotals.sgstAmount;
+  const calculatedTaxTotal = liveTotals.totalTax;
+  const calculatedGrandTotal = liveTotals.calculatedGrandTotal;
 
-  const printedTaxable = draft?.extraction?.summary?.taxableAmount?.value ?? calculatedSubtotal;
+  const printedTaxable = liveTotals.printedSubtotal ?? calculatedSubtotal;
   const printedCgst = draft?.extraction?.summary?.cgstAmount?.value ?? (isIntraState ? calculatedCgst : null);
   const printedSgst = draft?.extraction?.summary?.sgstAmount?.value ?? (isIntraState ? calculatedSgst : null);
   const printedTaxTotal = draft?.extraction?.summary?.totalTax?.value ?? calculatedTaxTotal;
-  const printedGrandTotal = draft?.extraction?.summary?.grandTotal?.value ?? calculatedGrandTotal;
+  const printedGrandTotal = liveTotals.printedGrandTotal ?? calculatedGrandTotal;
 
-  const subtotalDiscrepancy = Math.abs(printedTaxable - calculatedSubtotal);
-  const cgstDiscrepancy = printedCgst !== null ? Math.abs(printedCgst - calculatedCgst) : 0;
-  const sgstDiscrepancy = printedSgst !== null ? Math.abs(printedSgst - calculatedSgst) : 0;
-  const taxTotalDiscrepancy = Math.abs(printedTaxTotal - calculatedTaxTotal);
-  const grandTotalDiscrepancy = Math.abs(printedGrandTotal - calculatedGrandTotal);
+  const subtotalDiscrepancy = liveTotals.subtotalDifference;
+  const cgstDiscrepancy = printedCgst !== null ? Math.abs(Math.round((printedCgst - calculatedCgst) * 100) / 100) : 0;
+  const sgstDiscrepancy = printedSgst !== null ? Math.abs(Math.round((printedSgst - calculatedSgst) * 100) / 100) : 0;
+  const taxTotalDiscrepancy = Math.abs(Math.round((printedTaxTotal - calculatedTaxTotal) * 100) / 100);
+  const grandTotalDiscrepancy = liveTotals.grandTotalDifference;
 
-  const hasDiscrepancy = grandTotalDiscrepancy > 1.0 || subtotalDiscrepancy > 1.0 || taxTotalDiscrepancy > 1.0;
+  const hasDiscrepancy = !liveTotals.isGrandTotalMatch || (!liveTotals.isSubtotalMatch && liveTotals.printedSubtotal != null);
 
-  // Active Totals for Display & Editing (Phase 5.6)
-  const activeSubtotal = draft?.extraction?.summary?.taxableAmount?.value ?? calculatedSubtotal;
+  // Active Totals for Display & Editing (Phase 5.9: bound directly to liveTotals)
+  const activeSubtotal = liveTotals.taxableAmount;
   const activeCgstRate = draft?.extraction?.summary?.cgstRate?.value ?? (isIntraState ? 9 : 0);
-  const activeCgst = draft?.extraction?.summary?.cgstAmount?.value ?? (isIntraState ? calculatedCgst : 0);
+  const activeCgst = isIntraState ? calculatedCgst : 0;
   const activeSgstRate = draft?.extraction?.summary?.sgstRate?.value ?? (isIntraState ? 9 : 0);
-  const activeSgst = draft?.extraction?.summary?.sgstAmount?.value ?? (isIntraState ? calculatedSgst : 0);
+  const activeSgst = isIntraState ? calculatedSgst : 0;
   const activeIgstRate = draft?.extraction?.summary?.igstRate?.value ?? (!isIntraState ? 18 : 0);
-  const activeIgst = draft?.extraction?.summary?.igstAmount?.value ?? (!isIntraState ? calculatedTaxTotal : 0);
-  const activeTaxTotal = draft?.extraction?.summary?.totalTax?.value ?? calculatedTaxTotal;
-  const activeGrandTotal = draft?.extraction?.summary?.grandTotal?.value ?? calculatedGrandTotal;
+  const activeIgst = !isIntraState ? calculatedTaxTotal : 0;
+  const activeTaxTotal = liveTotals.totalTax;
+  const activeGrandTotal = liveTotals.finalPurchaseTotal;
+
+  // Accept Calculated Total Handler
+  const handleAcceptCalculatedTotal = async () => {
+    if (!draft?._id) return;
+    setIsAcceptingTotal(true);
+    setErrorMessage(null);
+    try {
+      const res = await purchasesApi.acceptCalculatedTotal(draft._id, {
+        calculatedGrandTotal: liveTotals.calculatedGrandTotal,
+        taxMode: isIntraState ? 'INTRA_STATE' : 'INTER_STATE',
+        items: items.map((it) => {
+          const calc = lineCalculations[it.id] || calculateLineItem({
+            quantity: it.quantity?.value || 0,
+            unitPrice: it.unitPrice?.value || 0,
+            discountPercent: it.discountPercent?.value || 0,
+            discountAmount: it.discountAmount?.value || 0,
+            taxRate: it.gstRate?.value ?? ((it.cgstRate?.value || 0) + (it.sgstRate?.value || 0)),
+            cgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+            sgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+            igstRate: !isIntraState ? (it.gstRate?.value ?? 0) : 0,
+            taxMode: it.taxMode || 'EXCLUSIVE',
+          });
+          return {
+            id: it.id,
+            productId: it.productMatch?.productId || null,
+            description: it.description?.value || '',
+            skuOrCode: it.skuOrCode?.value || null,
+            hsnSac: it.hsnSac?.value || null,
+            quantity: it.quantity?.value || 0,
+            unit: it.unit?.value || null,
+            unitPrice: it.unitPrice?.value || 0,
+            discountPercent: it.discountPercent?.value || 0,
+            discountAmount: it.discountAmount?.value || 0,
+            taxMode: it.taxMode || 'EXCLUSIVE',
+            gstRate: it.gstRate?.value ?? ((it.cgstRate?.value || 0) + (it.sgstRate?.value || 0)),
+            cgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+            sgstRate: isIntraState ? (it.gstRate?.value ?? 0) / 2 : 0,
+            igstRate: !isIntraState ? (it.gstRate?.value ?? 0) : 0,
+            taxableAmount: calc.taxableAmount,
+            cgstAmount: calc.cgstAmount,
+            sgstAmount: calc.sgstAmount,
+            igstAmount: calc.igstAmount,
+            lineTotal: calc.lineTotal,
+          };
+        }),
+      });
+      if (res && res.draft) {
+        setDraft(res.draft);
+        setTotalSource('DETERMINISTIC_CALCULATION');
+      }
+    } catch (err: any) {
+      console.error('Failed to accept calculated total:', err);
+      setErrorMessage(err.message || 'Failed to accept calculated total.');
+    } finally {
+      setIsAcceptingTotal(false);
+    }
+  };
 
   const handleOpenEditTotals = () => {
     setEditSubtotal(activeSubtotal.toFixed(2));
@@ -1067,6 +1279,7 @@ export default function PurchaseBillScannerModal({
     }
 
     setManualOverride(true);
+    setTotalSource('USER_OVERRIDE');
     setIsEditingTotals(false);
     setTotalsEditError(null);
 
@@ -1074,6 +1287,8 @@ export default function PurchaseBillScannerModal({
       const updatedDraft: IPurchaseDraft = {
         ...draft,
         manualOverride: true,
+        totalSource: 'USER_OVERRIDE',
+        finalPurchaseTotal: grand,
         extraction: {
           ...draft.extraction,
           summary: {
@@ -1095,6 +1310,8 @@ export default function PurchaseBillScannerModal({
       try {
         await purchasesApi.updateScannerDraft(draft._id, {
           manualOverride: true,
+          totalSource: 'USER_OVERRIDE',
+          finalPurchaseTotal: grand,
           summary: {
             taxableAmount: sub,
             cgstRate: cRate,
@@ -1143,7 +1360,7 @@ export default function PurchaseBillScannerModal({
       }
     }
     if (amountPaid > activeGrandTotal) {
-      return `Amount paid (₹${amountPaid}) cannot exceed Grand Total (₹${activeGrandTotal}).`;
+      return `Amount paid (${formatIndianCurrency(amountPaid)}) cannot exceed Grand Total (${formatIndianCurrency(activeGrandTotal)}).`;
     }
     if (amountPaid > 0 && !paymentMethod) {
       return 'Please select a Payment Method for the recorded payment.';
@@ -1151,6 +1368,38 @@ export default function PurchaseBillScannerModal({
     if (amountPaid > 0 && !paymentDate) {
       return 'Please provide a valid Payment Date.';
     }
+
+    // Invalid Zero-GST check (Phase 5.10 Requirement 23):
+    // If invoice specifies GST (doc tax > 0 or invoice cgst/sgst/igst > 0), line items must not use 0% unless explicitly overridden by user.
+    const invoiceHasTax = (draft?.extraction?.summary?.totalTax?.value ?? 0) > 0 ||
+      (draft?.extraction?.summary?.cgstAmount?.value ?? 0) > 0 ||
+      (draft?.extraction?.summary?.sgstAmount?.value ?? 0) > 0 ||
+      (draft?.extraction?.summary?.igstAmount?.value ?? 0) > 0;
+
+    if (invoiceHasTax) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        const lineGst = it.gstRate?.value ?? 0;
+        if (lineGst === 0 && it.taxSource !== 'USER_OVERRIDE') {
+          return `Line #${i + 1} ("${it.description?.value || 'Untitled'}") has 0% GST, but the invoice document contains GST. Please select the correct GST rate for this item before confirming.`;
+        }
+      }
+    }
+
+    // Totals Discrepancy Gate (Phase 5.9):
+    // If printed bill grand total and current calculated grand total differ (> 1.00 discrepancy),
+    // confirmation is blocked UNLESS user accepted the calculated total or manually adjusted totals.
+    if (
+      !liveTotals.isGrandTotalMatch &&
+      totalSource !== 'DETERMINISTIC_CALCULATION' &&
+      !manualOverride &&
+      totalSource !== 'USER_OVERRIDE'
+    ) {
+      const billTotalFormatted = formatIndianCurrency(liveTotals.printedGrandTotal ?? 0);
+      const calcTotalFormatted = formatIndianCurrency(liveTotals.calculatedGrandTotal);
+      return `Total on Bill (${billTotalFormatted}) differs from Current Calculated Total (${calcTotalFormatted}). Please review items or click "Accept Calculated Total" before confirming.`;
+    }
+
     return null;
   };
 
@@ -1184,6 +1433,8 @@ export default function PurchaseBillScannerModal({
         paymentMethod,
         paymentReference: paymentReference.trim() || undefined,
         notes: notes.trim() || undefined,
+        totalSource,
+        finalPurchaseTotal: liveTotals.finalPurchaseTotal,
         payment: amountPaid > 0 ? {
           amount: amountPaid,
           paymentMethod,
@@ -1213,6 +1464,7 @@ export default function PurchaseBillScannerModal({
           discountPercent: it.discountPercent?.value ?? undefined,
           discountAmount: it.discountAmount?.value ?? undefined,
           taxRate: it.gstRate?.value ?? undefined,
+          taxMode: it.taxMode || 'EXCLUSIVE',
         })),
       };
 
@@ -1363,7 +1615,7 @@ export default function PurchaseBillScannerModal({
               <span>{errorMessage}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {selectedFile && stage === 'IDLE' && (
+              {selectedFile && stage === 'IDLE' && isTimeoutError && (
                 <button
                   type="button"
                   onClick={handleStartScan}
@@ -1811,7 +2063,7 @@ export default function PurchaseBillScannerModal({
                 </div>
 
                 {/* Section 3: Extracted Products & Line Items */}
-                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
+                <div id="purchase-scanner-line-items" className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Package className="w-5 h-5 text-purple-600" />
@@ -1978,9 +2230,21 @@ export default function PurchaseBillScannerModal({
                                   <span>•</span>
                                   <span>Qty: {it.quantity?.value ?? 1} {it.unit?.value || 'NOS'}</span>
                                   <span>•</span>
-                                  <span>Unit Price: ₹{it.unitPrice?.value ?? 0}</span>
+                                  <span>Unit Price: {formatIndianCurrency(it.unitPrice?.value ?? 0)}</span>
                                   <span>•</span>
-                                  <span>GST: {it.gstRate?.value ?? 18}%</span>
+                                  <span>GST: {it.gstRate?.value ?? 0}%</span>
+                                  {it.taxSource && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                      it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' || it.taxSource === 'INVOICE_LINE_EXTRACTED' || it.taxSource === 'INVOICE_EXTRACTED' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' :
+                                      it.taxSource === 'CATALOG_DEFAULT' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                                      it.taxSource === 'USER_OVERRIDE' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                                      'bg-gray-100 text-gray-700 border-gray-200'
+                                    }`}>
+                                      {it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' || it.taxSource === 'INVOICE_LINE_EXTRACTED' || it.taxSource === 'INVOICE_EXTRACTED' ? 'Invoice GST' :
+                                       it.taxSource === 'CATALOG_DEFAULT' ? 'Catalog Default' :
+                                       it.taxSource === 'USER_OVERRIDE' ? 'User Override' : 'Not Specified'}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-1.5">
@@ -2039,6 +2303,14 @@ export default function PurchaseBillScannerModal({
                             </select>
                           </div>
 
+                          {/* Catalog GST Notice (Phase 5.9) */}
+                          {it.gstNotice && (
+                            <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+                              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                              <span className="text-[11px] font-medium">{it.gstNotice}</span>
+                            </div>
+                          )}
+
                           {/* Editable Description & HSN Fields */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                             <div className="sm:col-span-2">
@@ -2070,7 +2342,7 @@ export default function PurchaseBillScannerModal({
                           </div>
 
                           {/* Editable Numerical Fields */}
-                          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+                          <div className="grid grid-cols-2 sm:grid-cols-7 gap-2 text-xs">
                             <div>
                               <label className="text-[10px] font-bold text-gray-500 block mb-0.5">
                                 Qty
@@ -2132,10 +2404,47 @@ export default function PurchaseBillScannerModal({
 
                             <div>
                               <label className="text-[10px] font-bold text-gray-500 block mb-0.5">
-                                GST %
+                                Tax Mode
                               </label>
                               <select
-                                value={it.gstRate?.value ?? 18}
+                                value={it.taxMode || 'EXCLUSIVE'}
+                                disabled={isDraftExpired}
+                                onChange={(e) => handleUpdateItem(idx, 'taxMode', e.target.value)}
+                                className="w-full text-xs font-semibold rounded-lg border border-gray-200 p-1.5 bg-white focus:ring-purple-500"
+                              >
+                                <option value="EXCLUSIVE">Exclusive</option>
+                                <option value="INCLUSIVE">Inclusive</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] font-bold text-gray-500">
+                                  GST %
+                                </label>
+                                {(it.taxSource === 'INVOICE_DOCUMENT_EXTRACTED' || it.taxSource === 'INVOICE_LINE_EXTRACTED' || it.taxSource === 'INVOICE_EXTRACTED') && (
+                                  <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="Extracted from invoice">
+                                    Invoice
+                                  </span>
+                                )}
+                                {it.taxSource === 'CATALOG_DEFAULT' && (
+                                  <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200" title="Applied from catalog product">
+                                    Catalog
+                                  </span>
+                                )}
+                                {it.taxSource === 'USER_OVERRIDE' && (
+                                  <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200" title="Overridden by user">
+                                    Override
+                                  </span>
+                                )}
+                                {(it.taxSource === 'NOT_SPECIFIED' || it.taxSource === 'NONE') && (
+                                  <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-gray-100 text-gray-700 border border-gray-200" title="No GST specified on invoice">
+                                    Not Specified
+                                  </span>
+                                )}
+                              </div>
+                              <select
+                                value={it.gstRate?.value ?? 0}
                                 disabled={isDraftExpired}
                                 onChange={(e) => handleUpdateItem(idx, 'gstRate', e.target.value)}
                                 className="w-full text-xs font-semibold rounded-lg border border-gray-200 p-1.5 bg-white focus:ring-purple-500"
@@ -2145,15 +2454,27 @@ export default function PurchaseBillScannerModal({
                                 <option value="12">12%</option>
                                 <option value="18">18%</option>
                                 <option value="28">28%</option>
+                                {it.gstRate?.value !== null &&
+                                  it.gstRate?.value !== undefined &&
+                                  ![0, 5, 12, 18, 28].includes(it.gstRate.value) && (
+                                    <option value={it.gstRate.value}>{it.gstRate.value}%</option>
+                                  )}
                               </select>
+                              <div className="text-[9px] text-gray-500 mt-0.5 font-medium">
+                                {isIntraState ? (
+                                  <span>CGST {((it.gstRate?.value ?? 0) / 2)}% + SGST {((it.gstRate?.value ?? 0) / 2)}%</span>
+                                ) : (
+                                  <span>IGST {(it.gstRate?.value ?? 0)}%</span>
+                                )}
+                              </div>
                             </div>
 
                             <div>
                               <label className="text-[10px] font-bold text-gray-500 block mb-0.5">
-                                Line Total (₹)
+                                Line Total
                               </label>
                               <div className="w-full text-xs font-mono font-bold text-gray-900 p-1.5 text-right bg-gray-50 rounded-lg border border-gray-100">
-                                ₹{(it.lineTotal?.value || 0).toFixed(2)}
+                                {formatIndianCurrency(lineCalculations[it.id]?.lineTotal ?? it.lineTotal?.value ?? 0)}
                               </div>
                             </div>
                           </div>
@@ -2224,42 +2545,179 @@ export default function PurchaseBillScannerModal({
 
                 {/* Section 4: Purchase Totals & Financial Review */}
                 <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <DollarSign className="w-5 h-5 text-purple-600" />
                       <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
-                        Purchase Totals
+                        Purchase Totals &amp; Reconciliation
                       </h3>
                     </div>
 
-                    {manualOverride ? (
+                    {totalSource === 'USER_OVERRIDE' || manualOverride ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-full border border-amber-300">
                         <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                        Total manually adjusted
+                        Manual Override Active
                       </span>
-                    ) : hasDiscrepancy ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-full border border-amber-300">
-                        <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                        Amounts need review
-                      </span>
-                    ) : (
+                    ) : totalSource === 'DETERMINISTIC_CALCULATION' ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-full border border-emerald-300">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                        Amounts verified
+                        Calculated Total Accepted
+                      </span>
+                    ) : liveTotals.isGrandTotalMatch ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-full border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                        Totals Match (₹0.00 Diff)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-full border border-amber-300">
+                        <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                        Totals Differ (Diff: {formatIndianCurrency(liveTotals.grandTotalDifference)})
                       </span>
                     )}
                   </div>
 
-                  {/* Warning banner when discrepancy exists without manual override */}
-                  {!manualOverride && hasDiscrepancy && (
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-bold block">Some invoice amounts could not be reconciled.</span>
-                        <p className="text-[11px] text-amber-700 mt-0.5">
-                          The extracted bill totals differ from line item calculations. You can verify line items, edit totals directly, or inspect calculation details below.
-                        </p>
+                  {/* 3-Value Comparison Card */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Box 1: TOTAL ON BILL */}
+                    <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                        1. Total on Bill
                       </div>
+                      <div className="font-mono text-lg font-extrabold text-gray-900">
+                        {formatIndianCurrency(liveTotals.printedGrandTotal ?? liveTotals.calculatedGrandTotal)}
+                      </div>
+                      <div className="text-[10px] text-gray-500">
+                        Extracted from invoice document
+                      </div>
+                    </div>
+
+                    {/* Box 2: CURRENT CALCULATED TOTAL */}
+                    <div className="p-3.5 rounded-xl border border-purple-200 bg-purple-50/40 space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-purple-700 flex items-center justify-between">
+                        <span>2. Current Calculated Total</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
+                          LIVE
+                        </span>
+                      </div>
+                      <div className="font-mono text-lg font-extrabold text-purple-950">
+                        {formatIndianCurrency(liveTotals.calculatedGrandTotal)}
+                      </div>
+                      <div className="text-[10px] text-purple-700">
+                        Derived from {items.length} line item{items.length === 1 ? '' : 's'}
+                      </div>
+                    </div>
+
+                    {/* Box 3: DIFFERENCE */}
+                    <div className={`p-3.5 rounded-xl border space-y-1 ${
+                      liveTotals.isGrandTotalMatch
+                        ? 'border-emerald-200 bg-emerald-50/40 text-emerald-900'
+                        : 'border-amber-200 bg-amber-50/50 text-amber-950'
+                    }`}>
+                      <div className="text-[10px] font-bold uppercase tracking-wider flex items-center justify-between">
+                        <span>3. Difference</span>
+                        {liveTotals.isGrandTotalMatch ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                            MATCH
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                            DIFFERS
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-lg font-extrabold">
+                        {formatIndianCurrency(liveTotals.grandTotalDifference)}
+                      </div>
+                      <div className="text-[10px] opacity-80">
+                        {liveTotals.isGrandTotalMatch
+                          ? 'Bill total equals calculated total'
+                          : 'Requires review or acceptance'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Discrepancy & Action Banner */}
+                  {!liveTotals.isGrandTotalMatch && totalSource !== 'USER_OVERRIDE' && !manualOverride && (
+                    <div className={`p-4 rounded-xl border flex items-start justify-between gap-3 flex-wrap ${
+                      totalSource === 'DETERMINISTIC_CALCULATION'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : totalSource === 'DETERMINISTIC_CALCULATION_PENDING'
+                        ? 'bg-amber-50 border-amber-300 text-amber-950'
+                        : 'bg-amber-50/90 border-amber-300 text-amber-950'
+                    }`}>
+                      <div className="flex items-start gap-2.5 max-w-xl">
+                        {totalSource === 'DETERMINISTIC_CALCULATION' ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          {totalSource === 'DETERMINISTIC_CALCULATION' ? (
+                            <>
+                              <span className="font-bold block text-emerald-900">Calculated Total Accepted</span>
+                              <p className="text-[11px] text-emerald-700 mt-0.5">
+                                You accepted the calculated total of {formatIndianCurrency(liveTotals.calculatedGrandTotal)} as the final purchase amount.
+                              </p>
+                            </>
+                          ) : totalSource === 'DETERMINISTIC_CALCULATION_PENDING' ? (
+                            <>
+                              <span className="font-bold block text-amber-900">Line items modified after acceptance</span>
+                              <p className="text-[11px] text-amber-800 mt-0.5">
+                                Your recent line item edits changed the calculated total to {formatIndianCurrency(liveTotals.calculatedGrandTotal)}. Please review items or re-accept the new calculated total.
+                              </p>
+                            </>
+                          ) : Math.abs(liveTotals.grandTotalDifference) > 100 && totalSource === 'PRINTED_BILL' ? (
+                            <>
+                              <span className="font-bold block text-red-900 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                                CRITICAL RECONCILIATION ERROR
+                              </span>
+                              <p className="text-[11px] text-red-800 mt-0.5">
+                                Bill total: {formatIndianCurrency(liveTotals.printedGrandTotal ?? 0)} | Current calculation: {formatIndianCurrency(liveTotals.calculatedGrandTotal)} (Difference: {formatIndianCurrency(liveTotals.grandTotalDifference)}). Please review line items and correct any rates or quantities above.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-bold block text-amber-900">Bill total differs from calculated total</span>
+                              <p className="text-[11px] text-amber-800 mt-0.5">
+                                Bill Grand Total is {formatIndianCurrency(liveTotals.printedGrandTotal ?? 0)}, while calculated total from line items is {formatIndianCurrency(liveTotals.calculatedGrandTotal)} (Diff: {formatIndianCurrency(liveTotals.grandTotalDifference)}). You can review line items above, click &quot;Accept Calculated Total&quot;, or edit totals directly.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById('purchase-scanner-line-items')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer transition shadow-xs"
+                        >
+                          Review Items
+                        </button>
+                        {totalSource !== 'DETERMINISTIC_CALCULATION' && (
+                          <button
+                            type="button"
+                            disabled={isAcceptingTotal}
+                            onClick={handleAcceptCalculatedTotal}
+                            className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-purple-600 hover:bg-purple-700 text-white shadow-xs cursor-pointer flex items-center gap-1.5 transition disabled:opacity-50"
+                          >
+                            {isAcceptingTotal && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            Accept Calculated Total {formatIndianCurrency(liveTotals.calculatedGrandTotal)}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subtotal Discrepancy Notice (Section 23) */}
+                  {liveTotals.printedSubtotal != null && !liveTotals.isSubtotalMatch && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="text-[11px]">
+                        <strong className="text-amber-950 font-bold">Current line items do not match the subtotal printed on the bill.</strong>{' '}
+                        BILL SUBTOTAL: {formatIndianCurrency(liveTotals.printedSubtotal)} | CURRENT LINE SUBTOTAL: {formatIndianCurrency(liveTotals.subtotal)} (Difference: {formatIndianCurrency(liveTotals.subtotalDifference)}).
+                      </span>
                     </div>
                   )}
 
@@ -2268,32 +2726,32 @@ export default function PurchaseBillScannerModal({
                     <div className="space-y-3">
                       <div className="bg-gray-50/70 rounded-xl p-4 border border-gray-100 space-y-2.5">
                         <div className="flex justify-between items-center text-xs">
-                          <span className="text-gray-600 font-medium">Subtotal</span>
+                          <span className="text-gray-600 font-medium">Taxable Subtotal</span>
                           <span className="font-mono font-bold text-gray-900">
-                            ₹{activeSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatIndianCurrency(activeSubtotal)}
                           </span>
                         </div>
 
                         {isIntraState ? (
                           <>
                             <div className="flex justify-between items-center text-xs">
-                              <span className="text-gray-600 font-medium">CGST @ {activeCgstRate}%</span>
+                              <span className="text-gray-600 font-medium">CGST</span>
                               <span className="font-mono font-semibold text-gray-800">
-                                ₹{activeCgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(activeCgst)}
                               </span>
                             </div>
                             <div className="flex justify-between items-center text-xs">
-                              <span className="text-gray-600 font-medium">SGST @ {activeSgstRate}%</span>
+                              <span className="text-gray-600 font-medium">SGST</span>
                               <span className="font-mono font-semibold text-gray-800">
-                                ₹{activeSgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(activeSgst)}
                               </span>
                             </div>
                           </>
                         ) : (
                           <div className="flex justify-between items-center text-xs">
-                            <span className="text-gray-600 font-medium">IGST @ {activeIgstRate}%</span>
+                            <span className="text-gray-600 font-medium">IGST</span>
                             <span className="font-mono font-semibold text-gray-800">
-                              ₹{activeIgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {formatIndianCurrency(activeIgst)}
                             </span>
                           </div>
                         )}
@@ -2301,41 +2759,50 @@ export default function PurchaseBillScannerModal({
                         <div className="flex justify-between items-center text-xs border-t border-gray-200/80 pt-2">
                           <span className="text-gray-700 font-semibold">Total GST</span>
                           <span className="font-mono font-bold text-gray-900">
-                            ₹{activeTaxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatIndianCurrency(activeTaxTotal)}
                           </span>
                         </div>
 
                         <div className="flex justify-between items-center text-sm font-bold border-t border-gray-200 pt-2.5 text-gray-900">
-                          <span>Grand Total</span>
+                          <div className="flex items-center gap-2">
+                            <span>Final Purchase Total</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                              {totalSource === 'DETERMINISTIC_CALCULATION'
+                                ? 'Calculated from Lines'
+                                : totalSource === 'USER_OVERRIDE' || manualOverride
+                                ? 'Manual Override'
+                                : 'Printed Bill Total'}
+                            </span>
+                          </div>
                           <span className="font-mono text-purple-700 text-base">
-                            ₹{activeGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatIndianCurrency(activeGrandTotal)}
                           </span>
                         </div>
 
                         <div className="flex justify-between items-center text-xs border-t border-gray-200/80 pt-2 text-emerald-700 font-semibold">
                           <span>Amount Paid</span>
                           <span className="font-mono font-bold">
-                            ₹{amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatIndianCurrency(amountPaid)}
                           </span>
                         </div>
 
                         <div className="flex justify-between items-center text-xs text-rose-700 font-semibold">
                           <span>Balance Due</span>
                           <span className="font-mono font-bold">
-                            ₹{Math.max(0, Math.round((activeGrandTotal - amountPaid) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatIndianCurrency(liveTotals.balanceDue)}
                           </span>
                         </div>
 
                         <div className="flex justify-between items-center text-xs pt-1">
                           <span className="text-gray-600 font-medium">Payment Status</span>
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            amountPaid <= 0
+                            liveTotals.paymentStatus === 'UNPAID'
                               ? 'bg-rose-100 text-rose-800'
-                              : amountPaid >= activeGrandTotal
+                              : liveTotals.paymentStatus === 'PAID'
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-amber-100 text-amber-800'
                           }`}>
-                            {amountPaid <= 0 ? 'UNPAID' : amountPaid >= activeGrandTotal ? 'PAID' : 'PARTIALLY PAID'}
+                            {liveTotals.paymentStatus === 'UNPAID' ? 'UNPAID' : liveTotals.paymentStatus === 'PAID' ? 'PAID' : 'PARTIALLY PAID'}
                           </span>
                         </div>
                       </div>
@@ -2349,7 +2816,7 @@ export default function PurchaseBillScannerModal({
                           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 shadow-xs cursor-pointer transition disabled:opacity-50"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
-                          Edit Totals
+                          Edit Totals Directly
                         </button>
 
                         <button
@@ -2567,13 +3034,13 @@ export default function PurchaseBillScannerModal({
                                 Taxable Subtotal
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-600">
-                                ₹{printedTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(printedTaxable)}
                               </td>
                               <td className="py-2.5 px-3 text-right font-bold text-gray-900">
-                                ₹{calculatedSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(calculatedSubtotal)}
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-500">
-                                ₹{subtotalDiscrepancy.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(subtotalDiscrepancy)}
                               </td>
                             </tr>
 
@@ -2584,13 +3051,13 @@ export default function PurchaseBillScannerModal({
                                     CGST
                                   </td>
                                   <td className="py-2.5 px-3 text-right text-gray-600">
-                                    ₹{(printedCgst ?? calculatedCgst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(printedCgst ?? calculatedCgst)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-bold text-gray-900">
-                                    ₹{calculatedCgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(calculatedCgst)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right text-gray-500">
-                                    ₹{cgstDiscrepancy.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(cgstDiscrepancy)}
                                   </td>
                                 </tr>
 
@@ -2599,13 +3066,13 @@ export default function PurchaseBillScannerModal({
                                     SGST
                                   </td>
                                   <td className="py-2.5 px-3 text-right text-gray-600">
-                                    ₹{(printedSgst ?? calculatedSgst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(printedSgst ?? calculatedSgst)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-bold text-gray-900">
-                                    ₹{calculatedSgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(calculatedSgst)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right text-gray-500">
-                                    ₹{sgstDiscrepancy.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(sgstDiscrepancy)}
                                   </td>
                                 </tr>
                               </>
@@ -2616,13 +3083,13 @@ export default function PurchaseBillScannerModal({
                                 Total GST
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-600">
-                                ₹{printedTaxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(printedTaxTotal)}
                               </td>
                               <td className="py-2.5 px-3 text-right font-bold text-gray-900">
-                                ₹{calculatedTaxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(calculatedTaxTotal)}
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-500">
-                                ₹{taxTotalDiscrepancy.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(taxTotalDiscrepancy)}
                               </td>
                             </tr>
 
@@ -2631,15 +3098,15 @@ export default function PurchaseBillScannerModal({
                                 Grand Total
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-900">
-                                ₹{printedGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(printedGrandTotal)}
                               </td>
                               <td className="py-2.5 px-3 text-right text-purple-700">
-                                ₹{calculatedGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatIndianCurrency(calculatedGrandTotal)}
                               </td>
                               <td className="py-2.5 px-3 text-right">
                                 {hasDiscrepancy ? (
                                   <span className="text-amber-700">
-                                    ₹{grandTotalDiscrepancy.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatIndianCurrency(grandTotalDiscrepancy)}
                                   </span>
                                 ) : (
                                   <span className="text-emerald-600">₹0.00</span>

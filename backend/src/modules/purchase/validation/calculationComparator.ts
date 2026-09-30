@@ -74,6 +74,7 @@ export function reconcilePurchaseExtraction(
     cessRate: it.cessRate?.value ?? null,
     cessAmount: it.cessAmount?.value ?? null,
     lineTotal: it.lineTotal?.value ?? null,
+    taxMode: it.taxMode ?? extraction.tax?.taxInclusionMode,
   }));
 
   // 2. Map summary to calculation input

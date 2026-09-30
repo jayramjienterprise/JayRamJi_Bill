@@ -110,6 +110,7 @@ export const rawNimAdditionalSchema = z.object({
 }).passthrough().default({});
 
 export const rawNimExtractionResponseSchema = z.object({
+  hasLineTaxColumn: z.boolean().nullable().optional(),
   supplier: rawNimSupplierSchema,
   buyer: rawNimBuyerSchema.optional(),
   invoice: rawNimInvoiceSchema,
@@ -153,5 +154,7 @@ export interface NimExtractionResult {
     repairParseDurationMs?: number;
     retryNimDurationMs?: number;
     retryParseDurationMs?: number;
+    nimAttemptCount?: number;
+    nimAttemptDurations?: number[];
   };
 }

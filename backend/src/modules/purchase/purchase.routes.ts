@@ -57,6 +57,9 @@ router.get('/scanner/drafts/:draftId', (req, res, next) =>
 router.patch('/scanner/drafts/:draftId', (req, res, next) =>
   purchaseScannerController.patchDraftHandler(req, res, next)
 );
+router.post('/scanner/drafts/:draftId/accept-calculated-total', (req, res, next) =>
+  purchaseScannerController.acceptCalculatedTotalHandler(req, res, next)
+);
 router.post('/scanner/drafts/:draftId/confirm', (req, res, next) =>
   purchaseScannerController.confirmDraftHandler(req, res, next)
 );

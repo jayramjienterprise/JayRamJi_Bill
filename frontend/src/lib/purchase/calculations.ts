@@ -11,6 +11,15 @@
 
 export type LineTaxMode = 'EXCLUSIVE' | 'INCLUSIVE' | 'TAX_EXCLUSIVE' | 'TAX_INCLUSIVE';
 
+export type TaxSource =
+  | 'INVOICE_DOCUMENT_EXTRACTED'
+  | 'INVOICE_LINE_EXTRACTED'
+  | 'INVOICE_EXTRACTED'
+  | 'CATALOG_DEFAULT'
+  | 'USER_OVERRIDE'
+  | 'NOT_SPECIFIED'
+  | 'NONE';
+
 export interface LineCalculationInput {
   quantity: number;
   unitPrice: number;
@@ -22,6 +31,8 @@ export interface LineCalculationInput {
   igstRate?: number;
   isPreTaxLine?: boolean;
   taxMode?: LineTaxMode;
+  taxSource?: TaxSource;
+  gstNotice?: string;
 }
 
 export interface LineCalculationOutput {
@@ -34,6 +45,8 @@ export interface LineCalculationOutput {
   taxAmount: number;
   lineTotal: number;
   taxMode: 'EXCLUSIVE' | 'INCLUSIVE';
+  taxSource?: TaxSource;
+  gstNotice?: string;
 }
 
 export interface PurchaseTotalsInput {

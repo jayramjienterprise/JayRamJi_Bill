@@ -83,6 +83,32 @@ export interface IProductMatchResult {
   alternatives?: IProductMatchAlternative[];
 }
 
+export type TaxSource =
+  | 'INVOICE_DOCUMENT_EXTRACTED'
+  | 'INVOICE_LINE_EXTRACTED'
+  | 'INVOICE_EXTRACTED'
+  | 'CATALOG_DEFAULT'
+  | 'USER_OVERRIDE'
+  | 'NOT_SPECIFIED'
+  | 'NONE';
+
+export interface IDocumentTaxMetadata {
+  mode: 'INTRA_STATE' | 'INTER_STATE' | null;
+  hasDocumentTax: boolean;
+  hasLineLevelTax: boolean;
+  cgstRate: number | null;
+  cgstAmount?: number | null;
+  sgstRate: number | null;
+  sgstAmount?: number | null;
+  igstRate: number | null;
+  igstAmount?: number | null;
+  totalGstRate: number | null;
+  totalGstAmount?: number | null;
+  taxInclusionMode?: 'EXCLUSIVE' | 'INCLUSIVE' | 'UNKNOWN';
+  source: TaxSource;
+  evidenceType?: 'DOCUMENT_SUMMARY' | 'LINE_ITEMS' | 'NONE';
+}
+
 export interface IExtractedLineItem {
   id: string; // Client row key UUID
   lineNumber: number;
@@ -115,6 +141,9 @@ export interface IExtractedLineItem {
     discrepancy: number; // In Rupees
   };
   productMatch?: IProductMatchResult;
+  taxMode?: 'EXCLUSIVE' | 'INCLUSIVE' | 'TAX_EXCLUSIVE' | 'TAX_INCLUSIVE';
+  taxSource?: TaxSource;
+  gstNotice?: string | null;
 }
 
 export interface ISummaryExtraction {
@@ -133,6 +162,7 @@ export interface ISummaryExtraction {
   grandTotal: IExtractedField<number>;
   amountPaid: IExtractedField<number>;
   balanceDue: IExtractedField<number>;
+  taxExtractionStatus?: 'VERIFIED' | 'DERIVED' | 'DISCREPANT' | 'UNVERIFIED';
 }
 
 export interface IPaymentDetailsExtraction {
@@ -158,6 +188,7 @@ export interface IPurchaseBillExtraction {
   summary: ISummaryExtraction;
   payment: IPaymentDetailsExtraction;
   additional: IAdditionalDetailsExtraction;
+  tax?: IDocumentTaxMetadata;
 }
 
 export interface IVendorMatchAlternative {
@@ -355,6 +386,21 @@ const ExtractedLineItemSchema = new Schema<IExtractedLineItem>(
       discrepancy: { type: Number, default: 0 },
     },
     productMatch: { type: ProductMatchSchema, default: () => ({}) },
+    taxMode: { type: String, enum: ['EXCLUSIVE', 'INCLUSIVE', 'TAX_EXCLUSIVE', 'TAX_INCLUSIVE'], default: 'EXCLUSIVE' },
+    taxSource: {
+      type: String,
+      enum: [
+        'INVOICE_DOCUMENT_EXTRACTED',
+        'INVOICE_LINE_EXTRACTED',
+        'INVOICE_EXTRACTED',
+        'CATALOG_DEFAULT',
+        'USER_OVERRIDE',
+        'NOT_SPECIFIED',
+        'NONE',
+      ],
+      default: null,
+    },
+    gstNotice: { type: String, default: null },
   },
   { _id: false }
 );
@@ -413,6 +459,7 @@ const PurchaseBillExtractionSchema = new Schema<IPurchaseBillExtraction>(
       grandTotal: createExtractedFieldSubSchema(Number),
       amountPaid: createExtractedFieldSubSchema(Number),
       balanceDue: createExtractedFieldSubSchema(Number),
+      taxExtractionStatus: { type: String, enum: ['VERIFIED', 'DERIVED', 'DISCREPANT', 'UNVERIFIED'], default: null },
     },
     payment: {
       paymentMode: createExtractedFieldSubSchema(String),
@@ -426,6 +473,28 @@ const PurchaseBillExtractionSchema = new Schema<IPurchaseBillExtraction>(
       notes: createExtractedFieldSubSchema(String),
       termsAndConditions: createExtractedFieldSubSchema(String),
       vehicleNumber: createExtractedFieldSubSchema(String),
+    },
+    tax: {
+      type: new Schema(
+        {
+          mode: { type: String, enum: ['INTRA_STATE', 'INTER_STATE'], default: null },
+          hasDocumentTax: { type: Boolean, default: false },
+          hasLineLevelTax: { type: Boolean, default: false },
+          cgstRate: { type: Number, default: null },
+          cgstAmount: { type: Number, default: null },
+          sgstRate: { type: Number, default: null },
+          sgstAmount: { type: Number, default: null },
+          igstRate: { type: Number, default: null },
+          igstAmount: { type: Number, default: null },
+          totalGstRate: { type: Number, default: null },
+          totalGstAmount: { type: Number, default: null },
+          taxInclusionMode: { type: String, enum: ['EXCLUSIVE', 'INCLUSIVE', 'UNKNOWN'], default: 'EXCLUSIVE' },
+          source: { type: String, default: null },
+          evidenceType: { type: String, enum: ['DOCUMENT_SUMMARY', 'LINE_ITEMS', 'NONE'], default: 'NONE' },
+        },
+        { _id: false }
+      ),
+      default: null,
     },
   },
   { _id: false }

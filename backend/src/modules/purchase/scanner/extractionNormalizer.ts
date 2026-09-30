@@ -245,6 +245,38 @@ export function normalizeBoundingBox(
 }
 
 /**
+ * Normalizes Indian GSTIN (Goods and Services Tax Identification Number).
+ *
+ * GSTIN structure (15 characters):
+ *   [0-1]  State code (2 digits, e.g. "24" = Gujarat)
+ *   [2-11] PAN number (10 alphanumeric chars)
+ *   [12]   Entity number (1-9 or A-Z, counts registrations per PAN per state)
+ *   [13]   Mandatory letter 'Z' (always 'Z' per Indian GST law — NOT the digit 2!)
+ *   [14]   Checksum character
+ *
+ * Applies a single safe deterministic correction:
+ * - If position 13 (0-indexed) is the digit '2' or '7' instead of the letter 'Z',
+ *   this is a common AI/OCR misread. Correct it to 'Z'.
+ * - Does NOT validate the full checksum (avoids false rejections on other errors).
+ */
+export function normalizeGstin(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const str = String(raw).trim().toUpperCase();
+  if (!str) return null;
+
+  // Only apply position-13 correction if the string is exactly 15 characters
+  if (str.length !== 15) return str;
+
+  // Position 13 (0-indexed) must always be 'Z' per GSTIN specification.
+  // AI models commonly misread 'Z' as digit '2' (closed top of Z) or '7' (similar diagonal).
+  if (str[13] !== 'Z' && (str[13] === '2' || str[13] === '7')) {
+    return str.substring(0, 13) + 'Z' + str.substring(14);
+  }
+
+  return str;
+}
+
+/**
  * Factory helper for constructing ExtractedField objects adhering strictly to PurchaseDraft contracts
  */
 export function createExtractedField<T>(

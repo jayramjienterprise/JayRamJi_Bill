@@ -133,6 +133,19 @@ export const extractedLineItemSchema = z.object({
   lineTotal: createExtractedFieldZodSchema(z.number().min(0, 'Line total cannot be negative')),
   calculated: calculatedLineValuesSchema.optional(),
   productMatch: productMatchResultSchema.optional(),
+  taxMode: z.enum(['EXCLUSIVE', 'INCLUSIVE', 'TAX_EXCLUSIVE', 'TAX_INCLUSIVE']).optional(),
+  taxSource: z
+    .enum([
+      'INVOICE_DOCUMENT_EXTRACTED',
+      'INVOICE_LINE_EXTRACTED',
+      'INVOICE_EXTRACTED',
+      'CATALOG_DEFAULT',
+      'USER_OVERRIDE',
+      'NOT_SPECIFIED',
+      'NONE',
+    ])
+    .optional(),
+  gstNotice: z.string().nullable().optional(),
 });
 
 export const summaryExtractionSchema = z.object({
@@ -170,6 +183,31 @@ export const additionalDetailsExtractionSchema = z.object({
   vehicleNumber: createExtractedFieldZodSchema(z.string()),
 });
 
+export const documentTaxMetadataSchema = z.object({
+  mode: z.enum(['INTRA_STATE', 'INTER_STATE']).nullable().optional(),
+  hasDocumentTax: z.boolean(),
+  hasLineLevelTax: z.boolean(),
+  cgstRate: z.number().nullable().optional(),
+  cgstAmount: z.number().nullable().optional(),
+  sgstRate: z.number().nullable().optional(),
+  sgstAmount: z.number().nullable().optional(),
+  igstRate: z.number().nullable().optional(),
+  igstAmount: z.number().nullable().optional(),
+  totalGstRate: z.number().nullable().optional(),
+  totalGstAmount: z.number().nullable().optional(),
+  taxInclusionMode: z.enum(['EXCLUSIVE', 'INCLUSIVE', 'UNKNOWN']).optional(),
+  source: z.enum([
+    'INVOICE_DOCUMENT_EXTRACTED',
+    'INVOICE_LINE_EXTRACTED',
+    'INVOICE_EXTRACTED',
+    'CATALOG_DEFAULT',
+    'USER_OVERRIDE',
+    'NOT_SPECIFIED',
+    'NONE',
+  ]),
+  evidenceType: z.enum(['DOCUMENT_SUMMARY', 'LINE_ITEMS', 'NONE']).optional(),
+});
+
 export const purchaseBillExtractionSchema = z.object({
   supplier: supplierExtractionSchema,
   buyer: buyerExtractionSchema.optional(),
@@ -178,6 +216,7 @@ export const purchaseBillExtractionSchema = z.object({
   summary: summaryExtractionSchema,
   payment: paymentDetailsExtractionSchema,
   additional: additionalDetailsExtractionSchema,
+  tax: documentTaxMetadataSchema.optional(),
 });
 
 export const vendorMatchAlternativeSchema = z.object({
@@ -286,6 +325,13 @@ export const editableDraftLineItemSchema = z.object({
   discountPercent: z.number().min(0).max(100).optional(),
   discountAmount: z.number().min(0).optional(),
   taxRate: z.number().min(0).optional(),
+  gstRate: z.number().min(0).optional(),
+  cgstRate: z.number().min(0).optional(),
+  sgstRate: z.number().min(0).optional(),
+  igstRate: z.number().min(0).optional(),
+  taxMode: z.enum(['EXCLUSIVE', 'INCLUSIVE', 'TAX_EXCLUSIVE', 'TAX_INCLUSIVE']).optional(),
+  taxSource: z.enum(['INVOICE_EXTRACTED', 'CATALOG_DEFAULT', 'USER_OVERRIDE', 'NOT_SPECIFIED']).optional(),
+  gstNotice: z.string().nullable().optional(),
 });
 
 export const editableDraftSummarySchema = z.object({
@@ -327,6 +373,9 @@ export const editableDraftFieldsSchema = z
     items: z.array(editableDraftLineItemSchema).optional(),
     summary: editableDraftSummarySchema.optional(),
     manualOverride: z.boolean().optional(),
+    totalSource: z.enum(['PRINTED_BILL', 'DETERMINISTIC_CALCULATION', 'DETERMINISTIC_CALCULATION_PENDING', 'USER_OVERRIDE']).optional(),
+    finalPurchaseTotal: z.number().min(0).optional(),
+    acceptCalculatedTotal: z.boolean().optional(),
     userCorrections: z.array(userCorrectionEntrySchema).optional(),
     // Client can explicitly acknowledge duplicate invoice warning
     allowDuplicateInvoice: z.boolean().optional(),
@@ -343,6 +392,10 @@ export const purchaseDraftPaymentSchema = z.object({
   notes: z.string().trim().nullable().optional(),
 });
 
+export const acceptCalculatedTotalSchema = z.object({
+  items: z.array(editableDraftLineItemSchema).optional(),
+}).strict();
+
 export const confirmDraftSchema = z.object({
   vendorId: z.string().nullable().optional(),
   vendorInvoiceNumber: z.string().trim().nullable().optional(),
@@ -357,6 +410,8 @@ export const confirmDraftSchema = z.object({
   allowDuplicateInvoice: z.boolean().default(false),
   notes: z.string().trim().nullable().optional(),
   manualOverride: z.boolean().optional(),
+  totalSource: z.enum(['PRINTED_BILL', 'DETERMINISTIC_CALCULATION', 'DETERMINISTIC_CALCULATION_PENDING', 'USER_OVERRIDE']).optional(),
+  finalPurchaseTotal: z.number().min(0).optional(),
   summary: editableDraftSummarySchema.optional(),
   items: z
     .array(
@@ -370,3 +425,4 @@ export const confirmDraftSchema = z.object({
 
 export type EditableDraftFields = z.infer<typeof editableDraftFieldsSchema>;
 export type ConfirmDraftInput = z.infer<typeof confirmDraftSchema>;
+export type AcceptCalculatedTotalInput = z.infer<typeof acceptCalculatedTotalSchema>;
