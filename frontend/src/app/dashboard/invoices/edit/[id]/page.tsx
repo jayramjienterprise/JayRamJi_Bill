@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useDashboard } from '../../../layout';
 import { apiClient } from '../../../../../lib/api/client';
-import { Customer, Product, PaymentAccount, PaymentMethod, PaymentProof } from '../../../../../lib/api/types';
+import { Customer, Product, PaymentAccount, PaymentMethod, PaymentProof, ConditionPreset } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
 import PaymentProofUploader from '../../components/PaymentProofUploader';
+import { FileCheck, Sparkles, Plus, Check, Search } from 'lucide-react';
 
 interface ItemInput {
   productId: string | null;
@@ -48,6 +49,9 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   const [taxOption, setTaxOption] = useState<'NONE' | 'EXCLUSIVE_18' | 'INCLUSIVE_18'>('NONE');
   const [termsAndConditions, setTermsAndConditions] = useState<string[]>([]);
   const [newTermInput, setNewTermInput] = useState('');
+  const [availableConditions, setAvailableConditions] = useState<ConditionPreset[]>([]);
+  const [conditionSearch, setConditionSearch] = useState('');
+  const [conditionCategory, setConditionCategory] = useState<'ALL' | 'INVOICE' | 'GENERAL' | 'AMC'>('ALL');
 
   // Payment Details states
   const [paymentStatus, setPaymentStatus] = useState<'UNPAID' | 'PAID' | 'PARTIAL'>('UNPAID');
@@ -268,12 +272,25 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     }
   }
 
+  // Load condition presets from Condition Menu
+  async function loadConditions() {
+    if (!activeBusinessId) return;
+    try {
+      const res: any = await apiClient.get('/conditions');
+      const list = res?.conditions || res?.data?.conditions || (Array.isArray(res) ? res : []);
+      setAvailableConditions(list);
+    } catch (err) {
+      console.error('Failed to load conditions:', err);
+    }
+  }
+
   useEffect(() => {
     loadInvoiceData();
     loadCustomers();
     loadProducts();
     loadPaymentAccounts();
     loadBusinessAndAssets();
+    loadConditions();
   }, [id, activeBusinessId]);
 
   // Sync grand total with payment amount when in PAID mode
@@ -617,7 +634,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
       discount: { type: 'NONE', value: 0 },
       paymentTerms: undefined,
       notes: undefined,
-      termsAndConditions,
+      termsAndConditions: termsAndConditions.map((t) => (t || '').toUpperCase().trim()).filter(Boolean),
       paymentStatus,
       payment: paymentPayload,
       customInvoiceNumber: customInvoiceNumber.trim(),
@@ -630,7 +647,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         await apiClient.finalizeInvoice(id, { payment: paymentPayload, customInvoiceNumber: customInvoiceNumber.trim() });
         router.push(`/dashboard/invoices/detail/${id}`);
       } else {
-        router.push(`/dashboard/invoices/preview/${id}`);
+        router.push(`/dashboard/invoices/detail/${id}`);
       }
     } catch (err: any) {
       const serverMsg = err.details?.message || err.message || 'Failed updating invoice draft';
@@ -660,9 +677,9 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
         invoice={{
           invoiceNumber: customInvoiceNumber.trim() || 'DRAFT',
           invoiceDate: invoiceDate || new Date(),
-          paymentTerms: business?.invoiceSettings?.defaultPaymentTerms || 'Within 15 days clear payment',
+          paymentTerms: ((business?.invoiceSettings?.defaultPaymentTerms || 'WITHIN 15 DAYS CLEAR PAYMENT') as string).toUpperCase(),
           amountInWords: amountInWords || 'Zero Rupees Only',
-          termsAndConditions: termsAndConditions,
+          termsAndConditions: termsAndConditions.map((t) => (t || '').toUpperCase()),
         }}
         business={business as any}
         customer={selectedCustomer || { name: 'Customer Name', address: { line1: 'Customer Address' } }}
@@ -700,10 +717,10 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           </p>
         </div>
         <Link
-          href={`/dashboard/invoices/preview/${id}`}
+          href={`/dashboard/invoices/detail/${id}`}
           className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary cursor-pointer"
         >
-          View Live Print Bill →
+          View Bill Detail →
         </Link>
       </div>
 
@@ -1409,22 +1426,137 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
               )}
             </div>
 
-            {/* Terms & Conditions */}
+            {/* Terms & Conditions (With Condition Menu Presets Picker) */}
             <div className="bg-surface-app border border-border-app p-6 rounded-xl shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-border-light pb-2">
                 <div>
-                  <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
-                    Terms & Conditions
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <FileCheck className="w-5 h-5 text-primary-700" />
+                    <h3 className="text-sm font-bold text-text-primary uppercase tracking-wide">
+                      Terms &amp; Conditions (Condition Menu)
+                    </h3>
+                  </div>
                   <p className="text-[11px] text-text-muted mt-0.5">
-                    Terms saved with this bill and printed on the invoice document.
+                    Select standard conditions below or add custom terms in CAPITAL LETTERS.
                   </p>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-2-app text-text-secondary border border-border-app">
-                  {termsAndConditions.length} {termsAndConditions.length === 1 ? 'Term' : 'Terms'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/dashboard/settings/conditions"
+                    target="_blank"
+                    className="text-[11px] font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1 cursor-pointer"
+                    title="Manage condition presets in settings"
+                  >
+                    <span>Manage Presets ⚙</span>
+                  </Link>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-2-app text-text-secondary border border-border-app">
+                    {termsAndConditions.length} {termsAndConditions.length === 1 ? 'Term' : 'Terms'}
+                  </span>
+                </div>
               </div>
 
+              {/* Condition Menu Presets Selector Panel */}
+              {editable && (
+                <div className="p-3 bg-surface-2-app/70 border border-border-app rounded-xl space-y-2.5">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-primary-700" />
+                      <span className="text-[11px] font-bold text-text-primary uppercase">
+                        Select Preset Conditions (Click to Add / Remove):
+                      </span>
+                    </div>
+                    <div className="relative w-full sm:w-44">
+                      <Search className="w-3 h-3 text-text-secondary absolute left-2.5 top-2" />
+                      <input
+                        type="text"
+                        value={conditionSearch}
+                        onChange={(e) => setConditionSearch(e.target.value.toUpperCase())}
+                        placeholder="FILTER CONDITIONS..."
+                        className="w-full bg-surface-app border border-border-app rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-text-primary focus:outline-none uppercase"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Category Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {(['ALL', 'INVOICE', 'GENERAL', 'AMC'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setConditionCategory(cat)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          conditionCategory === cat
+                            ? 'bg-primary-700 text-white shadow-xs'
+                            : 'bg-surface-app text-text-secondary hover:text-text-primary border border-border-app'
+                        }`}
+                      >
+                        {cat === 'ALL'
+                          ? 'ALL'
+                          : cat === 'INVOICE'
+                          ? 'BILL / INVOICE'
+                          : cat === 'GENERAL'
+                          ? 'QUOTATION'
+                          : 'AMC'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Clickable Preset Chips */}
+                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                    {availableConditions
+                      .filter((c) => {
+                        const matchCat =
+                          conditionCategory === 'ALL' ||
+                          c.category === 'ALL' ||
+                          c.category === conditionCategory;
+                        const matchSearch =
+                          !conditionSearch.trim() ||
+                          c.title.toUpperCase().includes(conditionSearch.toUpperCase()) ||
+                          c.text.toUpperCase().includes(conditionSearch.toUpperCase());
+                        return matchCat && matchSearch;
+                      })
+                      .map((cond) => {
+                        const textUpper = (cond.text || '').toUpperCase().trim();
+                        const isSelected = termsAndConditions.some(
+                          (t) => (t || '').toUpperCase().trim() === textUpper
+                        );
+
+                        return (
+                          <button
+                            key={cond._id || cond.id || cond.title}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setTermsAndConditions(
+                                  termsAndConditions.filter(
+                                    (t) => (t || '').toUpperCase().trim() !== textUpper
+                                  )
+                                );
+                              } else {
+                                setTermsAndConditions([...termsAndConditions, textUpper]);
+                              }
+                            }}
+                            className={`text-left px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer border flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-primary-700 text-white border-primary-800 shadow-xs'
+                                : 'bg-surface-app text-text-primary border-border-app hover:border-primary-500/50'
+                            }`}
+                            title={cond.text}
+                          >
+                            {isSelected ? (
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                            ) : (
+                              <Plus className="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                            )}
+                            <span className="truncate max-w-[240px] uppercase">{cond.title}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Active Terms List on This Bill */}
               <div className="space-y-2">
                 {termsAndConditions.map((term, index) => (
                   <div
@@ -1435,7 +1567,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                       <span className="font-bold text-text-muted text-[11px] shrink-0 mt-0.5">
                         {index + 1}.
                       </span>
-                      <span className="text-text-primary break-words">{term}</span>
+                      <span className="text-text-primary break-words font-medium uppercase">{term}</span>
                     </div>
                     {editable && (
                       <button
@@ -1452,7 +1584,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
 
                 {termsAndConditions.length === 0 && (
                   <p className="text-xs text-text-muted italic py-1">
-                    No custom terms added. Standard business terms will apply.
+                    No custom terms added. Click on any preset above to add standard conditions.
                   </p>
                 )}
 
@@ -1460,29 +1592,29 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   <div className="flex gap-2 pt-2">
                     <input
                       type="text"
-                      placeholder="Add a new term or condition..."
+                      placeholder="ADD A NEW CUSTOM TERM (UPPERCASE)..."
                       value={newTermInput}
-                      onChange={(e) => setNewTermInput(e.target.value)}
+                      onChange={(e) => setNewTermInput(e.target.value.toUpperCase())}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
                           if (newTermInput.trim()) {
-                            setTermsAndConditions([...termsAndConditions, newTermInput.trim()]);
+                            setTermsAndConditions([...termsAndConditions, newTermInput.trim().toUpperCase()]);
                             setNewTermInput('');
                           }
                         }
                       }}
-                      className="flex-1 px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary-600"
+                      className="flex-1 px-3 py-2 bg-surface-2-app border border-border-app rounded-lg text-xs text-text-primary placeholder:text-text-muted uppercase focus:outline-none focus:ring-1 focus:ring-primary-600 font-medium"
                     />
                     <button
                       type="button"
                       onClick={() => {
                         if (newTermInput.trim()) {
-                          setTermsAndConditions([...termsAndConditions, newTermInput.trim()]);
+                          setTermsAndConditions([...termsAndConditions, newTermInput.trim().toUpperCase()]);
                           setNewTermInput('');
                         }
                       }}
-                      className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary transition cursor-pointer"
+                      className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-lg text-xs font-bold text-text-primary transition cursor-pointer uppercase"
                     >
                       + Add
                     </button>

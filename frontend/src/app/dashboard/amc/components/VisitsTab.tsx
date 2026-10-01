@@ -150,7 +150,7 @@ export default function VisitsTab({
   async function handleGenerateSupplementaryQuotation(visitId: string, visitNumber: string) {
     if (
       !confirm(
-        `Create supplementary quotation for Visit #${visitNumber}? This will generate an official quotation for non-covered parts/labor for customer approval.`
+        `Create supplementary quotation for Visit #${visitNumber}? This will generate an official quotation for non-covered parts/labour for customer approval.`
       )
     )
       return;
@@ -722,7 +722,7 @@ export default function VisitsTab({
                                   handleGenerateSupplementaryQuotation(v._id, v.visitNumber)
                                 }
                                 className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] transition cursor-pointer inline-flex items-center gap-1"
-                                title="Spares/Labor not covered under AMC plan. Click to generate official supplementary quotation!"
+                                title="Spares/Labour not covered under AMC plan. Click to generate official supplementary quotation!"
                               >
                                 <ShieldAlert className="w-3 h-3" />
                                 <span>Quote Uncovered</span>

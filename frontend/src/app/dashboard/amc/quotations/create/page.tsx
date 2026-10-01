@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useDashboard } from '../../../layout';
 import { apiClient } from '../../../../../lib/api/client';
-import { Customer, Product } from '../../../../../lib/api/types';
+import { Customer, Product, ConditionPreset } from '../../../../../lib/api/types';
 import { convertNumberToWords } from '../../../../../lib/utils/numberToWords';
 import AmcQuotationPaper, { AmcQuotationPaperItem } from '../../components/AmcQuotationPaper';
 import {
@@ -25,6 +25,8 @@ import {
   Clock,
   Check,
   Receipt,
+  FileCheck,
+  Sparkles,
 } from 'lucide-react';
 
 export default function CreateAmcQuotationPage() {
@@ -60,38 +62,43 @@ export default function CreateAmcQuotationPage() {
   const [quotationDate, setQuotationDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [quotationNumber, setQuotationNumber] = useState('');
   const [amcType, setAmcType] = useState<'NON_COMPREHENSIVE' | 'COMPREHENSIVE'>('NON_COMPREHENSIVE');
-  const [paymentTerms, setPaymentTerms] = useState('10 Days from the Invoice date');
-  const [validityDays, setValidityDays] = useState('30 Days');
+  const [paymentTerms, setPaymentTerms] = useState('10 DAYS FROM THE INVOICE DATE');
+  const [validityDays, setValidityDays] = useState('30 DAYS');
   const [taxOption, setTaxOption] = useState<'NONE' | 'GST_18'>('NONE');
+
+  // Condition Presets Master Data & Filter
+  const [availableConditions, setAvailableConditions] = useState<ConditionPreset[]>([]);
+  const [conditionFilterCategory, setConditionFilterCategory] = useState<'ALL' | 'GENERAL' | 'AMC' | 'INVOICE'>('ALL');
+  const [conditionFilterSearch, setConditionFilterSearch] = useState('');
 
   // Edit Mode state
   const [editId, setEditId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [existingQuotation, setExistingQuotation] = useState<any | null>(null);
 
-  // Standard terms constants
+  // Standard terms constants (Strictly UPPERCASE)
   const GENERAL_TERMS = [
-    'This quotation is valid for 30 days from issuance date.',
-    'Payment Terms: 100% against delivery / completion of work.',
-    'Goods once sold will not be taken back without prior authorization.',
-    'Warranty on spare parts/units as per original manufacturer policy.',
-    'Taxes extra as applicable at current rates.',
+    'THIS QUOTATION IS VALID FOR 30 DAYS FROM ISSUANCE DATE.',
+    'PAYMENT TERMS: 100% AGAINST DELIVERY / COMPLETION OF WORK.',
+    'GOODS ONCE SOLD WILL NOT BE TAKEN BACK WITHOUT PRIOR AUTHORIZATION.',
+    'WARRANTY ON SPARE PARTS/UNITS AS PER ORIGINAL MANUFACTURER POLICY.',
+    'TAXES EXTRA AS APPLICABLE AT CURRENT RATES.',
   ];
 
   const AMC_NON_COMP_TERMS = [
-    'This AMC quotation is valid for 1 Year from issuance date.',
-    'Non-Comprehensive AMC: Only scheduled routine maintenance & inspection labour are included. Spare parts & gas are chargeable.',
-    'Payment Terms: 10 Days from Invoice date.',
-    'Emergency breakdown calls will be attended to within 24 to 48 hours.',
-    'AC installation or relocation charges include up to 10 feet of standard piping.',
+    'THIS AMC QUOTATION IS VALID FOR 1 YEAR FROM ISSUANCE DATE.',
+    'NON-COMPREHENSIVE AMC: ONLY SCHEDULED ROUTINE MAINTENANCE & INSPECTION LABOUR ARE INCLUDED. SPARE PARTS & GAS ARE CHARGEABLE.',
+    'PAYMENT TERMS: 10 DAYS FROM INVOICE DATE.',
+    'EMERGENCY BREAKDOWN CALLS WILL BE ATTENDED TO WITHIN 24 TO 48 HOURS.',
+    'AC INSTALLATION OR RELOCATION CHARGES INCLUDE UP TO 10 FEET OF STANDARD PIPING.',
   ];
 
   const AMC_COMP_TERMS = [
-    'This AMC quotation is valid for 30 days from issuance date.',
-    'Comprehensive AMC: Scheduled periodic maintenance and eligible functional components are covered.',
-    'Routine emergency breakdown calls included at zero technician labour fee.',
-    'Payment Terms: 10 Days from Invoice date.',
-    'External accidental damages or piping ruptures are excluded from standard coverage.',
+    'THIS AMC QUOTATION IS VALID FOR 30 DAYS FROM ISSUANCE DATE.',
+    'COMPREHENSIVE AMC: SCHEDULED PERIODIC MAINTENANCE AND ELIGIBLE FUNCTIONAL COMPONENTS ARE COVERED.',
+    'ROUTINE EMERGENCY BREAKDOWN CALLS INCLUDED AT ZERO TECHNICIAN LABOUR FEE.',
+    'PAYMENT TERMS: 10 DAYS FROM INVOICE DATE.',
+    'EXTERNAL ACCIDENTAL DAMAGES OR PIPING RUPTURES ARE EXCLUDED FROM STANDARD COVERAGE.',
   ];
 
   // Read edit and category query params
@@ -233,6 +240,15 @@ export default function CreateAmcQuotationPage() {
         const stamp = assetsList.find((a) => a.type === 'STAMP' && a.active);
         const signature = assetsList.find((a) => a.type === 'SIGNATURE' && a.active);
         setActiveAssets({ logo, stamp, signature });
+
+        // Load Condition Presets
+        try {
+          const condRes: any = await apiClient.get('/conditions');
+          const condList = condRes?.conditions || condRes?.data?.conditions || (Array.isArray(condRes) ? condRes : []);
+          setAvailableConditions(condList);
+        } catch (cErr) {
+          console.error('Failed loading condition presets:', cErr);
+        }
 
         // Generate next quotation number only for new quotation
         if (!editId) {
@@ -466,7 +482,7 @@ export default function CreateAmcQuotationPage() {
         customerId: selectedCustomerId,
         quotationNumber: quotationNumber.trim() || undefined,
         quotationDate,
-        paymentTerms,
+        paymentTerms: paymentTerms.toUpperCase().trim(),
         quotationType: quoteCategory === 'GENERAL' ? 'GENERAL' : amcType,
         items: items.map((it, idx) => ({
           serialNumber: idx + 1,
@@ -477,7 +493,7 @@ export default function CreateAmcQuotationPage() {
           amount: Number(it.amount) || 0,
         })),
         taxRateBps: taxOption === 'GST_18' ? 1800 : 0,
-        termsAndConditions: termsList,
+        termsAndConditions: termsList.map((t) => (t || '').toUpperCase().trim()).filter(Boolean),
         status,
       };
 
@@ -929,83 +945,216 @@ export default function CreateAmcQuotationPage() {
             </select>
           </div>
 
-          {/* 5. Terms & Conditions (Replacing Payment Details as requested) */}
+          {/* 5. Terms & Conditions (With Condition Menu Presets Picker) */}
           <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-4">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-primary-700" />
-              <h3 className="text-xs font-black text-text-primary uppercase tracking-wider">
-                Terms & Conditions (Replacing Payment Details)
-              </h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileCheck className="w-5 h-5 text-primary-700" />
+                <h3 className="text-xs font-black text-text-primary uppercase tracking-wider">
+                  Terms &amp; Conditions (Condition Menu)
+                </h3>
+              </div>
+              <Link
+                href="/dashboard/settings/conditions"
+                target="_blank"
+                className="text-[11px] font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1 cursor-pointer"
+                title="Open Condition Presets Manager in new tab"
+              >
+                <span>Manage Presets ⚙</span>
+              </Link>
+            </div>
+
+            {/* Condition Menu Presets Selector Panel */}
+            <div className="p-3.5 bg-surface-2-app/70 border border-border-app rounded-xl space-y-3">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-primary-700" />
+                  <span className="text-[11px] font-black text-text-primary uppercase">
+                    Select Preset Conditions (Click to Add / Remove):
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-44">
+                    <Search className="w-3 h-3 text-text-secondary absolute left-2.5 top-2" />
+                    <input
+                      type="text"
+                      value={conditionFilterSearch}
+                      onChange={(e) => setConditionFilterSearch(e.target.value.toUpperCase())}
+                      placeholder="FILTER CONDITIONS..."
+                      className="w-full bg-surface-app border border-border-app rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-text-primary focus:outline-none uppercase"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1">
+                {(['ALL', 'GENERAL', 'AMC', 'INVOICE'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setConditionFilterCategory(cat)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                      conditionFilterCategory === cat
+                        ? 'bg-primary-700 text-white shadow-xs'
+                        : 'bg-surface-app text-text-secondary hover:text-text-primary border border-border-app'
+                    }`}
+                  >
+                    {cat === 'ALL'
+                      ? 'ALL'
+                      : cat === 'GENERAL'
+                      ? 'QUOTATION'
+                      : cat === 'AMC'
+                      ? 'AMC'
+                      : 'INVOICE'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Available Condition Chips */}
+              <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pr-1">
+                {availableConditions
+                  .filter((c) => {
+                    const matchCat =
+                      conditionFilterCategory === 'ALL' ||
+                      c.category === 'ALL' ||
+                      c.category === conditionFilterCategory;
+                    const matchSearch =
+                      !conditionFilterSearch.trim() ||
+                      c.title.toUpperCase().includes(conditionFilterSearch.toUpperCase()) ||
+                      c.text.toUpperCase().includes(conditionFilterSearch.toUpperCase());
+                    return matchCat && matchSearch;
+                  })
+                  .map((cond) => {
+                    const textUpper = (cond.text || '').toUpperCase().trim();
+                    const isSelected = termsList.some(
+                      (t) => (t || '').toUpperCase().trim() === textUpper
+                    );
+
+                    return (
+                      <button
+                        key={cond._id || cond.id || cond.title}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setTermsList(
+                              termsList.filter(
+                                (t) => (t || '').toUpperCase().trim() !== textUpper
+                              )
+                            );
+                          } else {
+                            setTermsList([...termsList, textUpper]);
+                          }
+                        }}
+                        className={`text-left px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer border flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-primary-700 text-white border-primary-800 shadow-xs'
+                            : 'bg-surface-app text-text-primary border-border-app hover:border-primary-500/50'
+                        }`}
+                        title={cond.text}
+                      >
+                        {isSelected ? (
+                          <Check className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                        )}
+                        <span className="truncate max-w-[260px] uppercase">{cond.title}</span>
+                      </button>
+                    );
+                  })}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-text-secondary mb-1">
-                  TERMS OF PAYMENT
+                  TERMS OF PAYMENT (UPPERCASE)
                 </label>
                 <input
                   type="text"
                   value={paymentTerms}
-                  onChange={(e) => setPaymentTerms(e.target.value)}
-                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium focus:outline-none"
-                  placeholder="10 Days from the Invoice date"
+                  onChange={(e) => setPaymentTerms(e.target.value.toUpperCase())}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold uppercase focus:outline-none"
+                  placeholder="10 DAYS FROM THE INVOICE DATE"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-text-secondary mb-1">
-                  QUOTATION VALIDITY
+                  QUOTATION VALIDITY (UPPERCASE)
                 </label>
                 <input
                   type="text"
                   value={validityDays}
-                  onChange={(e) => setValidityDays(e.target.value)}
-                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-medium focus:outline-none"
-                  placeholder="30 Days from issuance"
+                  onChange={(e) => setValidityDays(e.target.value.toUpperCase())}
+                  className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold uppercase focus:outline-none"
+                  placeholder="30 DAYS FROM ISSUANCE"
                 />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-bold text-text-secondary">
-                  CONTRACT TERMS & EXCLUSIONS
+                <label className="text-xs font-bold text-text-secondary uppercase">
+                  ACTIVE QUOTATION CONDITIONS ({termsList.length})
                 </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTermsList([...termsList, 'Additional mutually agreed term.'])
-                  }
-                  className="text-primary-700 hover:text-primary-800 text-[11px] font-bold cursor-pointer"
-                >
-                  + Add Term
-                </button>
+                <div className="flex items-center gap-2">
+                  {termsList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTermsList([])}
+                      className="text-danger-app hover:underline text-[11px] font-bold cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTermsList([
+                        ...termsList,
+                        'ADDITIONAL MUTUALLY AGREED COMMERCIAL TERM.',
+                      ])
+                    }
+                    className="text-primary-700 hover:text-primary-800 text-[11px] font-bold cursor-pointer"
+                  >
+                    + Add Custom Term
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2">
-                {termsList.map((term, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      value={term}
-                      onChange={(e) => {
-                        const updated = [...termsList];
-                        updated[i] = e.target.value;
-                        setTermsList(updated);
-                      }}
-                      className="flex-1 bg-surface-2-app border border-border-app rounded-xl p-2 text-xs text-text-primary focus:outline-none"
-                    />
-                    {termsList.length > 1 && (
+                {termsList.length === 0 ? (
+                  <div className="p-3 bg-surface-2-app border border-dashed border-border-app rounded-xl text-center text-xs text-text-secondary">
+                    No conditions selected. Click on any preset above to add conditions to this quotation.
+                  </div>
+                ) : (
+                  termsList.map((term, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <span className="text-[11px] font-bold text-text-secondary w-5 text-right shrink-0">
+                        {i + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={term}
+                        onChange={(e) => {
+                          const updated = [...termsList];
+                          updated[i] = e.target.value.toUpperCase();
+                          setTermsList(updated);
+                        }}
+                        className="flex-1 bg-surface-2-app border border-border-app rounded-xl p-2 text-xs text-text-primary font-medium uppercase focus:outline-none"
+                      />
                       <button
                         type="button"
                         onClick={() => setTermsList(termsList.filter((_, idx) => idx !== i))}
-                        className="p-1 text-danger-app hover:bg-danger-soft rounded"
+                        className="p-1.5 text-danger-app hover:bg-danger-soft rounded-lg cursor-pointer"
+                        title="Remove term"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

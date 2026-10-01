@@ -501,3 +501,20 @@ export interface RecentActivityItem {
   amountMinor: number;
   timestamp: string;
 }
+
+export type ConditionCategory = 'ALL' | 'GENERAL' | 'AMC' | 'INVOICE';
+
+export interface ConditionPreset {
+  id?: string;
+  _id?: string;
+  businessId: string;
+  title: string;
+  text: string;
+  category: ConditionCategory;
+  isDefault: boolean;
+  active: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

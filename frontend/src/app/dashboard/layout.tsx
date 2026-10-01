@@ -23,6 +23,7 @@ import {
   Plus,
   ShieldCheck,
   UserCheck,
+  FileCheck,
   Bell,
   ShoppingBag,
   Building2,
@@ -183,6 +184,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: '/dashboard/customers', label: 'Customers', icon: Users },
         { href: '/dashboard/services', label: 'Products / Services', icon: Package },
         { href: '/dashboard/analytics', label: 'Sales Analytics', icon: BarChart3 },
+        { href: '/dashboard/settings/conditions', label: 'Condition Presets', icon: FileCheck },
       ],
     },
     {
@@ -216,6 +218,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: '/dashboard/settings', label: 'Business Profile', icon: Settings, exact: true },
         { href: '/dashboard/settings/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
         { href: '/dashboard/branding', label: 'Branding', icon: Palette },
+        { href: '/dashboard/settings/conditions', label: 'Condition Presets', icon: FileCheck },
       ],
     },
   ];

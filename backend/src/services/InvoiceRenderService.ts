@@ -145,7 +145,7 @@ export class InvoiceRenderService {
     // Dynamic Breakdown Rows
     const breakdownRows: Array<{ label: string; amount: number; isTotal?: boolean }> = [
       { label: 'PARTS', amount: partsTotal },
-      { label: 'LABOR', amount: laborTotal }
+      { label: 'LABOUR', amount: laborTotal }
     ];
     if (discountValue > 0) {
       breakdownRows.push({ label: 'DISCOUNT', amount: -discountValue });
@@ -174,10 +174,10 @@ export class InvoiceRenderService {
             <div><span style="font-weight: bold;">PAN NO:</span> ${business.taxProfile?.pan || '-'}</div>
           </div>
           ${Array.isArray((invoice as any).termsAndConditions) && (invoice as any).termsAndConditions.length > 0 ? `
-            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #666; font-size: 7pt; text-transform: none; line-height: 1.25;">
-              <span style="font-weight: bold; display: block; margin-bottom: 2px; text-transform: uppercase;">Terms & Conditions:-</span>
+            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #666; font-size: 7pt; text-transform: uppercase; line-height: 1.25;">
+              <span style="font-weight: bold; display: block; margin-bottom: 2px; text-transform: uppercase;">TERMS & CONDITIONS:-</span>
               <ol style="margin: 0; padding-left: 14px;">
-                ${(invoice as any).termsAndConditions.map((t: string) => `<li style="margin-bottom: 1px;">${t}</li>`).join('')}
+                ${(invoice as any).termsAndConditions.map((t: string) => `<li style="margin-bottom: 1px; text-transform: uppercase;">${(t || '').toUpperCase()}</li>`).join('')}
               </ol>
             </div>
           ` : ''}
@@ -492,7 +492,7 @@ export class InvoiceRenderService {
                 <tr>
                   <td>${invoice.invoiceNumber || 'DRAFT'}</td>
                   <td>${formattedDate}</td>
-                  <td>${invoice.paymentTerms || (business as any).invoiceSettings?.defaultPaymentTerms || (business as any).paymentTerms || 'Within 15 days clear payment'}</td>
+                  <td>${((invoice.paymentTerms || (business as any).invoiceSettings?.defaultPaymentTerms || (business as any).paymentTerms || 'Within 15 days clear payment') as string).toUpperCase()}</td>
                 </tr>
               </tbody>
             </table>

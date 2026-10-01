@@ -2477,8 +2477,8 @@ export default function AmcManagementPage() {
                     onChange={(e) => setPlanForm({ ...planForm, planType: e.target.value })}
                     className="w-full bg-surface-2-app border border-border-app rounded-xl p-2.5 text-xs text-text-primary font-bold"
                   >
-                    <option value="COMPREHENSIVE">Comprehensive (Parts &amp; Labor)</option>
-                    <option value="NON_COMPREHENSIVE">Non-Comprehensive (Labor Only)</option>
+                    <option value="COMPREHENSIVE">Comprehensive (Parts &amp; Labour)</option>
+                    <option value="NON_COMPREHENSIVE">Non-Comprehensive (Labour Only)</option>
                   </select>
                 </div>
                 <div>

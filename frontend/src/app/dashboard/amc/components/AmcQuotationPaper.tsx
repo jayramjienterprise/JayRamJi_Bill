@@ -175,17 +175,18 @@ export default function AmcQuotationPaper({
   const emptyRowsCount = Math.max(0, DEFAULT_ROWS - displayItems.length);
 
   const defaultTerms = [
-    'This AMC is valid for 1 year from the date of agreement or approval.',
-    'Only refrigerant gas is included in the above rates if explicitly configured.',
-    'Spare parts are not included. The above rates are for labour charges only.',
-    'AC installation charges include up to 10 feet of standard installation.',
-    'Additional copper piping beyond 10 feet will be charged on a per-foot basis.',
+    'THIS AMC IS VALID FOR 1 YEAR FROM THE DATE OF AGREEMENT OR APPROVAL.',
+    'ONLY REFRIGERANT GAS IS INCLUDED IN THE ABOVE RATES IF EXPLICITLY CONFIGURED.',
+    'SPARE PARTS ARE NOT INCLUDED. THE ABOVE RATES ARE FOR LABOUR CHARGES ONLY.',
+    'AC INSTALLATION CHARGES INCLUDE UP TO 10 FEET OF STANDARD INSTALLATION.',
+    'ADDITIONAL COPPER PIPING BEYOND 10 FEET WILL BE CHARGED ON A PER-FOOT BASIS.',
   ];
 
-  const termsList =
+  const termsList = (
     quotation.termsAndConditions && quotation.termsAndConditions.length > 0
       ? quotation.termsAndConditions
-      : defaultTerms;
+      : defaultTerms
+  ).map((t) => (t || '').toUpperCase());
 
   return (
     <div
@@ -409,8 +410,8 @@ export default function AmcQuotationPaper({
               <td style={{ borderRight: '1px solid black', padding: '5px 6px', textAlign: 'left', fontWeight: 'bold' }}>
                 {formattedDate}
               </td>
-              <td style={{ padding: '5px 6px', textAlign: 'left', fontWeight: 'bold' }}>
-                {quotation.paymentTerms || '10 Days from the Invoice date'}
+              <td style={{ padding: '5px 6px', textAlign: 'left', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                {(quotation.paymentTerms || '10 DAYS FROM THE INVOICE DATE').toUpperCase()}
               </td>
             </tr>
           </tbody>
@@ -653,12 +654,12 @@ export default function AmcQuotationPaper({
                   padding: '6px',
                 }}
               >
-                <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '4px' }}>
-                  Terms &amp; Conditions*:-
+                <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  TERMS &amp; CONDITIONS*:-
                 </div>
-                <ul style={{ margin: 0, paddingLeft: '18px', lineHeight: 1.45, fontSize: '8pt' }}>
+                <ul style={{ margin: 0, paddingLeft: '18px', lineHeight: 1.45, fontSize: '8pt', textTransform: 'uppercase' }}>
                   {termsList.map((t, idx) => (
-                    <li key={idx}>{t}</li>
+                    <li key={idx} style={{ textTransform: 'uppercase' }}>{(t || '').toUpperCase()}</li>
                   ))}
                 </ul>
               </td>

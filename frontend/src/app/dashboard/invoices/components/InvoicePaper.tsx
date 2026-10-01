@@ -164,7 +164,7 @@ export default function InvoicePaper({
   // Dynamic breakdown rows for the totals card on the right
   const breakdownRows: Array<{ label: string; amount: number; isTotal?: boolean }> = [
     { label: 'PARTS', amount: computedPartsTotal },
-    { label: 'LABOR', amount: computedLaborTotal },
+    { label: 'LABOUR', amount: computedLaborTotal },
   ];
 
   if (discountValue > 0) {
@@ -300,7 +300,7 @@ export default function InvoicePaper({
                   {formattedDate}
                 </td>
                 <td className="py-1 px-2 uppercase">
-                  {invoice.paymentTerms || (business as any)?.invoiceSettings?.defaultPaymentTerms || (business as any)?.paymentTerms || 'Within 15 days clear payment'}
+                  {String(invoice.paymentTerms || (business as any)?.invoiceSettings?.defaultPaymentTerms || (business as any)?.paymentTerms || 'WITHIN 15 DAYS CLEAR PAYMENT').toUpperCase()}
                 </td>
               </tr>
             </tbody>
@@ -381,11 +381,11 @@ export default function InvoicePaper({
                     <p><span className="font-bold text-black">PAN NO:</span> {business.taxProfile?.pan || '-'}</p>
                   </div>
                   {Array.isArray(invoice.termsAndConditions) && invoice.termsAndConditions.length > 0 && (
-                    <div className="mt-2 pt-1.5 border-t border-black/30 text-[7pt] text-black leading-tight">
-                      <p className="font-bold underline text-black mb-0.5 uppercase tracking-wide">Terms & Conditions:</p>
-                      <ol className="list-decimal pl-3 space-y-0.5 font-medium">
+                    <div className="mt-2 pt-1.5 border-t border-black/30 text-[7pt] text-black leading-tight uppercase">
+                      <p className="font-bold underline text-black mb-0.5 uppercase tracking-wide">TERMS & CONDITIONS:</p>
+                      <ol className="list-decimal pl-3 space-y-0.5 font-medium uppercase">
                         {invoice.termsAndConditions.map((term: string, idx: number) => (
-                          <li key={idx}>{term}</li>
+                          <li key={idx} className="uppercase">{(term || '').toUpperCase()}</li>
                         ))}
                       </ol>
                     </div>

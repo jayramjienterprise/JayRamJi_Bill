@@ -133,6 +133,11 @@ export async function createQuotation(req: Request, res: Response, next: NextFun
     const taxAmount = (taxable * (validated.taxRateBps || 0)) / 10000;
     const grandTotal = Math.round((taxable + taxAmount) * 100) / 100;
 
+    const formattedTerms = Array.isArray(validated.termsAndConditions)
+      ? validated.termsAndConditions.map((t: string) => (t || '').toUpperCase().trim()).filter(Boolean)
+      : undefined;
+    const formattedPaymentTerms = validated.paymentTerms ? validated.paymentTerms.toUpperCase().trim() : undefined;
+
     const quotation = await AmcQuotation.create({
       ...validated,
       items: calculatedItems,
@@ -142,6 +147,8 @@ export async function createQuotation(req: Request, res: Response, next: NextFun
       taxAmount,
       grandTotal,
       businessId,
+      termsAndConditions: formattedTerms || validated.termsAndConditions,
+      paymentTerms: formattedPaymentTerms || validated.paymentTerms,
       quotationDate: validated.quotationDate ? new Date(validated.quotationDate) : new Date(),
       validUntil: validated.validUntil
         ? new Date(validated.validUntil)
@@ -208,6 +215,13 @@ export async function updateQuotation(req: Request, res: Response, next: NextFun
       taxAmount,
       grandTotal,
     };
+
+    if (Array.isArray(validated.termsAndConditions)) {
+      updatePayload.termsAndConditions = validated.termsAndConditions.map((t: string) => (t || '').toUpperCase().trim()).filter(Boolean);
+    }
+    if (validated.paymentTerms) {
+      updatePayload.paymentTerms = validated.paymentTerms.toUpperCase().trim();
+    }
 
     if (validated.quotationDate) {
       updatePayload.quotationDate = new Date(validated.quotationDate);

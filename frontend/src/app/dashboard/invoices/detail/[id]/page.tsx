@@ -3,7 +3,7 @@
 import { useEffect, useState, use, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Printer, ExternalLink, Share2, Mail } from 'lucide-react';
+import { FileText, Printer, ExternalLink, Share2, Mail, Eye, Download, RefreshCw, Ban, CreditCard, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { apiClient } from '../../../../../lib/api/client';
 import { Invoice, Customer, PaymentRecord, PaymentAccount, PaymentProof, PaymentMethod } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
@@ -20,6 +20,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pdfStatus, setPdfStatus] = useState<'NOT_GENERATED' | 'GENERATING' | 'READY' | 'FAILED'>('NOT_GENERATED');
   const [snapshotStatus, setSnapshotStatus] = useState<'NOT_GENERATED' | 'GENERATING' | 'READY' | 'FAILED'>('NOT_GENERATED');
+
+  // Cancellation modal states
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   // Payment modal states
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -299,6 +304,32 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       setErrorMsg(err.message || 'Failed to trigger document regeneration');
     } finally {
       setSubmitLoading(false);
+    }
+  }
+
+  function handlePrint() {
+    window.print();
+  }
+
+  async function handleCancelInvoice() {
+    if (!invoice) return;
+    if (!cancellationReason.trim()) {
+      setErrorMsg('Please provide a reason for cancelling this invoice.');
+      return;
+    }
+    setCancelling(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await apiClient.cancelInvoice(invoice.id || (invoice as any)._id, cancellationReason.trim());
+      setSuccessMsg('Invoice has been cancelled successfully.');
+      setShowCancelModal(false);
+      setCancellationReason('');
+      await loadInvoice();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to cancel invoice');
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -630,11 +661,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       
       {/* Top Banner Warning for Drafts */}
       {isDraft && (
-        <div className="p-4 bg-warning-soft border border-warning-app/25 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="no-print p-4 bg-warning-soft border border-warning-app/25 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-bold text-warning-app uppercase tracking-wider">Draft Mode Workspace</h3>
             <p className="text-xs text-text-secondary mt-0.5">
-              This invoice is currently a draft and has no official invoice number. Preview and finalize it to generate files.
+              This invoice is currently a draft and has no official invoice number. Preview and finalize it to generate official files.
             </p>
           </div>
           <div className="flex space-x-3">
@@ -644,19 +675,21 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             >
               Edit Draft
             </Link>
-            <Link
-              href={`/dashboard/invoices/preview/${invoice.id || (invoice as any)._id}`}
+            <button
+              type="button"
+              onClick={handleFinalizeBill}
+              disabled={submitLoading}
               className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-xl text-xs font-bold shadow-sm transition text-center cursor-pointer"
             >
-              Preview & Finalize
-            </Link>
+              {submitLoading ? 'Finalizing...' : 'Finalize Invoice'}
+            </button>
           </div>
         </div>
       )}
 
       {/* Financial Status Summary Card */}
       {!isDraft && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-surface-app border border-border-app p-4 rounded-xl shadow-sm text-xs">
+        <div className="no-print grid grid-cols-2 sm:grid-cols-4 gap-3 bg-surface-app border border-border-app p-4 rounded-xl shadow-sm text-xs">
           <div className="space-y-0.5">
             <span className="text-text-muted text-[10px] uppercase font-bold tracking-wider">Total Amount</span>
             <p className="text-sm font-bold text-text-primary">
@@ -694,7 +727,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
       {/* Document status check banner for finalized/cancelled bills */}
       {!isDraft && (
-        <div className="p-4 bg-surface-app border border-border-app rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+        <div className="no-print p-4 bg-surface-app border border-border-app rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
           <div>
             <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">
               {invoice.status === 'CANCELLED' ? 'Cancelled Invoice' : `Invoice ${invoice.invoiceNumber}`}
@@ -739,74 +772,149 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* Action Header Panel */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-surface-app border border-border-app p-4 rounded-xl shadow-sm">
-        <div className="flex items-center space-x-3">
+      <div className="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-surface-app border border-border-app p-4 rounded-xl shadow-sm">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Link
             href="/dashboard/invoices"
-            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer"
+            className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition flex items-center gap-1.5"
           >
             ← Back
           </Link>
-          {!isDraft && pdfStatus === 'READY' && (
+
+          {!isDraft && (
             <>
+              {/* View Image */}
+              <a
+                href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+                title="View or open Invoice Image"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>View Image</span>
+              </a>
+
+              {/* Download PDF */}
               <a
                 href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=pdf`}
                 download={`${invoice.invoiceNumber || 'bill'}.pdf`}
                 target="_blank"
                 rel="noreferrer"
-                className="px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-block"
+                className="px-3.5 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+                title="Download Official PDF"
               >
-                Download PDF
+                <Download className="w-3.5 h-3.5" />
+                <span>Download PDF</span>
               </a>
-              <a
-                href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`}
-                download={`${invoice.invoiceNumber || 'bill'}.png`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold cursor-pointer inline-block"
+
+              {/* Retry Documents Generation */}
+              <button
+                type="button"
+                onClick={handleRetryDocuments}
+                disabled={submitLoading}
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition disabled:opacity-50"
+                title="Retry Documents Generation"
               >
-                Download PNG
-              </a>
+                <RefreshCw className={`w-3.5 h-3.5 ${submitLoading ? 'animate-spin' : ''}`} />
+                <span>{submitLoading ? 'Retrying...' : 'Retry Documents Generation'}</span>
+              </button>
+
+              {/* Print / Save PDF */}
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+                title="Print or Save as PDF"
+              >
+                <Printer className="w-3.5 h-3.5 text-primary-700" />
+                <span>Print / Save PDF</span>
+              </button>
+            </>
+          )}
+
+          {isDraft && (
+            <>
+              <Link
+                href={`/dashboard/invoices/edit/${invoice.id || (invoice as any)._id}`}
+                className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition"
+              >
+                Edit Draft
+              </Link>
+              <button
+                type="button"
+                onClick={handleFinalizeBill}
+                disabled={submitLoading}
+                className="px-3.5 py-2 bg-primary-700 hover:bg-primary-800 text-white rounded-lg text-xs font-bold shadow-sm transition cursor-pointer"
+              >
+                {submitLoading ? 'Finalizing...' : 'Finalize Invoice'}
+              </button>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Draft</span>
+              </button>
             </>
           )}
         </div>
 
-        <div className="flex items-center space-x-3">
-          {!isDraft && invoice.status === 'FINALIZED' && paymentStatus !== 'PAID' && (
-            <button
-              onClick={handleOpenPaymentModal}
-              disabled={submitLoading}
-              className="px-4 py-2 bg-success-soft hover:bg-success-soft/80 text-success-app border border-success-app/20 rounded-lg text-xs font-bold cursor-pointer transition flex items-center space-x-1.5"
-            >
-              <span>Record Payment</span>
-            </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {!isDraft && invoice.status === 'FINALIZED' && (
+            <>
+              {paymentStatus !== 'PAID' && (
+                <button
+                  type="button"
+                  onClick={handleOpenPaymentModal}
+                  disabled={submitLoading}
+                  className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/30 rounded-lg text-xs font-bold cursor-pointer transition flex items-center space-x-1.5"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Record Payment</span>
+                </button>
+              )}
+              {pdfStatus === 'READY' && (
+                <button
+                  type="button"
+                  onClick={handleNativeShare}
+                  className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition flex items-center space-x-1.5"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Share Bill</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(true)}
+                disabled={submitLoading}
+                className="px-3.5 py-2 bg-danger-soft hover:bg-danger-soft/80 text-danger-app border border-danger-app/20 rounded-lg text-xs font-bold cursor-pointer transition inline-flex items-center space-x-1.5"
+                title="Cancel Invoice"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span>Cancel Invoice</span>
+              </button>
+            </>
           )}
-          {!isDraft && pdfStatus === 'READY' && (
-            <button
-              onClick={handleNativeShare}
-              className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition"
-            >
-              Share Bill
-            </button>
+
+          {invoice.status === 'CANCELLED' && (
+            <span className="px-3 py-1.5 bg-danger-soft text-danger-app border border-danger-app/20 rounded-lg text-xs font-black uppercase inline-flex items-center space-x-1.5">
+              <Ban className="w-3.5 h-3.5" />
+              <span>CANCELLED</span>
+            </span>
           )}
-          <Link
-            href={`/dashboard/invoices/preview/${invoice.id || (invoice as any)._id}`}
-            target="_blank"
-            className="px-4 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold cursor-pointer transition"
-          >
-            Open Live Print Bill
-          </Link>
         </div>
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-sm rounded-lg font-medium">
+        <div className="no-print p-4 bg-danger-soft border border-danger-app/20 text-danger-app text-sm rounded-lg font-medium">
           {errorMsg}
         </div>
       )}
 
       {successMsg && (
-        <div className="p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium animate-pulse">
+        <div className="no-print p-4 bg-success-soft border border-success-app/20 text-success-app text-sm rounded-lg font-medium animate-pulse">
           {successMsg}
         </div>
       )}
@@ -867,7 +975,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
       {/* Terms & Conditions Section */}
       {Array.isArray((invoice as any).termsAndConditions) && (invoice as any).termsAndConditions.length > 0 && (
-        <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-3">
+        <div className="no-print bg-surface-app border border-border-app p-5 rounded-2xl shadow-xs space-y-3">
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-primary-700" />
             <h3 className="text-xs font-black uppercase tracking-wider text-text-primary">
@@ -876,8 +984,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </div>
           <ol className="list-decimal pl-5 space-y-1.5 text-xs text-text-secondary">
             {(invoice as any).termsAndConditions.map((term: string, idx: number) => (
-              <li key={idx} className="font-medium text-text-primary">
-                {term}
+              <li key={idx} className="font-medium text-text-primary uppercase">
+                {(term || '').toUpperCase()}
               </li>
             ))}
           </ol>
@@ -886,7 +994,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
       {/* Payment History Log */}
       {!isDraft && paymentsList.length > 0 && (
-        <div className="bg-surface-app border border-border-app p-5 rounded-2xl shadow-sm space-y-4">
+        <div className="no-print bg-surface-app border border-border-app p-5 rounded-2xl shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b border-border-light pb-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary flex items-center space-x-2">
               <span>Payment History & Receiving Accounts</span>
@@ -1460,6 +1568,116 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+
+      {/* Cancel Invoice Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 no-print">
+          <div className="bg-surface-app border border-border-app p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border-app pb-3">
+              <div className="flex items-center space-x-2">
+                <Ban className="w-5 h-5 text-danger-app" />
+                <h3 className="text-base font-bold text-text-primary">Cancel Finalized Invoice</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setCancellationReason('');
+                }}
+                className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-2-app transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Provide a reason for cancelling invoice <strong className="text-text-primary">{invoice?.invoiceNumber}</strong>. This cancellation will be recorded in audit logs and cannot be undone.
+            </p>
+
+            <div>
+              <label className="block text-[11px] font-bold text-text-secondary uppercase tracking-wider mb-1.5">
+                Cancellation Reason *
+              </label>
+              <textarea
+                required
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value.toUpperCase())}
+                placeholder="E.G. CLIENT CANCELLED ORDER, INCORRECT BILLING ENTRIES..."
+                className="w-full px-3 py-2.5 bg-surface-2-app border border-border-app rounded-xl text-xs text-text-primary uppercase placeholder:normal-case focus:outline-none focus:ring-1 focus:ring-danger-app"
+                rows={3}
+              />
+            </div>
+
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setCancellationReason('');
+                }}
+                disabled={cancelling}
+                className="flex-1 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl text-xs font-bold text-text-secondary transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelInvoice}
+                disabled={cancelling || !cancellationReason.trim()}
+                className="flex-1 py-2 bg-danger-app hover:bg-danger-app/80 text-white rounded-xl text-xs font-bold shadow-sm transition disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                {cancelling ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Cancelling...</span>
+                  </>
+                ) : (
+                  <>
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Confirm Cancellation</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Styles */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .invoice-paper,
+          .invoice-paper * {
+            visibility: visible;
+          }
+          .invoice-paper {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            border: 1.5px solid black !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            transform: none !important;
+          }
+          header,
+          aside,
+          nav,
+          .no-print {
+            display: none !important;
+          }
+        }
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+      `}</style>
 
     </div>
   );

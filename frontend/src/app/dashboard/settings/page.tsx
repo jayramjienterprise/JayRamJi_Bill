@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useDashboard } from '../layout';
 import { apiClient } from '../../../lib/api/client';
 import PaymentAccountsManager from './components/PaymentAccountsManager';
@@ -212,6 +213,12 @@ export default function SettingsPage() {
           >
             Payment Accounts
           </button>
+          <Link
+            href="/dashboard/settings/conditions"
+            className="px-4 py-2 text-xs font-bold rounded-lg transition cursor-pointer text-text-secondary hover:text-text-primary hover:bg-surface-app/50"
+          >
+            Condition Presets →
+          </Link>
         </div>
       </div>
 

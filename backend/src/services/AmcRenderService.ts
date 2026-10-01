@@ -225,7 +225,7 @@ export class AmcRenderService {
       'Routine dry services and quarterly water jet cleanings will be scheduled with mutual convenience.',
       contract.contractType === 'COMPREHENSIVE'
         ? 'Comprehensive coverage includes routine electrical & mechanical spare parts and motor repairs. Physical damage, external piping damage, or coil mishandling are excluded.'
-        : 'Non-comprehensive contract includes labor and routine servicing only. Any replacement spare parts or refrigerant gas refilling will be billed separately upon customer approval.',
+        : 'Non-comprehensive contract includes labour and routine servicing only. Any replacement spare parts or refrigerant gas refilling will be billed separately upon customer approval.',
       'Breakdown emergency response time will be within 24 to 48 working hours from registering the service request.',
       'Service visits will be carried out during standard working hours (9:00 AM - 7:00 PM), excluding national holidays.',
       'Payments must be cleared as per the agreed schedule. Failure to clear installments may lead to temporary suspension of breakdown services.',
@@ -662,7 +662,7 @@ export class AmcRenderService {
       ? quotation.termsAndConditions
       : defaultTerms;
 
-    const termsHtml = termsList.map(t => `<li>${t}</li>`).join('');
+    const termsHtml = termsList.map(t => `<li style="text-transform: uppercase;">${(t || '').toUpperCase()}</li>`).join('');
 
     return `
       <!DOCTYPE html>
@@ -948,7 +948,7 @@ export class AmcRenderService {
                 <tr>
                   <td>${quotation.quotationNumber}</td>
                   <td>${formattedDate}</td>
-                  <td>${quotation.paymentTerms || '10 Days from the Invoice date'}</td>
+                  <td>${(quotation.paymentTerms || '10 DAYS FROM THE INVOICE DATE').toUpperCase()}</td>
                 </tr>
               </tbody>
             </table>

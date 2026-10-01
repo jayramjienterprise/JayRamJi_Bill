@@ -21,6 +21,7 @@ import uploadSessionRouter from './modules/upload-session/upload-session.routes'
 import amcRouter from './modules/amc/amc.routes';
 import purchaseRouter from './modules/purchase/purchase.routes';
 import vendorRouter from './modules/purchase/vendor.routes';
+import conditionRouter from './modules/condition/condition.routes';
 
 const app: Express = express();
 
@@ -143,6 +144,7 @@ apiRouter.use('/public/invoices', publicInvoiceRouter);
 apiRouter.use('/amc', amcRouter);
 apiRouter.use('/purchases', purchaseRouter);
 apiRouter.use('/vendors', vendorRouter);
+apiRouter.use('/conditions', conditionRouter);
 
 // Support direct /api, same-domain proxy /api/backend/api, and /api/backend
 app.use('/api', apiRouter);

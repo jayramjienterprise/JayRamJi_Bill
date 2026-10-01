@@ -669,7 +669,7 @@ export default function AmcQuotationDetailPage({ params }: { params: Promise<{ i
               quotation={{
                 quotationNumber: quotation.quotationNumber,
                 quotationDate: quotation.quotationDate,
-                paymentTerms: quotation.paymentTerms || '10 Days from the Invoice date',
+                paymentTerms: (quotation.paymentTerms || '10 DAYS FROM THE INVOICE DATE').toUpperCase(),
                 validUntil: quotation.validUntil,
                 quotationType: quotation.quotationType,
                 amountInWords: convertNumberToWords(quotation.grandTotal || 0),
