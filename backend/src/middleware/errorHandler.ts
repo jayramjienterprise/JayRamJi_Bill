@@ -74,15 +74,18 @@ export function errorHandler(
     message = 'A resource with these details already exists';
   } else {
     // System or uncaught generic error
-    if (env.NODE_ENV !== 'production') {
-      message = err.message || message;
-      details = { stack: err.stack };
-    }
+    message = err.message || message;
+    details = {
+      originalMessage: err.message,
+      ...(env.NODE_ENV !== 'production' ? { stack: err.stack } : {}),
+    };
   }
 
-  // Log error message safely
-  console.error(`[Error Handler] ${errorCode} (${statusCode}): ${message}`);
-  if (env.NODE_ENV !== 'production' && !(err instanceof AppError)) {
+  // Always log error details to server console so production logs (e.g. Render) display the exact error & stack trace
+  console.error(`[Error Handler] ${errorCode} (${statusCode}): ${err.message || message}`);
+  if (err.stack) {
+    console.error(err.stack);
+  } else {
     console.error(err);
   }
 

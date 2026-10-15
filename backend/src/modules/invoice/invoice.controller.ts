@@ -818,26 +818,40 @@ async function triggerBackgroundDocGen(businessId: string, invoiceId: string) {
 }
 
 async function executeInTransaction(callback: (session: mongoose.ClientSession | null) => Promise<any>): Promise<any> {
-  const session = await mongoose.startSession();
+  let session: mongoose.ClientSession | null = null;
   try {
+    session = await mongoose.startSession();
     let result: any;
     await session.withTransaction(async () => {
       result = await callback(session);
     });
     return result;
   } catch (err: any) {
-    const errmsg = err.errmsg || err.message || '';
-    if (
+    const errmsg = String(err.errmsg || err.message || '');
+    const isTransactionUnsupported =
       err.code === 20 ||
       err.codeName === 'IllegalOperation' ||
+      err.code === 263 || // OperationNotSupportedInTransaction
+      err.code === 251 || // NoSuchTransaction
+      err.name === 'MongoTransactionError' ||
       errmsg.includes('replica set') ||
-      errmsg.includes('Transaction numbers')
-    ) {
+      errmsg.includes('Transaction numbers') ||
+      errmsg.includes('transactions are not supported') ||
+      errmsg.includes('does not support transactions') ||
+      errmsg.includes('Cannot create collection') ||
+      errmsg.includes('standalone');
+
+    if (isTransactionUnsupported) {
+      console.warn(`[executeInTransaction] Multi-document transaction not supported or failed (${err.code || err.name}: ${errmsg}). Falling back to non-transactional execution.`);
       return await callback(null);
     }
     throw err;
   } finally {
-    session.endSession();
+    if (session) {
+      try {
+        await session.endSession();
+      } catch (_) {}
+    }
   }
 }
 
@@ -1008,7 +1022,7 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
                   nextNumber: 2,
                 },
               ],
-              { session }
+              { session: session || undefined }
             );
             seq = newSeq;
           } catch (err: any) {
@@ -1195,10 +1209,10 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
             proof: structuredProof,
             paidAt: paymentInput.paidAt || paymentInput.paymentDate ? new Date(paymentInput.paidAt || paymentInput.paymentDate) : new Date(),
             notes: paymentInput.notes ? String(paymentInput.notes).trim() : null,
-            recordedBy: req.user?._id,
+            recordedBy: req.user?._id || invoice.createdBy,
             status: 'CONFIRMED',
           }
-        ], { session });
+        ], { session: session || undefined });
 
         initialPaymentRecord = paymentRecord;
 
@@ -1225,8 +1239,22 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
       invoice.totals = calcResult.totals;
       invoice.amountInWords = calcResult.amountInWords;
       invoice.draftPaymentDetails = null;
-      invoice.finalizedBy = req.user?._id;
+      invoice.finalizedBy = req.user?._id || invoice.createdBy;
       invoice.finalizedAt = new Date();
+
+      if (!invoice.document) {
+        invoice.document = {
+          snapshot: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any,
+          pdf: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any,
+        };
+      }
+      if (!invoice.document.snapshot) {
+        invoice.document.snapshot = { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any;
+      }
+      if (!invoice.document.pdf) {
+        invoice.document.pdf = { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any;
+      }
+
       invoice.document.snapshot.status = 'GENERATING';
       invoice.document.snapshot.lastAttemptedAt = new Date();
       invoice.document.snapshot.errorMessage = null;
@@ -1234,42 +1262,45 @@ export async function finalizeInvoice(req: Request, res: Response, next: NextFun
       invoice.document.pdf.lastAttemptedAt = new Date();
       invoice.document.pdf.errorMessage = null;
 
-      await invoice.save({ session });
+      await invoice.save({ session: session || undefined });
 
       // 10. Write Audit Logs
-      await AuditLog.create([
-        {
-          businessId: req.businessId,
-          actorId: req.user?._id,
-          action: 'INVOICE_FINALIZED',
-          entity: 'INVOICE',
-          entityId: invoice._id,
-          previousState: { status: 'DRAFT' },
-          newState: { status: 'FINALIZED', invoiceNumber: finalInvoiceNumber, paymentSummary: invoice.paymentSummary },
-          metadata: { invoiceNumber: finalInvoiceNumber },
-          timestamp: new Date(),
-        }
-      ], { session });
-
-      if (initialPaymentRecord) {
+      const effectiveActorId = req.user?._id || invoice.createdBy;
+      if (effectiveActorId) {
         await AuditLog.create([
           {
             businessId: req.businessId,
-            actorId: req.user?._id,
-            action: 'PAYMENT_CREATED',
-            entity: 'PAYMENT',
-            entityId: initialPaymentRecord._id,
-            previousState: null,
-            newState: {
-              status: 'CONFIRMED',
-              amountMinor: initialPaymentRecord.amountMinor,
-              method: initialPaymentRecord.method,
-              accountSnapshot: initialPaymentRecord.paymentAccountSnapshot,
-            },
-            metadata: { invoiceId: invoice._id, invoiceNumber: finalInvoiceNumber, isInitialPayment: true },
+            actorId: effectiveActorId,
+            action: 'INVOICE_FINALIZED',
+            entity: 'INVOICE',
+            entityId: invoice._id,
+            previousState: { status: 'DRAFT' },
+            newState: { status: 'FINALIZED', invoiceNumber: finalInvoiceNumber, paymentSummary: invoice.paymentSummary },
+            metadata: { invoiceNumber: finalInvoiceNumber },
             timestamp: new Date(),
           }
-        ], { session });
+        ], { session: session || undefined });
+
+        if (initialPaymentRecord) {
+          await AuditLog.create([
+            {
+              businessId: req.businessId,
+              actorId: effectiveActorId,
+              action: 'PAYMENT_CREATED',
+              entity: 'PAYMENT',
+              entityId: initialPaymentRecord._id,
+              previousState: null,
+              newState: {
+                status: 'CONFIRMED',
+                amountMinor: initialPaymentRecord.amountMinor,
+                method: initialPaymentRecord.method,
+                accountSnapshot: initialPaymentRecord.paymentAccountSnapshot,
+              },
+              metadata: { invoiceId: invoice._id, invoiceNumber: finalInvoiceNumber, isInitialPayment: true },
+              timestamp: new Date(),
+            }
+          ], { session: session || undefined });
+        }
       }
 
       return {
