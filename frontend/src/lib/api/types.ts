@@ -184,6 +184,7 @@ export interface Invoice {
   cancellationReason: string | null;
   finalizedAt: string | null;
   cancelledAt: string | null;
+  revisionNumber?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -191,6 +192,31 @@ export interface Invoice {
 export interface InvoiceListResponse {
   invoices: Invoice[];
   pagination: Pagination;
+}
+
+export interface InvoiceRevision {
+  id?: string;
+  _id?: string;
+  businessId: string;
+  invoiceId: string;
+  revisionNumber: number;
+  action: 'CREATED' | 'FINALIZED' | 'EDITED' | 'CANCELLED';
+  summary: string;
+  changes: string[];
+  snapshot: Record<string, any>;
+  totals: {
+    subtotalMinor: number;
+    discountMinor: number;
+    taxableAmountMinor: number;
+    taxTotalMinor: number;
+    roundingMinor: number;
+    grandTotalMinor: number;
+    currency: string;
+  };
+  performedBy: string | { _id: string; name?: string; email?: string };
+  performedByName?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateInvoicePayload {

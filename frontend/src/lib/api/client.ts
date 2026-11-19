@@ -1,4 +1,4 @@
-import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse, PaymentAccount, PaymentProof, PaymentRecord, PaymentMethod } from './types';
+import { ApiResponse, Customer, CustomerListResponse, Product, ProductListResponse, Asset, AssetListResponse, Invoice, InvoiceListResponse, InvoiceRevision, PaymentAccount, PaymentProof, PaymentRecord, PaymentMethod } from './types';
 
 // Direct Render backend in production and local express in dev
 const BASE_URL =
@@ -292,6 +292,16 @@ class ApiClient {
   public async updateInvoiceDraft(invoiceId: string, invoiceData: any): Promise<Invoice> {
     const data = await this.patch<{ invoice: Invoice }>(`/invoices/${invoiceId}`, invoiceData);
     return data.invoice;
+  }
+
+  public async updateInvoice(invoiceId: string, invoiceData: any): Promise<{ invoice: Invoice; revisionNumber?: number; warning?: string }> {
+    const data = await this.patch<{ invoice: Invoice; revisionNumber?: number; warning?: string }>(`/invoices/${invoiceId}`, invoiceData);
+    return data;
+  }
+
+  public async getInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]> {
+    const data = await this.get<{ revisions: InvoiceRevision[] }>(`/invoices/${invoiceId}/revisions`);
+    return data.revisions;
   }
 
   public async deleteInvoiceDraft(invoiceId: string): Promise<void> {

@@ -37,6 +37,8 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   const [submitLoading, setSubmitLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editable, setEditable] = useState(true);
+  const [invoiceStatus, setInvoiceStatus] = useState<'DRAFT' | 'FINALIZED' | 'CANCELLED'>('DRAFT');
+  const [existingPaidAmountMinor, setExistingPaidAmountMinor] = useState(0);
   const [expandPreview, setExpandPreview] = useState(false);
   const [scale, setScale] = useState(1);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -114,10 +116,9 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     setErrorMsg(null);
     try {
       const inv = await apiClient.getInvoice(id);
-      if (inv.status !== 'DRAFT') {
-        setEditable(false);
-        setErrorMsg('This invoice is FINALIZED or CANCELLED and cannot be modified.');
-      }
+      setInvoiceStatus(inv.status);
+      setExistingPaidAmountMinor(inv.paymentSummary?.paidAmountMinor || 0);
+      setEditable(true);
 
       setSelectedCustomerId(inv.customerId || '');
       if (inv.customerId) {
@@ -126,7 +127,12 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           setSelectedCustomer(cust);
         } catch (custErr) {
           console.error('Failed to load selected customer details:', custErr);
+          if (inv.customerSnapshot && (inv.customerSnapshot as any).name) {
+            setSelectedCustomer(inv.customerSnapshot as any);
+          }
         }
+      } else if (inv.customerSnapshot && (inv.customerSnapshot as any).name) {
+        setSelectedCustomer(inv.customerSnapshot as any);
       }
       setInvoiceDate(new Date(inv.invoiceDate).toISOString().split('T')[0]);
 
@@ -641,16 +647,16 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     };
 
     try {
-      await apiClient.updateInvoiceDraft(id, payload);
+      await apiClient.updateInvoice(id, payload);
 
-      if (shouldFinalize) {
+      if (shouldFinalize && invoiceStatus === 'DRAFT') {
         await apiClient.finalizeInvoice(id, { payment: paymentPayload, customInvoiceNumber: customInvoiceNumber.trim() });
         router.push(`/dashboard/invoices/detail/${id}`);
       } else {
         router.push(`/dashboard/invoices/detail/${id}`);
       }
     } catch (err: any) {
-      const serverMsg = err.details?.message || err.message || 'Failed updating invoice draft';
+      const serverMsg = err.details?.message || err.message || 'Failed updating invoice';
       setErrorMsg(serverMsg);
       setSubmitLoading(false);
       setConfirmFinalizeOpen(false);
@@ -694,7 +700,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           subtotal: partsTotal + laborTotal,
         }}
         assets={activeAssets}
-        isDraft={true}
+        isDraft={invoiceStatus === 'DRAFT'}
       />
     );
   }
@@ -711,9 +717,13 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Edit Draft Bill</h1>
+          <h1 className="text-2xl font-bold text-text-primary">
+            {invoiceStatus === 'DRAFT' ? 'Edit Draft Bill' : `Edit Bill — ${customInvoiceNumber || 'Invoice'}`}
+          </h1>
           <p className="text-xs text-text-secondary mt-1">
-            Modify entries and payment details for this unfinalized invoice.
+            {invoiceStatus === 'DRAFT'
+              ? 'Modify entries and payment details for this unfinalized invoice.'
+              : 'Modify entries, items, rates, and customer info. An updated revision and official document will be saved.'}
           </p>
         </div>
         <Link
@@ -1651,26 +1661,63 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   <span>Grand Total:</span>
                   <span>₹{invoiceTotalRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
+
+                {existingPaidAmountMinor > 0 && (
+                  <div className="pt-2 border-t border-border-light space-y-1">
+                    <div className="flex justify-between text-xs font-bold text-emerald-600">
+                      <span>Confirmed Payments Received:</span>
+                      <span>₹{(existingPaidAmountMinor / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    {invoiceTotalRupees < existingPaidAmountMinor / 100 && (
+                      <div className="p-2.5 bg-warning-soft border border-warning-app/30 rounded-lg text-[11px] font-bold text-warning-app">
+                        ⚠️ Warning: The updated total (₹{invoiceTotalRupees.toFixed(2)}) is less than the amount already paid (₹{(existingPaidAmountMinor / 100).toFixed(2)}).
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {editable && (
                 <div className="flex space-x-3 pt-4 border-t border-border-light">
-                  <button
-                    type="button"
-                    disabled={submitLoading}
-                    onClick={(e) => handleSubmit(e, false)}
-                    className="flex-1 py-2.5 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl font-bold text-text-primary text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
-                  >
-                    Save Draft Changes
-                  </button>
-                  <button
-                    type="button"
-                    disabled={submitLoading || items.length === 0 || !selectedCustomerId}
-                    onClick={() => setConfirmFinalizeOpen(true)}
-                    className="flex-1 py-2.5 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
-                  >
-                    Finalize & Issue Bill
-                  </button>
+                  {invoiceStatus === 'DRAFT' ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={submitLoading}
+                        onClick={(e) => handleSubmit(e, false)}
+                        className="flex-1 py-2.5 bg-surface-2-app hover:bg-surface-app border border-border-app rounded-xl font-bold text-text-primary text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
+                      >
+                        {submitLoading ? 'Saving...' : 'Save Draft Changes'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitLoading || items.length === 0 || !selectedCustomerId}
+                        onClick={() => setConfirmFinalizeOpen(true)}
+                        className="flex-1 py-2.5 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
+                      >
+                        Finalize & Issue Bill
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={submitLoading || items.length === 0 || !selectedCustomerId}
+                      onClick={(e) => handleSubmit(e, false)}
+                      className="w-full py-2.5 bg-[#245A82] hover:bg-[#1b4463] text-white rounded-xl font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
+                    >
+                      {submitLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          <span>Saving Changes & Updating Bill...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Save Changes</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

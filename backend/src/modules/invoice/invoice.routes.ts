@@ -5,7 +5,8 @@ import { idempotency } from '../../middleware/idempotency';
 import {
   createInvoiceDraft,
   getInvoice,
-  updateInvoiceDraft,
+  updateInvoice,
+  getInvoiceRevisions,
   deleteInvoiceDraft,
   listInvoices,
   calculatePreview,
@@ -42,7 +43,8 @@ router.post('/calculate', calculatePreview);
 router.get('/:id', getInvoice);
 router.get('/:id/preview', getInvoicePreviewData);
 router.get('/:id/download', downloadInvoiceFile);
-router.patch('/:id', updateInvoiceDraft);
+router.get('/:id/revisions', getInvoiceRevisions);
+router.patch('/:id', idempotency, updateInvoice);
 router.delete('/:id', deleteInvoiceDraft);
 
 router.post('/:id/finalize', idempotency, finalizeInvoice);

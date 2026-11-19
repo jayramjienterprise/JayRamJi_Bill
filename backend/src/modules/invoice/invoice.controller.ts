@@ -12,6 +12,7 @@ import { InvoiceSequence } from '../../database/models/InvoiceSequence';
 import { Payment } from '../../database/models/Payment';
 import { PaymentAccount } from '../../database/models/PaymentAccount';
 import { AuditLog } from '../../database/models/AuditLog';
+import { InvoiceRevision } from '../../database/models/InvoiceRevision';
 import { InvoiceCalculationService } from '../../services/InvoiceCalculationService';
 import { DocumentGenerationService } from '../../services/DocumentGenerationService';
 import { cloudinary, isCloudinaryConfigured } from '../../services/cloudinary';
@@ -71,6 +72,93 @@ const CreateInvoiceSchema = z.object({
   customInvoiceNumber: z.string().nullable().optional(),
   invoiceNumber: z.string().nullable().optional(),
 });
+
+const UpdateInvoiceSchema = CreateInvoiceSchema.partial().extend({
+  customerSnapshot: z.record(z.any()).optional(),
+  customer: z.any().optional(),
+  revisionReason: z.string().optional(),
+});
+
+function computeInvoiceDiff(
+  oldInvoice: any,
+  updates: any,
+  calcResult: any,
+  customerChanged: boolean,
+  invoiceNumberChanged: boolean,
+  newInvoiceNumber?: string
+): { summary: string; changes: string[] } {
+  const changes: string[] = [];
+
+  if (invoiceNumberChanged && newInvoiceNumber) {
+    changes.push(`Invoice number updated to ${newInvoiceNumber}`);
+  }
+
+  if (updates.invoiceDate) {
+    const oldDateStr = oldInvoice.invoiceDate ? new Date(oldInvoice.invoiceDate).toISOString().split('T')[0] : '';
+    const newDateStr = new Date(updates.invoiceDate).toISOString().split('T')[0];
+    if (oldDateStr && newDateStr && oldDateStr !== newDateStr) {
+      changes.push(`Invoice date updated from ${oldDateStr} to ${newDateStr}`);
+    }
+  }
+
+  if (customerChanged || updates.customerSnapshot || updates.customer) {
+    changes.push('Customer details updated');
+  }
+
+  if (updates.items && Array.isArray(updates.items)) {
+    const oldItems = oldInvoice.items || [];
+    const newItems = updates.items;
+    if (newItems.length > oldItems.length) {
+      changes.push(`Added ${newItems.length - oldItems.length} item(s)`);
+    } else if (newItems.length < oldItems.length) {
+      changes.push(`Removed ${oldItems.length - newItems.length} item(s)`);
+    } else {
+      let itemModified = false;
+      for (let i = 0; i < newItems.length; i++) {
+        const o = oldItems[i];
+        const n = newItems[i];
+        if (o && (o.quantity !== n.quantity || o.unitPriceMinor !== n.unitPriceMinor || o.description !== n.description)) {
+          itemModified = true;
+          break;
+        }
+      }
+      if (itemModified) {
+        changes.push('Line items, quantities, or prices updated');
+      }
+    }
+  }
+
+  if (updates.taxMode && updates.taxMode !== oldInvoice.taxMode) {
+    changes.push(`Tax mode changed to ${updates.taxMode}`);
+  }
+
+  if (calcResult && oldInvoice.totals) {
+    const oldGrand = (oldInvoice.totals.grandTotalMinor || 0) / 100;
+    const newGrand = (calcResult.totals.grandTotalMinor || 0) / 100;
+    if (oldGrand !== newGrand) {
+      changes.push(`Grand total changed from ₹${oldGrand.toFixed(2)} to ₹${newGrand.toFixed(2)}`);
+    }
+  }
+
+  if (updates.paymentTerms !== undefined && updates.paymentTerms !== oldInvoice.paymentTerms) {
+    changes.push('Payment terms updated');
+  }
+
+  if (updates.termsAndConditions !== undefined) {
+    changes.push('Terms and conditions updated');
+  }
+
+  if (updates.notes !== undefined && updates.notes !== oldInvoice.notes) {
+    changes.push('Notes updated');
+  }
+
+  if (changes.length === 0) {
+    changes.push('Invoice details updated');
+  }
+
+  const summary = changes.slice(0, 3).join('; ') + (changes.length > 3 ? '...' : '');
+  return { summary, changes };
+}
 
 export async function getNextInvoiceNumber(req: Request, res: Response, next: NextFunction) {
   try {
@@ -325,7 +413,7 @@ export async function getInvoice(req: Request, res: Response, next: NextFunction
   }
 }
 
-export async function updateInvoiceDraft(req: Request, res: Response, next: NextFunction) {
+export async function updateInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     const invoice = await Invoice.findOne({
       _id: req.params.id,
@@ -336,18 +424,211 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
       return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
     }
 
-    if (invoice.status !== 'DRAFT') {
-      return next(new AppError('Only draft invoices can be edited or updated', 400, 'INVOICE_NOT_EDITABLE'));
-    }
-
-    const bodyResult = CreateInvoiceSchema.partial().safeParse(req.body);
+    const bodyResult = UpdateInvoiceSchema.safeParse(req.body);
     if (!bodyResult.success) {
       return next(new AppError(bodyResult.error.errors[0].message, 400, 'VALIDATION_ERROR'));
     }
 
     const updates = bodyResult.data;
+    const isFinalizedOrCancelled = invoice.status === 'FINALIZED' || invoice.status === 'CANCELLED';
 
-    // Apply basic metadata updates
+    // 1. Ensure initial version (Revision 1) is captured for finalized invoices if no revision history exists
+    if (isFinalizedOrCancelled) {
+      const existingRevisionsCount = await InvoiceRevision.countDocuments({
+        invoiceId: invoice._id,
+        businessId: req.businessId,
+      });
+
+      if (existingRevisionsCount === 0) {
+        await InvoiceRevision.create({
+          businessId: req.businessId,
+          invoiceId: invoice._id,
+          revisionNumber: 1,
+          action: invoice.status === 'FINALIZED' ? 'FINALIZED' : (invoice.status === 'CANCELLED' ? 'CANCELLED' : 'CREATED'),
+          summary: 'Initial Bill Version',
+          changes: ['Initial bill finalized and assigned sequence number'],
+          snapshot: invoice.toObject ? invoice.toObject() : invoice,
+          totals: invoice.totals,
+          performedBy: invoice.finalizedBy || invoice.createdBy || req.user?._id,
+          performedByName: (req.user as any)?.name || 'System User',
+          createdAt: invoice.finalizedAt || invoice.createdAt || new Date(),
+        });
+      }
+    }
+
+    // Keep copy of previous state for audit and diffing
+    const oldSnapshot = invoice.toObject ? invoice.toObject() : JSON.parse(JSON.stringify(invoice));
+    const oldTotals = { ...invoice.totals };
+    const oldRevisionNumber = invoice.revisionNumber || 1;
+
+    // 2. Validate Customer if changing
+    let customerChanged = false;
+    let customerDoc: any = null;
+    if (updates.customerId) {
+      customerDoc = await Customer.findOne({
+        _id: updates.customerId,
+        businessId: req.businessId,
+        active: true,
+      });
+      if (!customerDoc) {
+        return next(new AppError('Active customer profile not found in this business scope', 404, 'INVALID_CUSTOMER'));
+      }
+      if (invoice.customerId?.toString() !== customerDoc._id.toString()) {
+        customerChanged = true;
+        invoice.customerId = customerDoc._id;
+      }
+    }
+
+    // Update customer snapshot if customer changed or direct customer info provided
+    if (customerChanged && customerDoc) {
+      invoice.customerSnapshot = {
+        name: customerDoc.name,
+        contact: customerDoc.contact,
+        address: customerDoc.address,
+        taxProfile: customerDoc.taxProfile,
+        ...(updates.customerSnapshot || updates.customer || {}),
+      };
+    } else if (updates.customerSnapshot || updates.customer) {
+      invoice.customerSnapshot = {
+        ...(invoice.customerSnapshot || {}),
+        ...(updates.customerSnapshot || updates.customer),
+      };
+      customerChanged = true;
+    }
+
+    // 3. Validate Invoice Number uniqueness if modified
+    let invoiceNumberChanged = false;
+    let newInvoiceNumber: string | undefined = undefined;
+    const rawInvNum = updates.customInvoiceNumber || updates.invoiceNumber;
+    if (rawInvNum && String(rawInvNum).trim() && String(rawInvNum).trim() !== invoice.invoiceNumber) {
+      const business = await Business.findById(req.businessId);
+      const prefix = business?.invoiceSettings?.prefix || 'JRE';
+      const normalized = normalizeInvoiceNumber(String(rawInvNum), prefix);
+
+      const exists = await Invoice.findOne({
+        businessId: req.businessId,
+        invoiceNumber: normalized,
+        _id: { $ne: invoice._id },
+      });
+
+      if (exists) {
+        return next(
+          new AppError(
+            `Invoice number ${normalized} is already in use. Please choose another number.`,
+            409,
+            'INVOICE_NUMBER_ALREADY_EXISTS'
+          )
+        );
+      }
+
+      invoice.invoiceNumber = normalized;
+      newInvoiceNumber = normalized;
+      invoiceNumberChanged = true;
+    }
+
+    // 4. Validate items & products
+    if (updates.items) {
+      for (const item of updates.items) {
+        if (item.productId) {
+          const product = await Product.findOne({
+            _id: item.productId,
+            businessId: req.businessId,
+            active: true,
+          });
+          if (!product) {
+            return next(new AppError(`Active product profile for ID ${item.productId} not found in this business scope`, 404, 'INVALID_PRODUCT'));
+          }
+        }
+      }
+    }
+
+    // 5. Authoritatively recalculate financial values
+    const itemsToCalculate = updates.items || invoice.items;
+    const taxModeToUse = updates.taxMode || invoice.taxMode || 'NONE';
+    const taxRateBpsToUse = updates.defaultTaxRateBps !== undefined ? updates.defaultTaxRateBps : (invoice.defaultTaxRateBps || 0);
+    const discountToUse = updates.discount || invoice.discount || { type: 'NONE' as const, value: 0 };
+
+    const calculationItems = itemsToCalculate.map((item: any) => ({
+      productId: item.productId ? item.productId.toString() : null,
+      type: item.type,
+      description: item.description,
+      uom: item.uom,
+      quantity: item.quantity,
+      unitPriceMinor: item.unitPriceMinor,
+      section: item.section,
+    }));
+
+    const calcResult = InvoiceCalculationService.calculate({
+      items: calculationItems,
+      taxMode: taxModeToUse,
+      defaultTaxRateBps: taxRateBpsToUse,
+      discount: discountToUse,
+    });
+
+    // 6. Payment-aware recalculation
+    let warningMessage: string | null = null;
+    const confirmedPayments = await Payment.find({
+      invoiceId: invoice._id,
+      status: 'CONFIRMED',
+    });
+    const totalPaidMinor = confirmedPayments.reduce((sum, p) => sum + p.amountMinor, 0);
+
+    if (confirmedPayments.length > 0) {
+      const newGrandTotalMinor = calcResult.totals.grandTotalMinor;
+      const newDueMinor = Math.max(0, newGrandTotalMinor - totalPaidMinor);
+      let newPaymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' = 'UNPAID';
+      if (totalPaidMinor >= newGrandTotalMinor && newGrandTotalMinor > 0) {
+        newPaymentStatus = 'PAID';
+      } else if (totalPaidMinor > 0) {
+        newPaymentStatus = 'PARTIALLY_PAID';
+      } else {
+        newPaymentStatus = 'UNPAID';
+      }
+
+      invoice.paymentSummary = {
+        paidAmountMinor: totalPaidMinor,
+        dueAmountMinor: newDueMinor,
+        status: newPaymentStatus,
+      };
+
+      if (totalPaidMinor > newGrandTotalMinor) {
+        warningMessage = `The updated invoice total (₹${(newGrandTotalMinor / 100).toFixed(2)}) is less than the amount already paid (₹${(totalPaidMinor / 100).toFixed(2)}). Excess amount: ₹${((totalPaidMinor - newGrandTotalMinor) / 100).toFixed(2)}.`;
+      }
+    } else {
+      // No confirmed payment records yet
+      if (invoice.status === 'DRAFT') {
+        const isPaid = updates.paymentStatus === 'PAID';
+        const isPartial = updates.paymentStatus === 'PARTIAL';
+        const initialPaid = isPaid
+          ? calcResult.totals.grandTotalMinor
+          : (isPartial && updates.payment?.amountMinor ? updates.payment.amountMinor : 0);
+
+        invoice.paymentSummary = {
+          paidAmountMinor: initialPaid,
+          dueAmountMinor: Math.max(0, calcResult.totals.grandTotalMinor - initialPaid),
+          status: isPaid ? 'PAID' : (initialPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'),
+        };
+        if (updates.payment) {
+          invoice.draftPaymentDetails = updates.payment;
+        }
+      } else {
+        // Finalized or Cancelled with 0 payments
+        invoice.paymentSummary = {
+          paidAmountMinor: 0,
+          dueAmountMinor: calcResult.totals.grandTotalMinor,
+          status: 'UNPAID',
+        };
+      }
+    }
+
+    // 7. Apply updates to invoice
+    invoice.items = calcResult.items as any;
+    invoice.totals = calcResult.totals;
+    invoice.amountInWords = calcResult.amountInWords;
+    invoice.taxMode = taxModeToUse;
+    invoice.defaultTaxRateBps = taxRateBpsToUse;
+    invoice.discount = discountToUse;
+
     if (updates.invoiceDate) {
       invoice.invoiceDate = new Date(updates.invoiceDate);
     }
@@ -361,73 +642,110 @@ export async function updateInvoiceDraft(req: Request, res: Response, next: Next
       invoice.notes = updates.notes;
     }
 
-    // Check if customer is changing
-    if (updates.customerId) {
-      const customer = await Customer.findOne({
-        _id: updates.customerId,
-        businessId: req.businessId,
-        active: true,
-      });
-      if (!customer) {
-        return next(new AppError('Active customer profile not found in this business scope', 404, 'INVALID_CUSTOMER'));
+    // 8. Compute difference and create Revision entry if finalized or cancelled
+    const diff = computeInvoiceDiff(oldSnapshot, updates, calcResult, customerChanged, invoiceNumberChanged, newInvoiceNumber);
+
+    if (isFinalizedOrCancelled) {
+      invoice.revisionNumber = (invoice.revisionNumber || 1) + 1;
+
+      // Invalidate / reset document status to trigger fresh generation
+      if (!invoice.document) {
+        invoice.document = {
+          snapshot: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any,
+          pdf: { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any,
+        };
       }
-      invoice.customerId = customer._id;
-    }
+      if (!invoice.document.snapshot) {
+        invoice.document.snapshot = { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any;
+      }
+      if (!invoice.document.pdf) {
+        invoice.document.pdf = { status: 'NOT_GENERATED', provider: 'CLOUDINARY' } as any;
+      }
 
-    // Apply configuration updates
-    if (updates.taxMode) {
-      invoice.taxMode = updates.taxMode;
-    }
-    if (updates.defaultTaxRateBps !== undefined) {
-      invoice.defaultTaxRateBps = updates.defaultTaxRateBps;
-    }
-    if (updates.discount) {
-      invoice.discount = updates.discount;
-    }
+      invoice.document.snapshot.status = 'GENERATING';
+      invoice.document.snapshot.lastAttemptedAt = new Date();
+      invoice.document.snapshot.errorMessage = null;
+      invoice.document.pdf.status = 'GENERATING';
+      invoice.document.pdf.lastAttemptedAt = new Date();
+      invoice.document.pdf.errorMessage = null;
 
-    // If items, tax settings, discounts, or paymentStatus change, re-run calculation engine
-    if (updates.items || updates.taxMode || updates.defaultTaxRateBps !== undefined || updates.discount || updates.paymentStatus) {
-      const itemsToCalculate = updates.items || invoice.items;
-      const taxModeToUse = invoice.taxMode || 'NONE';
-      const taxRateBpsToUse = invoice.defaultTaxRateBps || 0;
-      const discountToUse = invoice.discount || { type: 'NONE' as const, value: 0 };
-      const paymentStatusToUse = updates.paymentStatus || (invoice.paymentSummary?.status === 'PAID' ? 'PAID' : 'UNPAID');
+      await invoice.save();
 
-      // Map document array items back to calculation structure
-      const calculationItems = itemsToCalculate.map((item: any) => ({
-        productId: item.productId ? item.productId.toString() : null,
-        type: item.type,
-        description: item.description,
-        uom: item.uom,
-        quantity: item.quantity,
-        unitPriceMinor: item.unitPriceMinor,
-        section: item.section,
-      }));
-
-      // Recompute totals
-      const calcResult = InvoiceCalculationService.calculate({
-        items: calculationItems,
-        taxMode: taxModeToUse,
-        defaultTaxRateBps: taxRateBpsToUse,
-        discount: discountToUse,
+      // Record revision
+      await InvoiceRevision.create({
+        businessId: req.businessId,
+        invoiceId: invoice._id,
+        revisionNumber: invoice.revisionNumber,
+        action: 'EDITED',
+        summary: updates.revisionReason || diff.summary,
+        changes: diff.changes,
+        snapshot: invoice.toObject ? invoice.toObject() : invoice,
+        totals: invoice.totals,
+        performedBy: req.user?._id || invoice.createdBy,
+        performedByName: (req.user as any)?.name || 'System User',
+        createdAt: new Date(),
       });
 
-      const isPaid = paymentStatusToUse === 'PAID';
-      invoice.items = calcResult.items as any;
-      invoice.totals = calcResult.totals;
-      invoice.amountInWords = calcResult.amountInWords;
-      invoice.paymentSummary = {
-        paidAmountMinor: isPaid ? calcResult.totals.grandTotalMinor : 0,
-        dueAmountMinor: isPaid ? 0 : calcResult.totals.grandTotalMinor,
-        status: isPaid ? 'PAID' : 'UNPAID',
-      };
-    }
+      // Write AuditLog
+      await AuditLog.create([
+        {
+          businessId: req.businessId,
+          actorId: req.user?._id || invoice.createdBy,
+          action: 'INVOICE_UPDATED',
+          entity: 'INVOICE',
+          entityId: invoice._id,
+          previousState: { totals: oldTotals, revisionNumber: oldRevisionNumber },
+          newState: { totals: invoice.totals, revisionNumber: invoice.revisionNumber },
+          metadata: {
+            invoiceNumber: invoice.invoiceNumber,
+            changes: diff.changes,
+            revisionNumber: invoice.revisionNumber,
+          },
+          timestamp: new Date(),
+        },
+      ]);
 
-    await invoice.save();
+      // Trigger background regeneration
+      triggerBackgroundDocGen(req.businessId!.toString(), invoice._id.toString());
+    } else {
+      await invoice.save();
+    }
 
     res.status(200).json({
       success: true,
-      data: { invoice },
+      data: {
+        invoice,
+        revisionNumber: invoice.revisionNumber || 1,
+        warning: warningMessage || undefined,
+      },
+    });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export const updateInvoiceDraft = updateInvoice;
+
+export async function getInvoiceRevisions(req: Request, res: Response, next: NextFunction) {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+    if (!invoice) {
+      return next(new AppError('Invoice not found', 404, 'NOT_FOUND'));
+    }
+
+    const revisions = await InvoiceRevision.find({
+      invoiceId: invoice._id,
+      businessId: req.businessId,
+    })
+      .sort({ revisionNumber: -1 })
+      .populate('performedBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      data: { revisions },
     });
   } catch (err: any) {
     next(err);

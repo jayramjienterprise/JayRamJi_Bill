@@ -3,9 +3,9 @@
 import { useEffect, useState, use, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Printer, ExternalLink, Share2, Mail, Eye, Download, RefreshCw, Ban, CreditCard, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { FileText, Printer, ExternalLink, Share2, Mail, Eye, Download, RefreshCw, Ban, CreditCard, X, CheckCircle2, AlertCircle, Edit3, History, Clock } from 'lucide-react';
 import { apiClient } from '../../../../../lib/api/client';
-import { Invoice, Customer, PaymentRecord, PaymentAccount, PaymentProof, PaymentMethod } from '../../../../../lib/api/types';
+import { Invoice, Customer, PaymentRecord, PaymentAccount, PaymentProof, PaymentMethod, InvoiceRevision } from '../../../../../lib/api/types';
 import InvoicePaper from '../../components/InvoicePaper';
 import PaymentProofUploader from '../../components/PaymentProofUploader';
 
@@ -25,6 +25,25 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  // Revision history modal states
+  const [showRevisionsModal, setShowRevisionsModal] = useState(false);
+  const [revisionsList, setRevisionsList] = useState<InvoiceRevision[]>([]);
+  const [loadingRevisions, setLoadingRevisions] = useState(false);
+
+  async function handleOpenRevisions() {
+    if (!invoice) return;
+    setShowRevisionsModal(true);
+    setLoadingRevisions(true);
+    try {
+      const data = await apiClient.getInvoiceRevisions(invoice.id || (invoice as any)._id);
+      setRevisionsList(data || []);
+    } catch (err) {
+      console.error('Failed to load invoice revisions:', err);
+    } finally {
+      setLoadingRevisions(false);
+    }
+  }
 
   // Payment modal states
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -783,6 +802,27 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
           {!isDraft && (
             <>
+              {/* Edit Bill */}
+              <Link
+                href={`/dashboard/invoices/edit/${invoice.id || (invoice as any)._id}`}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+                title="Edit this bill"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Bill</span>
+              </Link>
+
+              {/* Revision History */}
+              <button
+                type="button"
+                onClick={handleOpenRevisions}
+                className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-primary rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
+                title="View Revision History"
+              >
+                <History className="w-3.5 h-3.5 text-primary-700" />
+                <span>Revision History {invoice.revisionNumber ? `(v${invoice.revisionNumber})` : ''}</span>
+              </button>
+
               {/* View Image */}
               <a
                 href={`${apiClient.getBaseUrl()}/invoices/${invoice.id || (invoice as any)._id}/download?format=png`}
@@ -837,9 +877,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <>
               <Link
                 href={`/dashboard/invoices/edit/${invoice.id || (invoice as any)._id}`}
-                className="px-3.5 py-2 bg-surface-2-app hover:bg-surface-app border border-border-app text-text-secondary rounded-lg text-xs font-bold cursor-pointer transition"
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer inline-flex items-center space-x-1.5 transition"
               >
-                Edit Draft
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Bill</span>
               </Link>
               <button
                 type="button"

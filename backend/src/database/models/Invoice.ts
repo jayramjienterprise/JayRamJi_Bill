@@ -98,6 +98,7 @@ export interface IInvoice extends Document {
   cancellationReason: string | null;
   finalizedAt: Date | null;
   cancelledAt: Date | null;
+  revisionNumber: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -205,6 +206,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     cancellationReason: { type: String, default: null },
     finalizedAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },
+    revisionNumber: { type: Number, default: 1 },
   },
   { timestamps: true }
 );
